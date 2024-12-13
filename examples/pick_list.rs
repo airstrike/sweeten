@@ -21,7 +21,7 @@ struct App {
 
 #[derive(Clone, Debug)]
 enum Message {
-    Pick(Language),
+    Pick(usize, Language),
 }
 
 impl App {
@@ -31,7 +31,8 @@ impl App {
 
     fn update(&mut self, message: Message) {
         match message {
-            Message::Pick(option) => {
+            Message::Pick(index, option) => {
+                println!("Picked index {index}");
                 self.selected_language = Some(option);
             }
         }
