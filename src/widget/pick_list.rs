@@ -181,7 +181,7 @@ pub struct PickList<
     Theme: Catalog,
     Renderer: text::Renderer,
 {
-    on_select: Box<dyn Fn(T) -> Message + 'a>,
+    on_select: Box<dyn Fn(usize, T) -> Message + 'a>,
     on_open: Option<Message>,
     on_close: Option<Message>,
     options: L,
@@ -215,7 +215,7 @@ where
         options: L,
         disabled: Option<impl Fn(&[T]) -> Vec<bool> + 'a>,
         selected: Option<V>,
-        on_select: impl Fn(T) -> Message + 'a,
+        on_select: impl Fn(usize, T) -> Message + 'a,
     ) -> Self {
         Self {
             on_select: Box::new(on_select),
@@ -518,9 +518,9 @@ where
                 {
                     fn find_next<'a, T: PartialEq>(
                         selected: &'a T,
-                        mut options: impl Iterator<Item = &'a T>,
-                    ) -> Option<&'a T> {
-                        let _ = options.find(|&option| option == selected);
+                        mut options: impl Iterator<Item = (usize, &'a T)>,
+                    ) -> Option<(usize, &'a T)> {
+                        let _ = options.find(|&(_, option)| option == selected);
 
                         options.next()
                     }
@@ -535,18 +535,23 @@ where
 
                     let next_option = if y < 0.0 {
                         if let Some(selected) = selected {
-                            let mut next = find_next(selected, options.iter());
+                            let mut next =
+                                find_next(selected, options.iter().enumerate());
                             // Keep finding next until we hit a non-disabled
                             // option or run out
                             while let Some(option) = next {
-                                if let Some(pos) =
-                                    options.iter().position(|opt| opt == option)
+                                if let Some(pos) = options
+                                    .iter()
+                                    .position(|opt| opt == option.1)
                                 {
                                     if !disabled[pos] {
                                         break;
                                     }
                                 }
-                                next = find_next(option, options.iter());
+                                next = find_next(
+                                    option.1,
+                                    options.iter().enumerate(),
+                                );
                             }
                             next
                         } else {
@@ -554,23 +559,29 @@ where
                                 .iter()
                                 .enumerate()
                                 .find(|(i, _)| !disabled[*i])
-                                .map(|(_, opt)| opt)
+                            //.map(|(_, opt)| opt)
                         }
                     } else if y > 0.0 {
                         if let Some(selected) = selected {
-                            let mut next =
-                                find_next(selected, options.iter().rev());
+                            let mut next = find_next(
+                                selected,
+                                options.iter().enumerate().rev(),
+                            );
                             // Keep finding next until we hit a non-disabled
                             // option or run out
                             while let Some(option) = next {
-                                if let Some(pos) =
-                                    options.iter().position(|opt| opt == option)
+                                if let Some(pos) = options
+                                    .iter()
+                                    .position(|opt| opt == option.1)
                                 {
                                     if !disabled[pos] {
                                         break;
                                     }
                                 }
-                                next = find_next(option, options.iter().rev());
+                                next = find_next(
+                                    option.1,
+                                    options.iter().enumerate().rev(),
+                                );
                             }
                             next
                         } else {
@@ -579,14 +590,17 @@ where
                                 .enumerate()
                                 .rev()
                                 .find(|(i, _)| !disabled[*i])
-                                .map(|(_, opt)| opt)
+                            //.map(|(_, opt)| opt)
                         }
                     } else {
                         None
                     };
 
-                    if let Some(next_option) = next_option {
-                        shell.publish((self.on_select)(next_option.clone()));
+                    if let Some((index, next_option)) = next_option {
+                        shell.publish((self.on_select)(
+                            index,
+                            next_option.clone(),
+                        ));
                     }
 
                     event::Status::Captured
@@ -795,9 +809,9 @@ where
                 &mut state.menu,
                 options,
                 &mut state.hovered_option,
-                |option| {
+                |index, option| {
                     state.is_open = false;
-                    (on_select)(option)
+                    (on_select)(index, option)
                 },
                 disabled,
                 None,
