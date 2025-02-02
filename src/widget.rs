@@ -22,7 +22,7 @@ pub fn pick_list<'a, T, L, V, Message, Theme, Renderer>(
     options: L,
     disabled: Option<impl Fn(&[T]) -> Vec<bool> + 'a>,
     selected: Option<V>,
-    on_selected: impl Fn(T) -> Message + 'a,
+    on_selected: impl Fn(usize, T) -> Message + 'a,
 ) -> pick_list::PickList<'a, T, L, V, Message, Theme, Renderer>
 where
     T: ToString + PartialEq + Clone + 'a,
