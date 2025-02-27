@@ -54,8 +54,8 @@ pub struct Menu<
     options: &'a [T],
     disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
-    on_selected: Box<dyn FnMut(T) -> Message + 'a>,
-    on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
+    on_selected: Box<dyn FnMut(usize, T) -> Message + 'a>,
+    on_option_hovered: Option<&'a dyn Fn(usize, T) -> Message>,
     width: f32,
     padding: Padding,
     text_size: Option<Pixels>,
@@ -80,9 +80,9 @@ where
         state: &'a mut State,
         options: &'a [T],
         hovered_option: &'a mut Option<usize>,
-        on_selected: impl FnMut(T) -> Message + 'a,
+        on_selected: impl FnMut(usize, T) -> Message + 'a,
         disabled: Option<Vec<bool>>,
-        on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
+        on_option_hovered: Option<&'a dyn Fn(usize, T) -> Message>,
         class: &'a <Theme as Catalog>::Class<'b>,
     ) -> Self {
         Menu {
@@ -388,8 +388,8 @@ where
     options: &'a [T],
     disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
-    on_selected: Box<dyn FnMut(T) -> Message + 'a>,
-    on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
+    on_selected: Box<dyn FnMut(usize, T) -> Message + 'a>,
+    on_option_hovered: Option<&'a dyn Fn(usize, T) -> Message>,
     padding: Padding,
     text_size: Option<Pixels>,
     text_line_height: text::LineHeight,
@@ -462,6 +462,7 @@ where
                                 self.options.get(clicked_index)
                             {
                                 shell.publish((self.on_selected)(
+                                    clicked_index,
                                     option.clone(),
                                 ));
                             }
@@ -488,6 +489,7 @@ where
                                         self.options.get(new_hovered_option)
                                     {
                                         shell.publish(on_option_hovered(
+                                            new_hovered_option,
                                             option.clone(),
                                         ));
                                     }
@@ -512,6 +514,7 @@ where
                                 self.options.get(new_hovered_option)
                             {
                                 shell.publish((self.on_selected)(
+                                    new_hovered_option,
                                     option.clone(),
                                 ));
                             }
