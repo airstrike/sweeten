@@ -42,6 +42,10 @@ use iced::{
     Theme, Vector,
 };
 
+/// Text inputs display fields that can be filled with text. This version
+/// is an uncontrolled text input that lets you publish messages `.on_submit`
+/// and `.on_blur`. It may be useful if the string is only an intermediate
+/// state and you don't want to keep it in your app state.
 #[allow(missing_debug_implementations)]
 pub struct LocalTextInput<
     'a,
@@ -830,10 +834,6 @@ where
                             if state.keyboard_modifiers.command()
                                 && !self.is_secure =>
                         {
-                            // let Some(on_input) = &self.on_input else {
-                            //     return event::Status::Ignored;
-                            // };
-
                             if let Some((start, end)) =
                                 state.cursor.selection(&state.text)
                             {
@@ -859,10 +859,6 @@ where
                             if state.keyboard_modifiers.command()
                                 && !state.keyboard_modifiers.alt() =>
                         {
-                            // let Some(on_input) = &self.on_input else {
-                            //     return event::Status::Ignored;
-                            // };
-
                             let content = match state.is_pasting.take() {
                                 Some(content) => content,
                                 None => {
@@ -906,10 +902,6 @@ where
                     }
 
                     if let Some(text) = text {
-                        // let Some(on_input) = &self.on_input else {
-                        //     return event::Status::Ignored;
-                        // };
-
                         state.is_pasting = None;
 
                         if let Some(c) =
@@ -941,10 +933,6 @@ where
                             }
                         }
                         keyboard::Key::Named(key::Named::Backspace) => {
-                            // let Some(on_input) = &self.on_input else {
-                            //     return event::Status::Ignored;
-                            // };
-
                             if modifiers.jump()
                                 && state.cursor.selection(&state.text).is_none()
                             {
@@ -971,10 +959,6 @@ where
                             update_cache(state);
                         }
                         keyboard::Key::Named(key::Named::Delete) => {
-                            // let Some(on_input) = &self.on_input else {
-                            //     return event::Status::Ignored;
-                            // };
-
                             if modifiers.jump()
                                 && state.cursor.selection(&state.text).is_none()
                             {
