@@ -1,5 +1,6 @@
 use iced::advanced::text;
 use iced::Element;
+use local_text_input::LocalTextInput;
 use std::borrow::Borrow;
 
 pub mod local_text_input;
@@ -51,4 +52,22 @@ where
     Renderer: text::Renderer,
 {
     text_input::TextInput::new(placeholder, value)
+}
+
+/// Creates a new [`LocalTextInput`].
+///
+/// Text inputs display fields that can be filled with text. This version
+/// is an uncontrolled text input that lets you publish messages `.on_submit`
+/// and `.on_blur`. It may be useful if the string is only an intermediate
+/// state and you don't want to keep it in your app state.
+pub fn local_text_input<'a, Message, Theme, Renderer>(
+    placeholder: &str,
+    initial_value: &str,
+) -> LocalTextInput<'a, Message, Theme, Renderer>
+where
+    Message: Clone,
+    Theme: local_text_input::Catalog + 'a,
+    Renderer: text::Renderer,
+{
+    LocalTextInput::new(placeholder, initial_value)
 }
