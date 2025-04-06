@@ -1,4 +1,4 @@
-// This widget is a modification of the original `TextInput` widget from [`iced`]
+// This widget is a modification of the original `LocalTextInput` widget from [`iced`]
 //
 // [`iced`]: https://github.com/iced-rs/iced
 //
@@ -21,15 +21,11 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-pub mod cursor;
-pub mod editor;
-pub mod value;
-
 pub use cursor::Cursor;
 pub use value::{UnicodeSegmentation, Value};
 
-use editor::Editor;
-
+use super::text_input::editor::Editor;
+use super::text_input::{cursor, editor, value};
 use iced::advanced::mouse::click;
 use iced::advanced::text::{self, paragraph, Paragraph as _, Text};
 use iced::advanced::widget::operation::{self, Operation};
@@ -47,7 +43,7 @@ use iced::{
 };
 
 #[allow(missing_debug_implementations)]
-pub struct TextInput<
+pub struct LocalTextInput<
     'a,
     Message,
     Theme = iced::Theme,
@@ -75,19 +71,19 @@ pub struct TextInput<
     class: Theme::Class<'a>,
 }
 
-/// The default [`Padding`] of a [`TextInput`].
+/// The default [`Padding`] of a [`LocalTextInput`].
 pub const DEFAULT_PADDING: Padding = Padding::new(5.0);
 
-impl<'a, Message, Theme, Renderer> TextInput<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> LocalTextInput<'a, Message, Theme, Renderer>
 where
     Message: Clone,
     Theme: Catalog,
     Renderer: text::Renderer,
 {
-    /// Creates a new [`TextInput`] with the given placeholder and
+    /// Creates a new [`LocalTextInput`] with the given placeholder and
     /// its current value.
     pub fn new(placeholder: &str, value: &str) -> Self {
-        TextInput {
+        LocalTextInput {
             id: None,
             placeholder: String::from(placeholder),
             value: Value::new(value),
@@ -108,19 +104,19 @@ where
         }
     }
 
-    /// Sets the [`Id`] of the [`TextInput`].
+    /// Sets the [`Id`] of the [`LocalTextInput`].
     pub fn id(mut self, id: impl Into<Id>) -> Self {
         self.id = Some(id.into());
         self
     }
 
-    /// Converts the [`TextInput`] into a secure password input.
+    /// Converts the [`LocalTextInput`] into a secure password input.
     pub fn secure(mut self, is_secure: bool) -> Self {
         self.is_secure = is_secure;
         self
     }
 
-    /// Sets the message that should be produced when the [`TextInput`] is
+    /// Sets the message that should be produced when the [`LocalTextInput`] is
     /// focused.
     pub fn on_focus(
         mut self,
@@ -130,7 +126,7 @@ where
         self
     }
 
-    /// Sets the message that should be produced when the [`TextInput`] is
+    /// Sets the message that should be produced when the [`LocalTextInput`] is
     /// blurred.
     pub fn on_blur(mut self, on_blur: Message) -> Self {
         self.on_blur = Some(on_blur);
@@ -138,9 +134,9 @@ where
     }
 
     /// Sets the message that should be produced when some text is typed into
-    /// the [`TextInput`].
+    /// the [`LocalTextInput`].
     ///
-    /// If this method is not called, the [`TextInput`] will be disabled.
+    /// If this method is not called, the [`LocalTextInput`] will be disabled.
     pub fn on_input(
         mut self,
         on_input: impl Fn(String) -> Message + 'a,
@@ -150,9 +146,9 @@ where
     }
 
     /// Sets the message that should be produced when some text is typed into
-    /// the [`TextInput`], if `Some`.
+    /// the [`LocalTextInput`], if `Some`.
     ///
-    /// If `None`, the [`TextInput`] will be disabled.
+    /// If `None`, the [`LocalTextInput`] will be disabled.
     pub fn on_input_maybe(
         mut self,
         on_input: Option<impl Fn(String) -> Message + 'a>,
@@ -161,14 +157,14 @@ where
         self
     }
 
-    /// Sets the message that should be produced when the [`TextInput`] is
+    /// Sets the message that should be produced when the [`LocalTextInput`] is
     /// focused and the enter key is pressed.
     pub fn on_submit(mut self, message: Message) -> Self {
         self.on_submit = Some(message);
         self
     }
 
-    /// Sets the message that should be produced when the [`TextInput`] is
+    /// Sets the message that should be produced when the [`LocalTextInput`] is
     /// focused and the enter key is pressed, if `Some`.
     pub fn on_submit_maybe(mut self, on_submit: Option<Message>) -> Self {
         self.on_submit = on_submit;
@@ -176,7 +172,7 @@ where
     }
 
     /// Sets the message that should be produced when some text is pasted into
-    /// the [`TextInput`].
+    /// the [`LocalTextInput`].
     pub fn on_paste(
         mut self,
         on_paste: impl Fn(String) -> Message + 'a,
@@ -186,7 +182,7 @@ where
     }
 
     /// Sets the message that should be produced when some text is pasted into
-    /// the [`TextInput`], if `Some`.
+    /// the [`LocalTextInput`], if `Some`.
     pub fn on_paste_maybe(
         mut self,
         on_paste: Option<impl Fn(String) -> Message + 'a>,
@@ -195,7 +191,7 @@ where
         self
     }
 
-    /// Sets the [`Font`] of the [`TextInput`].
+    /// Sets the [`Font`] of the [`LocalTextInput`].
     ///
     /// [`Font`]: text::Renderer::Font
     pub fn font(mut self, font: Renderer::Font) -> Self {
@@ -203,31 +199,31 @@ where
         self
     }
 
-    /// Sets the [`Icon`] of the [`TextInput`].
+    /// Sets the [`Icon`] of the [`LocalTextInput`].
     pub fn icon(mut self, icon: Icon<Renderer::Font>) -> Self {
         self.icon = Some(icon);
         self
     }
 
-    /// Sets the width of the [`TextInput`].
+    /// Sets the width of the [`LocalTextInput`].
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
     }
 
-    /// Sets the [`Padding`] of the [`TextInput`].
+    /// Sets the [`Padding`] of the [`LocalTextInput`].
     pub fn padding<P: Into<Padding>>(mut self, padding: P) -> Self {
         self.padding = padding.into();
         self
     }
 
-    /// Sets the text size of the [`TextInput`].
+    /// Sets the text size of the [`LocalTextInput`].
     pub fn size(mut self, size: impl Into<Pixels>) -> Self {
         self.size = Some(size.into());
         self
     }
 
-    /// Sets the [`text::LineHeight`] of the [`TextInput`].
+    /// Sets the [`text::LineHeight`] of the [`LocalTextInput`].
     pub fn line_height(
         mut self,
         line_height: impl Into<text::LineHeight>,
@@ -236,7 +232,7 @@ where
         self
     }
 
-    /// Sets the horizontal alignment of the [`TextInput`].
+    /// Sets the horizontal alignment of the [`LocalTextInput`].
     pub fn align_x(
         mut self,
         alignment: impl Into<alignment::Horizontal>,
@@ -245,7 +241,7 @@ where
         self
     }
 
-    /// Sets the style of the [`TextInput`].
+    /// Sets the style of the [`LocalTextInput`].
     #[must_use]
     pub fn style(mut self, style: impl Fn(&Theme, Status) -> Style + 'a) -> Self
     where
@@ -255,14 +251,14 @@ where
         self
     }
 
-    /// Sets the style class of the [`TextInput`].
+    /// Sets the style class of the [`LocalTextInput`].
     #[must_use]
     pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
         self.class = class.into();
         self
     }
 
-    /// Lays out the [`TextInput`], overriding its [`Value`] if provided.
+    /// Lays out the [`LocalTextInput`], overriding its [`Value`] if provided.
     ///
     /// [`Renderer`]: text::Renderer
     pub fn layout(
@@ -362,7 +358,7 @@ where
         }
     }
 
-    /// Draws the [`TextInput`] with the given [`Renderer`], overriding its
+    /// Draws the [`LocalTextInput`] with the given [`Renderer`], overriding its
     /// [`Value`] if provided.
     ///
     /// [`Renderer`]: text::Renderer
@@ -557,7 +553,7 @@ where
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for TextInput<'a, Message, Theme, Renderer>
+    for LocalTextInput<'a, Message, Theme, Renderer>
 where
     Message: Clone,
     Theme: Catalog,
@@ -1191,7 +1187,8 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<TextInput<'a, Message, Theme, Renderer>>
+impl<'a, Message, Theme, Renderer>
+    From<LocalTextInput<'a, Message, Theme, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
     Message: Clone + 'a,
@@ -1199,7 +1196,7 @@ where
     Renderer: text::Renderer + 'a,
 {
     fn from(
-        text_input: TextInput<'a, Message, Theme, Renderer>,
+        text_input: LocalTextInput<'a, Message, Theme, Renderer>,
     ) -> Element<'a, Message, Theme, Renderer> {
         Element::new(text_input)
     }
@@ -1214,9 +1211,9 @@ pub struct Icon<Font> {
     pub code_point: char,
     /// The font size of the content.
     pub size: Option<Pixels>,
-    /// The spacing between the [`Icon`] and the text in a [`TextInput`].
+    /// The spacing between the [`Icon`] and the text in a [`LocalTextInput`].
     pub spacing: f32,
-    /// The side of a [`TextInput`] where to display the [`Icon`].
+    /// The side of a [`LocalTextInput`] where to display the [`Icon`].
     pub side: Side,
 }
 
@@ -1235,16 +1232,16 @@ impl<Font> From<iced::widget::text_input::Icon<Font>> for Icon<Font> {
     }
 }
 
-/// The side of a [`TextInput`].
+/// The side of a [`LocalTextInput`].
 #[derive(Debug, Clone)]
 pub enum Side {
-    /// The left side of a [`TextInput`].
+    /// The left side of a [`LocalTextInput`].
     Left,
-    /// The right side of a [`TextInput`].
+    /// The right side of a [`LocalTextInput`].
     Right,
 }
 
-/// The identifier of a [`TextInput`].
+/// The identifier of a [`LocalTextInput`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Id(widget::Id);
 
@@ -1286,7 +1283,7 @@ impl From<String> for Id {
     }
 }
 
-/// Produces a [`Task`] that focuses the [`TextInput`] with the given [`Id`]
+/// Produces a [`Task`] that focuses the [`LocalTextInput`] with the given [`Id`]
 /// and notifies the given function.
 pub fn focus<T>(id: Id) -> Task<T>
 where
@@ -1321,7 +1318,7 @@ where
     )
 }
 
-/// Produces a [`Task`] that moves the cursor of the [`TextInput`] with the given [`Id`] to the
+/// Produces a [`Task`] that moves the cursor of the [`LocalTextInput`] with the given [`Id`] to the
 /// end.
 pub fn move_cursor_to_end<T>(id: impl Into<Id>) -> Task<T>
 where
@@ -1330,7 +1327,7 @@ where
     widget::operate(operation::text_input::move_cursor_to_end(id.into().0))
 }
 
-/// Produces a [`Task`] that moves the cursor of the [`TextInput`] with the given [`Id`] to the
+/// Produces a [`Task`] that moves the cursor of the [`LocalTextInput`] with the given [`Id`] to the
 /// front.
 pub fn move_cursor_to_front<T>(id: impl Into<Id>) -> Task<T>
 where
@@ -1339,7 +1336,7 @@ where
     widget::operate(operation::text_input::move_cursor_to_front(id.into().0))
 }
 
-/// Produces a [`Task`] that moves the cursor of the [`TextInput`] with the given [`Id`] to the
+/// Produces a [`Task`] that moves the cursor of the [`LocalTextInput`] with the given [`Id`] to the
 /// provided position.
 pub fn move_cursor_to<T>(id: impl Into<Id>, position: usize) -> Task<T>
 where
@@ -1355,7 +1352,7 @@ where
     ))
 }
 
-/// Produces a [`Task`] that selects all the content of the [`TextInput`] with the given [`Id`].
+/// Produces a [`Task`] that selects all the content of the [`LocalTextInput`] with the given [`Id`].
 pub fn select_all<T>(id: impl Into<Id>) -> Task<T>
 where
     T: Send + 'static,
@@ -1366,7 +1363,7 @@ where
     widget::operate(operation::text_input::select_all(id.into().0))
 }
 
-/// The state of a [`TextInput`].
+/// The state of a [`LocalTextInput`].
 #[derive(Debug, Default, Clone)]
 pub struct State<P: text::Paragraph> {
     value: paragraph::Plain<P>,
@@ -1395,22 +1392,22 @@ struct Focus {
 }
 
 impl<P: text::Paragraph> State<P> {
-    /// Creates a new [`State`], representing an unfocused [`TextInput`].
+    /// Creates a new [`State`], representing an unfocused [`LocalTextInput`].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Returns whether the [`TextInput`] is currently focused or not.
+    /// Returns whether the [`LocalTextInput`] is currently focused or not.
     pub fn is_focused(&self) -> bool {
         self.is_focused.is_some()
     }
 
-    /// Returns the [`Cursor`] of the [`TextInput`].
+    /// Returns the [`Cursor`] of the [`LocalTextInput`].
     pub fn cursor(&self) -> Cursor {
         self.cursor
     }
 
-    /// Focuses the [`TextInput`].
+    /// Focuses the [`LocalTextInput`].
     pub fn focus(&mut self) {
         let now = Instant::now();
 
@@ -1423,27 +1420,27 @@ impl<P: text::Paragraph> State<P> {
         self.move_cursor_to_end();
     }
 
-    /// Unfocuses the [`TextInput`].
+    /// Unfocuses the [`LocalTextInput`].
     pub fn unfocus(&mut self) {
         self.is_focused = None;
     }
 
-    /// Moves the [`Cursor`] of the [`TextInput`] to the front of the input text.
+    /// Moves the [`Cursor`] of the [`LocalTextInput`] to the front of the input text.
     pub fn move_cursor_to_front(&mut self) {
         self.cursor.move_to(0);
     }
 
-    /// Moves the [`Cursor`] of the [`TextInput`] to the end of the input text.
+    /// Moves the [`Cursor`] of the [`LocalTextInput`] to the end of the input text.
     pub fn move_cursor_to_end(&mut self) {
         self.cursor.move_to(usize::MAX);
     }
 
-    /// Moves the [`Cursor`] of the [`TextInput`] to an arbitrary location.
+    /// Moves the [`Cursor`] of the [`LocalTextInput`] to an arbitrary location.
     pub fn move_cursor_to(&mut self, position: usize) {
         self.cursor.move_to(position);
     }
 
-    /// Selects all the content of the [`TextInput`].
+    /// Selects all the content of the [`LocalTextInput`].
     pub fn select_all(&mut self) {
         self.cursor.select_range(0, usize::MAX);
     }
@@ -1521,7 +1518,7 @@ fn measure_cursor_and_scroll_offset(
 }
 
 /// Computes the position of the text cursor at the given X coordinate of
-/// a [`TextInput`].
+/// a [`LocalTextInput`].
 fn find_cursor_position<P: text::Paragraph>(
     text_bounds: Rectangle,
     value: &Value,
@@ -1578,16 +1575,16 @@ fn replace_paragraph<Renderer>(
 
 const CURSOR_BLINK_INTERVAL_MILLIS: u128 = 500;
 
-/// The possible status of a [`TextInput`].
+/// The possible status of a [`LocalTextInput`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
-    /// The [`TextInput`] can be interacted with.
+    /// The [`LocalTextInput`] can be interacted with.
     Active,
-    /// The [`TextInput`] is being hovered.
+    /// The [`LocalTextInput`] is being hovered.
     Hovered,
-    /// The [`TextInput`] is focused.
+    /// The [`LocalTextInput`] is focused.
     Focused,
-    /// The [`TextInput`] cannot be interacted with.
+    /// The [`LocalTextInput`] cannot be interacted with.
     Disabled,
 }
 
@@ -1608,7 +1605,7 @@ pub struct Style {
     pub selection: Color,
 }
 
-/// The theme catalog of a [`TextInput`].
+/// The theme catalog of a [`LocalTextInput`].
 pub trait Catalog: Sized {
     /// The item class of the [`Catalog`].
     type Class<'a>;
@@ -1620,7 +1617,7 @@ pub trait Catalog: Sized {
     fn style(&self, class: &Self::Class<'_>, status: Status) -> Style;
 }
 
-/// A styling function for a [`TextInput`].
+/// A styling function for a [`LocalTextInput`].
 ///
 /// This is just a boxed closure: `Fn(&Theme, Status) -> Style`.
 pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme, Status) -> Style + 'a>;
@@ -1637,7 +1634,7 @@ impl Catalog for Theme {
     }
 }
 
-/// The default style of a [`TextInput`].
+/// The default style of a [`LocalTextInput`].
 pub fn default(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 

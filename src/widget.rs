@@ -2,6 +2,7 @@ use iced::advanced::text;
 use iced::Element;
 use std::borrow::Borrow;
 
+pub mod local_text_input;
 pub mod mouse_area;
 pub mod overlay;
 pub mod pick_list;
