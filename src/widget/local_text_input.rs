@@ -54,7 +54,7 @@ pub struct LocalTextInput<
 {
     id: Option<Id>,
     placeholder: String,
-    initial_value: Value,
+    initial_value: String,
     is_secure: bool,
     font: Option<Renderer::Font>,
     width: Length,
@@ -86,7 +86,7 @@ where
         LocalTextInput {
             id: None,
             placeholder: String::from(placeholder),
-            initial_value: Value::new(initial_value),
+            initial_value: String::from(initial_value),
             is_secure: false,
             font: None,
             width: Length::Fill,
@@ -571,9 +571,7 @@ where
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::<Renderer::Paragraph>::new(
-            self.initial_value.clone(),
-        ))
+        tree::State::new(State::<Renderer::Paragraph>::new(&self.initial_value))
     }
 
     fn diff(&self, tree: &mut Tree) {
@@ -582,6 +580,13 @@ where
         // Stop pasting if input becomes disabled
         if self.is_disabled() {
             state.is_pasting = None;
+        }
+
+        // Update the internal state if the initial value changes
+        if self.initial_value != state.initial_value {
+            state.initial_value = self.initial_value.clone();
+            state.text = Value::new(&self.initial_value);
+            state.cursor.move_to(state.text.len());
         }
     }
 
@@ -625,12 +630,11 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) -> event::Status {
-        let update_cache = |state, value| {
+        let update_cache = |state| {
             replace_paragraph(
                 renderer,
                 state,
                 layout,
-                value,
                 self.font,
                 self.size,
                 self.line_height,
@@ -826,9 +830,9 @@ where
                             if state.keyboard_modifiers.command()
                                 && !self.is_secure =>
                         {
-                            let Some(on_input) = &self.on_input else {
-                                return event::Status::Ignored;
-                            };
+                            // let Some(on_input) = &self.on_input else {
+                            //     return event::Status::Ignored;
+                            // };
 
                             if let Some((start, end)) =
                                 state.cursor.selection(&state.text)
@@ -843,12 +847,12 @@ where
                                 Editor::new(&mut state.text, &mut state.cursor);
                             editor.delete();
 
-                            let message = (on_input)(editor.contents());
-                            shell.publish(message);
+                            if let Some(on_input) = &self.on_input {
+                                let message = (on_input)(editor.contents());
+                                shell.publish(message);
+                            }
 
-                            // TODO: Investigate
-                            update_cache(state, &self.initial_value);
-
+                            update_cache(state);
                             return event::Status::Captured;
                         }
                         keyboard::Key::Character("v")
@@ -887,9 +891,7 @@ where
                             };
 
                             state.is_pasting = Some(content);
-
-                            // TODO: Investigate
-                            update_cache(state, &self.initial_value);
+                            update_cache(state);
 
                             return event::Status::Captured;
                         }
@@ -924,9 +926,7 @@ where
                             }
 
                             focus.updated_at = Instant::now();
-
-                            // TODO: Investigate
-                            update_cache(state, &self.initial_value);
+                            update_cache(state);
 
                             return event::Status::Captured;
                         }
@@ -936,7 +936,7 @@ where
                         keyboard::Key::Named(key::Named::Enter) => {
                             if let Some(on_submit) = &self.on_submit {
                                 let message =
-                                    (on_submit)(format!("{}", state.text));
+                                    (on_submit)(state.text.to_string());
                                 shell.publish(message);
                             }
                         }
@@ -968,8 +968,7 @@ where
                                 shell.publish(message);
                             }
 
-                            // TODO: Investigate
-                            update_cache(state, &self.initial_value);
+                            update_cache(state);
                         }
                         keyboard::Key::Named(key::Named::Delete) => {
                             // let Some(on_input) = &self.on_input else {
@@ -1002,8 +1001,7 @@ where
                                 shell.publish(message);
                             }
 
-                            // TODO: Investigate
-                            update_cache(state, &self.initial_value);
+                            update_cache(state);
                         }
                         keyboard::Key::Named(key::Named::Home) => {
                             if modifiers.shift() {
@@ -1393,6 +1391,7 @@ where
 #[derive(Debug, Clone)]
 pub struct State<P: text::Paragraph> {
     text: Value,
+    initial_value: String,
     value: paragraph::Plain<P>,
     placeholder: paragraph::Plain<P>,
     icon: paragraph::Plain<P>,
@@ -1420,9 +1419,11 @@ struct Focus {
 
 impl<P: text::Paragraph> State<P> {
     /// Creates a new [`State`], representing an unfocused [`LocalTextInput`].
-    fn new(text: Value) -> Self {
+    fn new(initial_value: &str) -> Self {
+        // let initial_value = text.clone();
         Self {
-            text,
+            text: Value::new(initial_value),
+            initial_value: String::from(initial_value),
             value: paragraph::Plain::default(),
             placeholder: paragraph::Plain::default(),
             icon: paragraph::Plain::default(),
@@ -1585,7 +1586,6 @@ fn replace_paragraph<Renderer>(
     renderer: &Renderer,
     state: &mut State<Renderer::Paragraph>,
     layout: Layout<'_>,
-    value: &Value,
     font: Option<Renderer::Font>,
     text_size: Option<Pixels>,
     line_height: text::LineHeight,
@@ -1598,14 +1598,15 @@ fn replace_paragraph<Renderer>(
     let mut children_layout = layout.children();
     let text_bounds = children_layout.next().unwrap().bounds();
 
+    let content = state.text.to_string();
     state.value = paragraph::Plain::new(Text {
         font,
         line_height,
-        content: &value.to_string(),
+        content: &content,
         bounds: Size::new(f32::INFINITY, text_bounds.height),
         size: text_size,
         horizontal_alignment: alignment::Horizontal::Left,
-        vertical_alignment: alignment::Vertical::Top,
+        vertical_alignment: alignment::Vertical::Center,
         shaping: text::Shaping::Advanced,
         wrapping: text::Wrapping::default(),
     });

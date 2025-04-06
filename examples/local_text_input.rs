@@ -1,4 +1,5 @@
-use iced::widget::{container, horizontal_space, stack};
+use iced::widget::{button, container, horizontal_space, row, stack};
+use iced::Alignment::Center;
 use iced::Length::Fill;
 use iced::{Color, Element};
 use sweeten::widget::local_text_input;
@@ -24,6 +25,15 @@ impl Default for App {
 }
 
 impl App {
+    pub fn color_hex(&self) -> String {
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            (self.color.r * 255.0) as u8,
+            (self.color.g * 255.0) as u8,
+            (self.color.b * 255.0) as u8
+        )
+    }
+
     pub fn view(&self) -> Element<Message> {
         container(
             stack![
@@ -33,11 +43,17 @@ impl App {
                     }
                 ),
                 container(
-                    local_text_input("Enter color", INITIAL_COLOR)
-                        .on_submit(Message::AdjustColor)
-                        .on_blur(Message::AdjustColor)
-                        .width(300)
-                        .padding(10)
+                    row![
+                        local_text_input("Enter color", &self.color_hex())
+                            .on_submit(Message::AdjustColor)
+                            .on_blur(Message::AdjustColor)
+                            .width(300),
+                        button("Reset").style(button::secondary).on_press(
+                            Message::AdjustColor(INITIAL_COLOR.to_string())
+                        )
+                    ]
+                    .align_y(Center)
+                    .spacing(8)
                 )
                 .center(Fill)
             ]
