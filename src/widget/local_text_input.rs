@@ -563,8 +563,8 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for LocalTextInput<'a, Message, Theme, Renderer>
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for LocalTextInput<'_, Message, Theme, Renderer>
 where
     Message: Clone,
     Theme: Catalog,
@@ -1273,9 +1273,9 @@ impl From<Id> for widget::Id {
     }
 }
 
-impl Into<Id> for widget::Id {
-    fn into(self) -> Id {
-        Id(self)
+impl From<widget::Id> for Id {
+    fn from(val: widget::Id) -> Self {
+        Id(val)
     }
 }
 
@@ -1309,7 +1309,7 @@ where
 {
     widget::operate(widget::operation::focusable::focus_next()).chain(
         widget::operate(widget::operation::focusable::find_focused())
-            .then(move |id| f(id)),
+            .then(f),
     )
 }
 
@@ -1322,7 +1322,7 @@ where
 {
     widget::operate(widget::operation::focusable::focus_previous()).chain(
         widget::operate(widget::operation::focusable::find_focused())
-            .then(move |id| f(id)),
+            .then(f),
     )
 }
 

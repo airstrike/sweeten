@@ -14,7 +14,7 @@ struct App {
     color: Color,
 }
 
-const INITIAL_COLOR: &'static str = "#163832";
+const INITIAL_COLOR: &str = "#163832";
 
 impl Default for App {
     fn default() -> Self {
