@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sweeten — Color System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            gap: 32px;
+        }
+
+        .palette {
+            background: #ffffff;
+            border: 1px solid #000;
+            padding: 32px 32px 24px;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .row:last-child {
+            margin-bottom: 0;
+        }
+
+        .label {
+            width: 72px;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: #666;
+        }
+
+        .swatches {
+            display: flex;
+            gap: 10px;
+        }
+
+        .swatch {
+            width: 44px;
+            height: 44px;
+            border: 1px solid #000;
+            cursor: pointer;
+            position: relative;
+            transition: transform 0.1s ease;
+        }
+
+        .swatch:hover {
+            transform: scale(1.1);
+            z-index: 10;
+        }
+
+        .swatch:active {
+            transform: scale(0.95);
+        }
+
+        .swatch::after {
+            content: attr(data-color);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #000;
+            color: #fff;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+
+        .swatch:hover::after {
+            opacity: 1;
+        }
+
+        .variables {
+            background: #1a1d21;
+            border-radius: 8px;
+            padding: 20px 24px;
+            max-width: 400px;
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .variables pre {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 11px;
+            line-height: 1.6;
+            color: #e5e7eb;
+            margin: 0;
+        }
+
+        .variables .comment { color: #6b7280; }
+        .variables .prop { color: #93c5fd; }
+        .variables .val { color: #86efac; }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: #000;
+            color: #fff;
+            padding: 10px 20px;
+            font-size: 12px;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+            opacity: 0;
+            transition: all 0.25s ease;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="palette" id="palette"></div>
+    <div class="variables" id="variables"></div>
+    <div class="toast" id="toast">Copied!</div>
+
+    <script>
+        function hslToHex(h, s, l) {
+            s /= 100;
+            l /= 100;
+            const a = s * Math.min(l, 1 - l);
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+
+        function generateRow(hue, config) {
+            return config.map(([s, l]) => hslToHex(hue, s, l));
+        }
+
+        const greenConfig = [[85, 20], [58, 39], [52, 46], [55, 51]];
+        const limeConfig = [[65, 35], [60, 48], [55, 55], [66, 63]];
+        const blueConfig = [[70, 33], [62, 40], [58, 48], [55, 58]];
+        const cobaltConfig = [[52, 23], [45, 32], [40, 46], [85, 65]];
+
+        const colorRows = [
+            ['Green', 130, greenConfig],
+            ['Lime', 92, limeConfig],
+            ['Blue', 228, blueConfig],
+            ['Cobalt', 202, cobaltConfig],
+        ];
+
+        const palette = document.getElementById('palette');
+        const generatedColors = {};
+
+        colorRows.forEach(([label, hue, config]) => {
+            const colors = generateRow(hue, config);
+            generatedColors[label.toLowerCase()] = colors;
+
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.innerHTML = `
+                <div class="label">${label}</div>
+                <div class="swatches">
+                    ${colors.map(c => `<div class="swatch" style="background:${c}" data-color="${c}"></div>`).join('')}
+                </div>
+            `;
+            palette.appendChild(row);
+        });
+
+        const neutrals = ['#000000', '#1a1d21', '#3d4249', '#6b7280', '#d1d5db', '#f8fafc'];
+        const neutralRow = document.createElement('div');
+        neutralRow.className = 'row';
+        neutralRow.innerHTML = `
+            <div class="label">Neutral</div>
+            <div class="swatches">
+                ${neutrals.map(c => `<div class="swatch" style="background:${c}" data-color="${c}"></div>`).join('')}
+            </div>
+        `;
+        palette.appendChild(neutralRow);
+
+        const semantics = [
+            { color: '#dc2626', name: 'danger' },
+            { color: '#ca8a04', name: 'warning' },
+            { color: generatedColors.green[2], name: 'success' },
+            { color: generatedColors.cobalt[2], name: 'info' },
+        ];
+        const semanticRow = document.createElement('div');
+        semanticRow.className = 'row';
+        semanticRow.innerHTML = `
+            <div class="label">Semantic</div>
+            <div class="swatches">
+                ${semantics.map(s => `<div class="swatch" style="background:${s.color}" data-color="${s.color}"></div>`).join('')}
+            </div>
+        `;
+        palette.appendChild(semanticRow);
+
+        // Generate CSS variables block
+        const cssVars = `<span class="comment">/* Sweeten Color System */</span>
+:root {
+  <span class="comment">/* Green */</span>
+  <span class="prop">--green-900</span>: <span class="val">${generatedColors.green[0]}</span>;
+  <span class="prop">--green-700</span>: <span class="val">${generatedColors.green[1]}</span>;
+  <span class="prop">--green-500</span>: <span class="val">${generatedColors.green[2]}</span>;
+  <span class="prop">--green-300</span>: <span class="val">${generatedColors.green[3]}</span>;
+
+  <span class="comment">/* Lime */</span>
+  <span class="prop">--lime-900</span>: <span class="val">${generatedColors.lime[0]}</span>;
+  <span class="prop">--lime-700</span>: <span class="val">${generatedColors.lime[1]}</span>;
+  <span class="prop">--lime-500</span>: <span class="val">${generatedColors.lime[2]}</span>;
+  <span class="prop">--lime-300</span>: <span class="val">${generatedColors.lime[3]}</span>;
+
+  <span class="comment">/* Blue */</span>
+  <span class="prop">--blue-900</span>: <span class="val">${generatedColors.blue[0]}</span>;
+  <span class="prop">--blue-700</span>: <span class="val">${generatedColors.blue[1]}</span>;
+  <span class="prop">--blue-500</span>: <span class="val">${generatedColors.blue[2]}</span>;
+  <span class="prop">--blue-300</span>: <span class="val">${generatedColors.blue[3]}</span>;
+
+  <span class="comment">/* Cobalt */</span>
+  <span class="prop">--cobalt-900</span>: <span class="val">${generatedColors.cobalt[0]}</span>;
+  <span class="prop">--cobalt-700</span>: <span class="val">${generatedColors.cobalt[1]}</span>;
+  <span class="prop">--cobalt-500</span>: <span class="val">${generatedColors.cobalt[2]}</span>;
+  <span class="prop">--cobalt-300</span>: <span class="val">${generatedColors.cobalt[3]}</span>;
+
+  <span class="comment">/* Neutral */</span>
+  <span class="prop">--black</span>: <span class="val">${neutrals[0]}</span>;
+  <span class="prop">--gray-900</span>: <span class="val">${neutrals[1]}</span>;
+  <span class="prop">--gray-600</span>: <span class="val">${neutrals[2]}</span>;
+  <span class="prop">--gray-400</span>: <span class="val">${neutrals[3]}</span>;
+  <span class="prop">--gray-200</span>: <span class="val">${neutrals[4]}</span>;
+  <span class="prop">--white</span>: <span class="val">${neutrals[5]}</span>;
+
+  <span class="comment">/* Semantic */</span>
+  <span class="prop">--danger</span>: <span class="val">${semantics[0].color}</span>;
+  <span class="prop">--warning</span>: <span class="val">${semantics[1].color}</span>;
+  <span class="prop">--success</span>: <span class="val">${semantics[2].color}</span>;
+  <span class="prop">--info</span>: <span class="val">${semantics[3].color}</span>;
+}`;
+
+        document.getElementById('variables').innerHTML = `<pre>${cssVars}</pre>`;
+
+        const toast = document.getElementById('toast');
+        document.querySelectorAll('.swatch').forEach(swatch => {
+            swatch.addEventListener('click', async () => {
+                const color = swatch.dataset.color;
+                await navigator.clipboard.writeText(color);
+                toast.textContent = `Copied ${color}`;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 1200);
+            });
+        });
+    </script>
+</body>
+</html>

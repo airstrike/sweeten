@@ -1,0 +1,52 @@
+[package]
+name = "sweeten"
+version = "0.14.0-dev"
+edition = "2024"
+rust-version = "1.87"
+authors = ["Andy Terra <tech@andyterra.com>"]
+description = "`sweeten` your daily `iced` brew"
+license = "MIT"
+repository = "https://github.com/airstrike/sweeten"
+keywords = ["gui", "iced", "widgets"]
+categories = ["gui"]
+readme = "README.md"
+
+[dependencies]
+iced_core.version = "0.14.0-dev"
+iced_runtime.version = "0.14.0-dev"
+iced_widget.version = "0.14.0-dev"
+unicode-segmentation = "1.11.0"
+
+[dev-dependencies]
+iced.version = "0.14.0-dev"
+iced.features = ["advanced"]
+
+[patch.crates-io]
+iced.git = "https://github.com/iced-rs/iced.git"
+iced_core.git = "https://github.com/iced-rs/iced.git"
+iced_runtime.git = "https://github.com/iced-rs/iced.git"
+iced_widget.git = "https://github.com/iced-rs/iced.git"
+
+# For testing new bleeding edge iced features
+# iced.path = "../iced"
+# iced_core.path = "../iced/core"
+# iced_runtime.path = "../iced/runtime"
+# iced_widget.path = "../iced/widget"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--extend-css", "doc-style.css"]
+
+[lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+unsafe_code = "deny"
+
+[lints.clippy]
+semicolon_if_nothing_returned = "deny"
+trivially-copy-pass-by-ref = "deny"
+redundant-closure-for-method-calls = "deny"
+needless_borrow = "deny"
+useless_conversion = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
