@@ -1,17 +1,21 @@
-use iced::widget::{center, column};
-use iced::{Alignment::Center, Element, Fill};
+//! Demonstrates the enhanced pick_list widget with disabled items.
+//!
+//! This example shows:
+//! - `disabled(Fn(&[T]) -> Vec<bool>)` - dynamically disable items
+//! - Disabled items are visually distinct and non-selectable
+//!
+//! Run with: `cargo run --example pick_list`
 
-use sweeten::widget::pick_list;
+use iced::widget::{center, column};
+use iced::{Center, Element, Fill};
+
+use sweeten::pick_list;
 
 fn main() -> iced::Result {
-    iced::application(
-        "sweetened iced - PickList example",
-        App::update,
-        App::view,
-    )
-    .window_size((300.0, 200.0))
-    .theme(App::theme)
-    .run()
+    iced::application(App::default, App::update, App::view)
+        .window_size((300.0, 200.0))
+        .theme(App::theme)
+        .run()
 }
 
 #[derive(Default)]
@@ -38,23 +42,23 @@ impl App {
     }
 
     fn view(&self) -> Element<Message> {
-        let pick_list = pick_list(
+        let pick = pick_list(
             &Language::ALL[..],
-            Some(|languages: &[Language]| {
-                languages
-                    .iter()
-                    .map(|lang| matches!(lang, Language::Javascript))
-                    .collect()
-            }),
             self.selected_language,
             Message::Pick,
         )
+        .disabled(|languages: &[Language]| {
+            languages
+                .iter()
+                .map(|lang| matches!(lang, Language::Javascript))
+                .collect()
+        })
         .placeholder("Choose a language...");
 
         center(
             column![
                 "Which is the best programming language?",
-                pick_list,
+                pick,
                 self.selected_language
                     .map(|language| match language {
                         Language::Rust => "Correct!",

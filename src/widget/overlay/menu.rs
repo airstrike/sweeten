@@ -360,6 +360,20 @@ where
     class: &'a <Theme as Catalog>::Class<'b>,
 }
 
+impl<T, Message, Theme, Renderer> List<'_, '_, T, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+    fn is_disabled(&self, index: usize) -> bool {
+        self.disabled
+            .as_ref()
+            .and_then(|d| d.get(index))
+            .copied()
+            .unwrap_or(false)
+    }
+}
+
 struct ListState {
     is_hovered: Option<bool>,
 }
@@ -427,6 +441,7 @@ where
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if cursor.is_over(layout.bounds())
                     && let Some(index) = *self.hovered_option
+                    && !self.is_disabled(index)
                     && let Some(option) = self.options.get(index)
                 {
                     shell.publish((self.on_selected)(option.clone()));
@@ -449,6 +464,7 @@ where
                         (cursor_position.y / option_height) as usize;
 
                     if *self.hovered_option != Some(new_hovered_option)
+                        && !self.is_disabled(new_hovered_option)
                         && let Some(option) =
                             self.options.get(new_hovered_option)
                     {
@@ -460,7 +476,9 @@ where
                         shell.request_redraw();
                     }
 
-                    *self.hovered_option = Some(new_hovered_option);
+                    if !self.is_disabled(new_hovered_option) {
+                        *self.hovered_option = Some(new_hovered_option);
+                    }
                 }
             }
             Event::Touch(touch::Event::FingerPressed { .. }) => {
@@ -475,14 +493,15 @@ where
                         f32::from(self.text_line_height.to_absolute(text_size))
                             + self.padding.y();
 
-                    *self.hovered_option =
-                        Some((cursor_position.y / option_height) as usize);
+                    let index = (cursor_position.y / option_height) as usize;
 
-                    if let Some(index) = *self.hovered_option
-                        && let Some(option) = self.options.get(index)
-                    {
-                        shell.publish((self.on_selected)(option.clone()));
-                        shell.capture_event();
+                    if !self.is_disabled(index) {
+                        *self.hovered_option = Some(index);
+
+                        if let Some(option) = self.options.get(index) {
+                            shell.publish((self.on_selected)(option.clone()));
+                            shell.capture_event();
+                        }
                     }
                 }
             }
@@ -506,15 +525,25 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        _renderer: &Renderer,
+        renderer: &Renderer,
     ) -> mouse::Interaction {
-        let is_mouse_over = cursor.is_over(layout.bounds());
+        if let Some(cursor_position) = cursor.position_in(layout.bounds()) {
+            let text_size = self
+                .text_size
+                .unwrap_or_else(|| renderer.default_size());
 
-        if is_mouse_over {
-            mouse::Interaction::Pointer
-        } else {
-            mouse::Interaction::default()
+            let option_height =
+                f32::from(self.text_line_height.to_absolute(text_size))
+                    + self.padding.y();
+
+            let hovered_option = (cursor_position.y / option_height) as usize;
+
+            if !self.is_disabled(hovered_option) {
+                return mouse::Interaction::Pointer;
+            }
         }
+
+        mouse::Interaction::default()
     }
 
     fn draw(
@@ -545,6 +574,7 @@ where
         for (i, option) in visible_options.iter().enumerate() {
             let i = start + i;
             let is_selected = *self.hovered_option == Some(i);
+            let is_disabled = self.is_disabled(i);
 
             let bounds = Rectangle {
                 x: bounds.x,
@@ -553,7 +583,7 @@ where
                 height: option_height,
             };
 
-            if is_selected {
+            if is_selected && !is_disabled {
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
@@ -565,6 +595,19 @@ where
                         ..renderer::Quad::default()
                     },
                     style.selected_background,
+                );
+            } else if is_disabled {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: bounds.x + style.border.width,
+                            width: bounds.width - style.border.width * 2.0,
+                            ..bounds
+                        },
+                        border: border::rounded(style.border.radius),
+                        ..renderer::Quad::default()
+                    },
+                    style.disabled_background,
                 );
             }
 
@@ -581,7 +624,9 @@ where
                     wrapping: text::Wrapping::default(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
-                if is_selected {
+                if is_disabled {
+                    style.disabled_text_color
+                } else if is_selected {
                     style.selected_text_color
                 } else {
                     style.text_color
@@ -620,6 +665,10 @@ pub struct Style {
     pub selected_text_color: Color,
     /// The background [`Color`] of a selected option in the menu.
     pub selected_background: Background,
+    /// The text [`Color`] of a disabled option in the menu.
+    pub disabled_text_color: Color,
+    /// The background [`Color`] of a disabled option in the menu.
+    pub disabled_background: Background,
 }
 
 /// The theme catalog of a [`Menu`].
@@ -668,5 +717,7 @@ pub fn default(theme: &Theme) -> Style {
         text_color: palette.background.weak.text,
         selected_text_color: palette.primary.strong.text,
         selected_background: palette.primary.strong.color.into(),
+        disabled_text_color: palette.background.strong.color,
+        disabled_background: palette.background.weak.color.into(),
     }
 }

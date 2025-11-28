@@ -2,7 +2,7 @@
 name = "sweeten"
 version = "0.14.0-dev"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 authors = ["Andy Terra <spam@andyterra.com>"]
 description = "`sweeten` your daily `iced` brew"
 license = "MIT"
@@ -13,11 +13,18 @@ readme = "README.md"
 
 [dependencies]
 iced_core.version = "0.14.0-dev"
+iced_runtime.version = "0.14.0-dev"
 iced_widget.version = "0.14.0-dev"
 unicode-segmentation = "1.11.0"
 
+[dev-dependencies]
+iced.version = "0.14.0-dev"
+iced.features = ["advanced"]
+
 [patch.crates-io]
+iced.git = "https://github.com/iced-rs/iced.git"
 iced_core.git = "https://github.com/iced-rs/iced.git"
+iced_runtime.git = "https://github.com/iced-rs/iced.git"
 iced_widget.git = "https://github.com/iced-rs/iced.git"
 
 # For testing new bleeding edge iced features
