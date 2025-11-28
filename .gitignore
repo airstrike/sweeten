@@ -1,5 +1,2 @@
 /target
-*.code-workspace
-**/*.DS_Store
-**.psd
-**.ai
+Cargo.lock
