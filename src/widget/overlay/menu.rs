@@ -1,50 +1,29 @@
 //! Build and show dropdown menus.
-//
-// These are modified versions of the original `Overlay` and `List` from [`iced`]
-//
-// [`iced`]: https://github.com/iced-rs/iced
-//
-// Copyright 2019 Héctor Ramón, Iced contributors
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of
-// this software and associated documentation files (the "Software"), to deal in
-// the Software without restriction, including without limitation the rights to
-// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-// the Software, and to permit persons to whom the Software is furnished to do so,
-// subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-// FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-// IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-use iced::advanced::text::{self, Text};
-use iced::advanced::widget::Tree;
-use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout};
-use iced::advanced::{Shell, Widget};
-use iced::alignment;
-use iced::border::{self, Border};
-use iced::event::Event;
-use iced::touch;
-use iced::widget::scrollable::{self, Scrollable};
-use iced::{
-    Background, Color, Element, Length, Padding, Pixels, Point, Rectangle,
-    Size, Theme, Vector,
+use crate::core::alignment;
+use crate::core::border::{self, Border};
+use crate::core::layout::{self, Layout};
+use crate::core::mouse;
+use crate::core::overlay;
+use crate::core::renderer;
+use crate::core::text::{self, Text};
+use crate::core::touch;
+use crate::core::widget::tree::{self, Tree};
+use crate::core::window;
+use crate::core::{
+    Background, Clipboard, Color, Event, Length, Padding, Pixels, Point,
+    Rectangle, Size, Theme, Vector,
 };
+use crate::core::{Element, Shell, Widget};
+use crate::scrollable::{self, Scrollable};
 
 /// A list of selectable options.
-#[allow(missing_debug_implementations)]
 pub struct Menu<
     'a,
     'b,
     T,
     Message,
-    Theme = iced::Theme,
-    Renderer = iced::Renderer,
+    Theme = crate::Theme,
+    Renderer = crate::Renderer,
 > where
     Theme: Catalog,
     Renderer: text::Renderer,
@@ -52,7 +31,6 @@ pub struct Menu<
 {
     state: &'a mut State,
     options: &'a [T],
-    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -81,14 +59,12 @@ where
         options: &'a [T],
         hovered_option: &'a mut Option<usize>,
         on_selected: impl FnMut(T) -> Message + 'a,
-        disabled: Option<Vec<bool>>,
         on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
         class: &'a <Theme as Catalog>::Class<'b>,
     ) -> Self {
         Menu {
             state,
             options,
-            disabled,
             hovered_option,
             on_selected: Box::new(on_selected),
             on_option_hovered,
@@ -96,7 +72,7 @@ where
             padding: Padding::ZERO,
             text_size: None,
             text_line_height: text::LineHeight::default(),
-            text_shaping: text::Shaping::Basic,
+            text_shaping: text::Shaping::default(),
             font: None,
             class,
         }
@@ -150,12 +126,16 @@ where
     pub fn overlay(
         self,
         position: Point,
+        viewport: Rectangle,
         target_height: f32,
+        menu_height: Length,
     ) -> overlay::Element<'a, Message, Theme, Renderer> {
         overlay::Element::new(Box::new(Overlay::new(
             position,
+            viewport,
             self,
             target_height,
+            menu_height,
         )))
     }
 }
@@ -181,51 +161,14 @@ impl Default for State {
     }
 }
 
-impl<'a, 'b, T, Message, Theme, Renderer>
-    List<'a, 'b, T, Message, Theme, Renderer>
-where
-    T: Clone + ToString,
-    Theme: Catalog,
-    Renderer: text::Renderer,
-{
-    /// Calculate the index of an option based on a cursor position within the list bounds
-    fn option_index_at(
-        &self,
-        cursor_position: Point,
-        renderer: &Renderer,
-    ) -> Option<usize> {
-        let text_size =
-            self.text_size.unwrap_or_else(|| renderer.default_size());
-        let option_height =
-            f32::from(self.text_line_height.to_absolute(text_size))
-                + self.padding.vertical();
-
-        let index = (cursor_position.y / option_height) as usize;
-
-        if index < self.options.len() {
-            Some(index)
-        } else {
-            None
-        }
-    }
-
-    /// Check if an option at the given index is disabled
-    fn is_disabled(&self, index: usize) -> bool {
-        self.disabled
-            .as_ref()
-            .and_then(|d| d.get(index))
-            .copied()
-            .unwrap_or(false)
-    }
-}
-
 struct Overlay<'a, 'b, Message, Theme, Renderer>
 where
     Theme: Catalog,
-    Renderer: renderer::Renderer,
+    Renderer: crate::core::Renderer,
 {
     position: Point,
-    state: &'a mut Tree,
+    viewport: Rectangle,
+    tree: &'a mut Tree,
     list: Scrollable<'a, Message, Theme, Renderer>,
     width: f32,
     target_height: f32,
@@ -241,8 +184,10 @@ where
 {
     pub fn new<T>(
         position: Point,
+        viewport: Rectangle,
         menu: Menu<'a, 'b, T, Message, Theme, Renderer>,
         target_height: f32,
+        menu_height: Length,
     ) -> Self
     where
         T: Clone + ToString,
@@ -250,7 +195,6 @@ where
         let Menu {
             state,
             options,
-            disabled,
             hovered_option,
             on_selected,
             on_option_hovered,
@@ -265,7 +209,6 @@ where
 
         let list = Scrollable::new(List {
             options,
-            disabled,
             hovered_option,
             on_selected,
             on_option_hovered,
@@ -275,13 +218,15 @@ where
             text_shaping,
             padding,
             class,
-        });
+        })
+        .height(menu_height);
 
         state.tree.diff(&list as &dyn Widget<_, _, _>);
 
         Self {
             position,
-            state: &mut state.tree,
+            viewport,
+            tree: &mut state.tree,
             list,
             width,
             target_height,
@@ -290,9 +235,8 @@ where
     }
 }
 
-impl<'a, 'b, Message, Theme, Renderer>
-    iced::advanced::Overlay<Message, Theme, Renderer>
-    for Overlay<'a, 'b, Message, Theme, Renderer>
+impl<Message, Theme, Renderer> crate::core::Overlay<Message, Theme, Renderer>
+    for Overlay<'_, '_, Message, Theme, Renderer>
 where
     Theme: Catalog,
     Renderer: text::Renderer,
@@ -315,7 +259,7 @@ where
         )
         .width(self.width);
 
-        let node = self.list.layout(self.state, renderer, &limits);
+        let node = self.list.layout(self.tree, renderer, &limits);
         let size = node.size();
 
         node.move_to(if space_below > space_above {
@@ -327,7 +271,7 @@ where
 
     fn update(
         &mut self,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -337,20 +281,24 @@ where
         let bounds = layout.bounds();
 
         self.list.update(
-            self.state, event, layout, cursor, renderer, clipboard, shell,
+            self.tree, event, layout, cursor, renderer, clipboard, shell,
             &bounds,
-        )
+        );
     }
 
     fn mouse_interaction(
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.list
-            .mouse_interaction(self.state, layout, cursor, viewport, renderer)
+        self.list.mouse_interaction(
+            self.tree,
+            layout,
+            cursor,
+            &self.viewport,
+            renderer,
+        )
     }
 
     fn draw(
@@ -375,7 +323,7 @@ where
         );
 
         self.list.draw(
-            self.state, renderer, theme, defaults, layout, cursor, &bounds,
+            self.tree, renderer, theme, defaults, layout, cursor, &bounds,
         );
     }
 }
@@ -386,7 +334,6 @@ where
     Renderer: text::Renderer,
 {
     options: &'a [T],
-    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -398,13 +345,25 @@ where
     class: &'a <Theme as Catalog>::Class<'b>,
 }
 
-impl<'a, 'b, T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for List<'a, 'b, T, Message, Theme, Renderer>
+struct ListState {
+    is_hovered: Option<bool>,
+}
+
+impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for List<'_, '_, T, Message, Theme, Renderer>
 where
     T: Clone + ToString,
     Theme: Catalog,
     Renderer: text::Renderer,
 {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<Option<bool>>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(ListState { is_hovered: None })
+    }
+
     fn size(&self) -> Size<Length> {
         Size {
             width: Length::Fill,
@@ -413,7 +372,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -428,7 +387,7 @@ where
         let size = {
             let intrinsic = Size::new(
                 0.0,
-                (f32::from(text_line_height) + self.padding.vertical())
+                (f32::from(text_line_height) + self.padding.y())
                     * self.options.len() as f32,
             );
 
@@ -440,8 +399,8 @@ where
 
     fn update(
         &mut self,
-        _state: &mut Tree,
-        event: Event,
+        tree: &mut Tree,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -451,103 +410,101 @@ where
     ) {
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if let Some(cursor_position) =
-                    cursor.position_in(layout.bounds())
+                if cursor.is_over(layout.bounds())
+                    && let Some(index) = *self.hovered_option
+                    && let Some(option) = self.options.get(index)
                 {
-                    if let Some(clicked_index) =
-                        self.option_index_at(cursor_position, renderer)
-                    {
-                        if !self.is_disabled(clicked_index) {
-                            if let Some(option) =
-                                self.options.get(clicked_index)
-                            {
-                                shell.publish((self.on_selected)(
-                                    option.clone(),
-                                ));
-                            }
-                        }
-                        shell.capture_event();
-                    }
+                    shell.publish((self.on_selected)(option.clone()));
+                    shell.capture_event();
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(cursor_position) =
                     cursor.position_in(layout.bounds())
                 {
-                    if let Some(new_hovered_option) =
-                        self.option_index_at(cursor_position, renderer)
+                    let text_size = self
+                        .text_size
+                        .unwrap_or_else(|| renderer.default_size());
+
+                    let option_height =
+                        f32::from(self.text_line_height.to_absolute(text_size))
+                            + self.padding.y();
+
+                    let new_hovered_option =
+                        (cursor_position.y / option_height) as usize;
+
+                    if *self.hovered_option != Some(new_hovered_option)
+                        && let Some(option) =
+                            self.options.get(new_hovered_option)
                     {
-                        if !self.is_disabled(new_hovered_option) {
-                            if let Some(on_option_hovered) =
-                                self.on_option_hovered
-                            {
-                                if *self.hovered_option
-                                    != Some(new_hovered_option)
-                                {
-                                    if let Some(option) =
-                                        self.options.get(new_hovered_option)
-                                    {
-                                        shell.publish(on_option_hovered(
-                                            option.clone(),
-                                        ));
-                                    }
-                                }
-                            }
-                            *self.hovered_option = Some(new_hovered_option);
+                        if let Some(on_option_hovered) = self.on_option_hovered
+                        {
+                            shell.publish(on_option_hovered(option.clone()));
                         }
-                        shell.capture_event();
+
+                        shell.request_redraw();
                     }
+
+                    *self.hovered_option = Some(new_hovered_option);
                 }
             }
             Event::Touch(touch::Event::FingerPressed { .. }) => {
                 if let Some(cursor_position) =
                     cursor.position_in(layout.bounds())
                 {
-                    if let Some(new_hovered_option) =
-                        self.option_index_at(cursor_position, renderer)
+                    let text_size = self
+                        .text_size
+                        .unwrap_or_else(|| renderer.default_size());
+
+                    let option_height =
+                        f32::from(self.text_line_height.to_absolute(text_size))
+                            + self.padding.y();
+
+                    *self.hovered_option =
+                        Some((cursor_position.y / option_height) as usize);
+
+                    if let Some(index) = *self.hovered_option
+                        && let Some(option) = self.options.get(index)
                     {
-                        if !self.is_disabled(new_hovered_option) {
-                            *self.hovered_option = Some(new_hovered_option);
-                            if let Some(option) =
-                                self.options.get(new_hovered_option)
-                            {
-                                shell.publish((self.on_selected)(
-                                    option.clone(),
-                                ));
-                            }
-                        }
+                        shell.publish((self.on_selected)(option.clone()));
                         shell.capture_event();
                     }
                 }
             }
             _ => {}
         }
+
+        let state = tree.state.downcast_mut::<ListState>();
+
+        if let Event::Window(window::Event::RedrawRequested(_now)) = event {
+            state.is_hovered = Some(cursor.is_over(layout.bounds()));
+        } else if state.is_hovered.is_some_and(|is_hovered| {
+            is_hovered != cursor.is_over(layout.bounds())
+        }) {
+            shell.request_redraw();
+        }
     }
 
     fn mouse_interaction(
         &self,
-        _state: &Tree,
+        _tree: &Tree,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
-        renderer: &Renderer,
+        _renderer: &Renderer,
     ) -> mouse::Interaction {
-        if let Some(cursor_position) = cursor.position_in(layout.bounds()) {
-            if let Some(hovered_index) =
-                self.option_index_at(cursor_position, renderer)
-            {
-                if !self.is_disabled(hovered_index) {
-                    return mouse::Interaction::Pointer;
-                }
-            }
-        }
+        let is_mouse_over = cursor.is_over(layout.bounds());
 
-        mouse::Interaction::default()
+        if is_mouse_over {
+            mouse::Interaction::Pointer
+        } else {
+            mouse::Interaction::default()
+        }
     }
 
     fn draw(
         &self,
-        _state: &Tree,
+        _tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
@@ -562,7 +519,7 @@ where
             self.text_size.unwrap_or_else(|| renderer.default_size());
         let option_height =
             f32::from(self.text_line_height.to_absolute(text_size))
-                + self.padding.vertical();
+                + self.padding.y();
 
         let offset = viewport.y - bounds.y;
         let start = (offset / option_height) as usize;
@@ -573,12 +530,6 @@ where
         for (i, option) in visible_options.iter().enumerate() {
             let i = start + i;
             let is_selected = *self.hovered_option == Some(i);
-            let is_disabled = self
-                .disabled
-                .as_ref()
-                .and_then(|d| d.get(i))
-                .copied()
-                .unwrap_or(false);
 
             let bounds = Rectangle {
                 x: bounds.x,
@@ -587,7 +538,7 @@ where
                 height: option_height,
             };
 
-            if is_selected && !is_disabled {
+            if is_selected {
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
@@ -600,19 +551,6 @@ where
                     },
                     style.selected_background,
                 );
-            } else if is_disabled {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: bounds.x + style.border.width,
-                            width: bounds.width - style.border.width * 2.0,
-                            ..bounds
-                        },
-                        border: border::rounded(style.border.radius),
-                        ..renderer::Quad::default()
-                    },
-                    style.disabled_background,
-                );
             }
 
             renderer.fill_text(
@@ -622,15 +560,13 @@ where
                     size: text_size,
                     line_height: self.text_line_height,
                     font: self.font.unwrap_or_else(|| renderer.default_font()),
-                    horizontal_alignment: alignment::Horizontal::Left,
-                    vertical_alignment: alignment::Vertical::Center,
+                    align_x: text::Alignment::Default,
+                    align_y: alignment::Vertical::Center,
                     shaping: self.text_shaping,
                     wrapping: text::Wrapping::default(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
-                if is_disabled {
-                    style.disabled_text_color
-                } else if is_selected {
+                if is_selected {
                     style.selected_text_color
                 } else {
                     style.text_color
@@ -669,10 +605,6 @@ pub struct Style {
     pub selected_text_color: Color,
     /// The background [`Color`] of a selected option in the menu.
     pub selected_background: Background,
-    /// The text [`Color`] of a disabled option in the menu.
-    pub disabled_text_color: Color,
-    /// The background [`Color`] of a disabled option in the menu.
-    pub disabled_background: Background,
 }
 
 /// The theme catalog of a [`Menu`].
@@ -721,12 +653,5 @@ pub fn default(theme: &Theme) -> Style {
         text_color: palette.background.weak.text,
         selected_text_color: palette.primary.strong.text,
         selected_background: palette.primary.strong.color.into(),
-        disabled_text_color: palette.background.weak.text.scale_alpha(0.5),
-        disabled_background: palette
-            .background
-            .weak
-            .color
-            .scale_alpha(0.5)
-            .into(),
     }
 }

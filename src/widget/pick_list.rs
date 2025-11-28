@@ -1,10 +1,11 @@
-//! Pick lists display a dropdown list of selectable items, with optional disabled items.
+//! Pick lists display a dropdown list of selectable options.
 //!
 //! # Example
 //! ```no_run
-//! # pub type Element<'a, Message> = iced::Element<'a, Message, iced::Theme, iced::Renderer>;
+//! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
+//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 //! #
-//! use sweeten::widget::pick_list;
+//! use iced::widget::pick_list;
 //!
 //! struct State {
 //!    favorite: Option<Fruit>,
@@ -24,7 +25,7 @@
 //! }
 //!
 //! fn view(state: &State) -> Element<'_, Message> {
-//!     let sweet_fruits = [
+//!     let fruits = [
 //!         Fruit::Apple,
 //!         Fruit::Orange,
 //!         Fruit::Strawberry,
@@ -32,14 +33,11 @@
 //!     ];
 //!
 //!     pick_list(
-//!         sweet_fruits,
-//!         Some(|fruits: &[Fruit]| {
-//!            fruits.iter().map(|fruit| fruit == &Fruit::Tomato).collect()
-//!         }),
+//!         fruits,
 //!         state.favorite,
 //!         Message::FruitSelected,
 //!     )
-//!     .placeholder("Select your favorite sweet fruit...")
+//!     .placeholder("Select your favorite fruit...")
 //!     .into()
 //! }
 //!
@@ -62,55 +60,34 @@
 //!     }
 //! }
 //! ```
-//
-// This widget is a modification of the original `PickList` widget from [`iced`]
-//
-// [`iced`]: https://github.com/iced-rs/iced
-//
-// Copyright 2019 Héctor Ramón, Iced contributors
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy of
-// this software and associated documentation files (the "Software"), to deal in
-// the Software without restriction, including without limitation the rights to
-// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-// the Software, and to permit persons to whom the Software is furnished to do so,
-// subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-// FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-// IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-use iced::advanced::text::{self, paragraph, Text};
-use iced::advanced::widget::tree::{self, Tree};
-use iced::advanced::{
-    layout, mouse, overlay, renderer, Clipboard, Layout, Shell, Widget,
+use crate::core::alignment;
+use crate::core::keyboard;
+use crate::core::layout;
+use crate::core::mouse;
+use crate::core::overlay;
+use crate::core::renderer;
+use crate::core::text::paragraph;
+use crate::core::text::{self, Text};
+use crate::core::touch;
+use crate::core::widget::tree::{self, Tree};
+use crate::core::window;
+use crate::core::{
+    Background, Border, Clipboard, Color, Element, Event, Layout, Length,
+    Padding, Pixels, Point, Rectangle, Shell, Size, Theme, Vector, Widget,
 };
-use iced::alignment;
-use iced::event::Event;
-use iced::keyboard;
-use iced::touch;
-use iced::{
-    Background, Border, Color, Element, Length, Padding, Pixels, Point,
-    Rectangle, Size, Theme, Vector,
-};
+use crate::overlay::menu::{self, Menu};
 
 use std::borrow::Borrow;
 use std::f32;
 
-use crate::widget::overlay::menu::{self, Menu};
-
-/// A widget for selecting a single value from a list, with some items optionally disabled.
+/// A widget for selecting a single value from a list of options.
 ///
 /// # Example
 /// ```no_run
-/// # pub type Element<'a, Message> = iced::Element<'a, Message, iced::Theme, iced::Renderer>;
+/// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
+/// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 /// #
-/// use sweeten::widget::pick_list;
+/// use iced::widget::pick_list;
 ///
 /// struct State {
 ///    favorite: Option<Fruit>,
@@ -130,7 +107,7 @@ use crate::widget::overlay::menu::{self, Menu};
 /// }
 ///
 /// fn view(state: &State) -> Element<'_, Message> {
-///     let sweet_fruits = [
+///     let fruits = [
 ///         Fruit::Apple,
 ///         Fruit::Orange,
 ///         Fruit::Strawberry,
@@ -138,14 +115,11 @@ use crate::widget::overlay::menu::{self, Menu};
 ///     ];
 ///
 ///     pick_list(
-///         sweet_fruits,
-///         Some(|fruits: &[Fruit]| {
-///             fruits.iter().map(|fruit| fruit == &Fruit::Tomato).collect()
-///         }),
+///         fruits,
 ///         state.favorite,
 ///         Message::FruitSelected,
 ///     )
-///     .placeholder("Select your favorite sweet fruit...")
+///     .placeholder("Select your favorite fruit...")
 ///     .into()
 /// }
 ///
@@ -168,16 +142,14 @@ use crate::widget::overlay::menu::{self, Menu};
 ///     }
 /// }
 /// ```
-#[allow(missing_debug_implementations)]
-#[allow(clippy::type_complexity)]
 pub struct PickList<
     'a,
     T,
     L,
     V,
     Message,
-    Theme = iced::Theme,
-    Renderer = iced::Renderer,
+    Theme = crate::Theme,
+    Renderer = crate::Renderer,
 > where
     T: ToString + PartialEq + Clone,
     L: Borrow<[T]> + 'a,
@@ -189,7 +161,6 @@ pub struct PickList<
     on_open: Option<Message>,
     on_close: Option<Message>,
     options: L,
-    disabled: Option<Box<dyn Fn(&[T]) -> Vec<bool> + 'a>>,
     placeholder: Option<String>,
     selected: Option<V>,
     width: Length,
@@ -201,6 +172,8 @@ pub struct PickList<
     handle: Handle<Renderer::Font>,
     class: <Theme as Catalog>::Class<'a>,
     menu_class: <Theme as menu::Catalog>::Class<'a>,
+    last_status: Option<Status>,
+    menu_height: Length,
 }
 
 impl<'a, T, L, V, Message, Theme, Renderer>
@@ -217,20 +190,18 @@ where
     /// selected value, and the message to produce when an option is selected.
     pub fn new(
         options: L,
-        disabled: Option<impl Fn(&[T]) -> Vec<bool> + 'a>,
         selected: Option<V>,
         on_select: impl Fn(T) -> Message + 'a,
     ) -> Self {
         Self {
             on_select: Box::new(on_select),
-            disabled: disabled.map(|f| Box::new(f) as _),
             on_open: None,
             on_close: None,
             options,
             placeholder: None,
             selected,
             width: Length::Shrink,
-            padding: DEFAULT_PADDING,
+            padding: crate::button::DEFAULT_PADDING,
             text_size: None,
             text_line_height: text::LineHeight::default(),
             text_shaping: text::Shaping::default(),
@@ -238,6 +209,8 @@ where
             handle: Handle::default(),
             class: <Theme as Catalog>::default(),
             menu_class: <Theme as Catalog>::default_menu(),
+            last_status: None,
+            menu_height: Length::Shrink,
         }
     }
 
@@ -250,6 +223,12 @@ where
     /// Sets the width of the [`PickList`].
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
+        self
+    }
+
+    /// Sets the height of the [`Menu`].
+    pub fn menu_height(mut self, menu_height: impl Into<Length>) -> Self {
+        self.menu_height = menu_height.into();
         self
     }
 
@@ -374,7 +353,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -397,8 +376,8 @@ where
             size: text_size,
             line_height: self.text_line_height,
             font,
-            horizontal_alignment: alignment::Horizontal::Left,
-            vertical_alignment: alignment::Vertical::Center,
+            align_x: text::Alignment::Default,
+            align_y: alignment::Vertical::Center,
             shaping: self.text_shaping,
             wrapping: text::Wrapping::default(),
         };
@@ -407,14 +386,14 @@ where
         {
             let label = option.to_string();
 
-            paragraph.update(Text {
+            let _ = paragraph.update(Text {
                 content: &label,
                 ..option_text
             });
         }
 
         if let Some(placeholder) = &self.placeholder {
-            state.placeholder.update(Text {
+            let _ = state.placeholder.update(Text {
                 content: placeholder,
                 ..option_text
             });
@@ -456,7 +435,7 @@ where
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
@@ -464,26 +443,14 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
-                let state =
-                    tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-
                 if state.is_open {
-                    if let Some(hovered) = state.hovered_option {
-                        let options = self.options.borrow();
-                        if let Some(disabled_fn) = &self.disabled {
-                            let disabled = disabled_fn(options);
-                            if hovered < disabled.len() && disabled[hovered] {
-                                shell.capture_event();
-                            }
-                        }
-                    }
-
-                    // Event wasn't processed by overlay and item wasn't
-                    // disabled, so cursor was clicked either outside its bounds
-                    // or on an enabled option, either way we close the overlay.
+                    // Event wasn't processed by overlay, so cursor was clicked either outside its
+                    // bounds or on the drop-down, either way we close the overlay.
                     state.is_open = false;
 
                     if let Some(on_close) = &self.on_close {
@@ -511,9 +478,6 @@ where
             Event::Mouse(mouse::Event::WheelScrolled {
                 delta: mouse::ScrollDelta::Lines { y, .. },
             }) => {
-                let state =
-                    tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-
                 if state.keyboard_modifiers.command()
                     && cursor.is_over(layout.bounds())
                     && !state.is_open
@@ -529,59 +493,18 @@ where
 
                     let options = self.options.borrow();
                     let selected = self.selected.as_ref().map(Borrow::borrow);
-                    let disabled = self
-                        .disabled
-                        .as_ref()
-                        .map(|f| f(options))
-                        .unwrap_or_else(|| vec![false; options.len()]);
 
-                    let next_option = if y < 0.0 {
+                    let next_option = if *y < 0.0 {
                         if let Some(selected) = selected {
-                            let mut next = find_next(selected, options.iter());
-                            // Keep finding next until we hit a non-disabled
-                            // option or run out
-                            while let Some(option) = next {
-                                if let Some(pos) =
-                                    options.iter().position(|opt| opt == option)
-                                {
-                                    if !disabled[pos] {
-                                        break;
-                                    }
-                                }
-                                next = find_next(option, options.iter());
-                            }
-                            next
+                            find_next(selected, options.iter())
                         } else {
-                            options
-                                .iter()
-                                .enumerate()
-                                .find(|(i, _)| !disabled[*i])
-                                .map(|(_, opt)| opt)
+                            options.first()
                         }
-                    } else if y > 0.0 {
+                    } else if *y > 0.0 {
                         if let Some(selected) = selected {
-                            let mut next =
-                                find_next(selected, options.iter().rev());
-                            // Keep finding next until we hit a non-disabled
-                            // option or run out
-                            while let Some(option) = next {
-                                if let Some(pos) =
-                                    options.iter().position(|opt| opt == option)
-                                {
-                                    if !disabled[pos] {
-                                        break;
-                                    }
-                                }
-                                next = find_next(option, options.iter().rev());
-                            }
-                            next
+                            find_next(selected, options.iter().rev())
                         } else {
-                            options
-                                .iter()
-                                .enumerate()
-                                .rev()
-                                .find(|(i, _)| !disabled[*i])
-                                .map(|(_, opt)| opt)
+                            options.last()
                         }
                     } else {
                         None
@@ -595,12 +518,30 @@ where
                 }
             }
             Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                let state =
-                    tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-
-                state.keyboard_modifiers = modifiers;
+                state.keyboard_modifiers = *modifiers;
             }
             _ => {}
+        };
+
+        let status = {
+            let is_hovered = cursor.is_over(layout.bounds());
+
+            if state.is_open {
+                Status::Opened { is_hovered }
+            } else if is_hovered {
+                Status::Hovered
+            } else {
+                Status::Active
+            }
+        };
+
+        if let Event::Window(window::Event::RedrawRequested(_now)) = event {
+            self.last_status = Some(status);
+        } else if self
+            .last_status
+            .is_some_and(|last_status| last_status != status)
+        {
+            shell.request_redraw();
         }
     }
 
@@ -629,32 +570,20 @@ where
         theme: &Theme,
         _style: &renderer::Style,
         layout: Layout<'_>,
-        cursor: mouse::Cursor,
+        _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let font = self.font.unwrap_or_else(|| renderer.default_font());
         let selected = self.selected.as_ref().map(Borrow::borrow);
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
-        let options = self.options.borrow();
-        let disabled_options = self
-            .disabled
-            .as_ref()
-            .map(|f| f(options))
-            .unwrap_or_else(|| vec![false; options.len()]);
 
         let bounds = layout.bounds();
-        let is_mouse_over = cursor.is_over(bounds);
-        let is_selected = selected.is_some();
 
-        let status = if state.is_open {
-            Status::Opened
-        } else if is_mouse_over {
-            Status::Hovered
-        } else {
-            Status::Active
-        };
-
-        let style = Catalog::style(theme, &self.class, status);
+        let style = Catalog::style(
+            theme,
+            &self.class,
+            self.last_status.unwrap_or(Status::Active),
+        );
 
         renderer.fill_quad(
             renderer::Quad {
@@ -715,8 +644,8 @@ where
                         bounds.width,
                         f32::from(line_height.to_absolute(size)),
                     ),
-                    horizontal_alignment: alignment::Horizontal::Right,
-                    vertical_alignment: alignment::Vertical::Center,
+                    align_x: text::Alignment::Right,
+                    align_y: alignment::Vertical::Center,
                     shaping,
                     wrapping: text::Wrapping::default(),
                 },
@@ -735,21 +664,6 @@ where
             let text_size =
                 self.text_size.unwrap_or_else(|| renderer.default_size());
 
-            // Get the index of the selected item to check if it's disabled
-            let selected_index = selected.and_then(|selected| {
-                options.iter().position(|option| option == selected)
-            });
-
-            let text_color = if is_selected {
-                if selected_index.map_or(false, |i| disabled_options[i]) {
-                    style.disabled_text_color
-                } else {
-                    style.text_color
-                }
-            } else {
-                style.placeholder_color
-            };
-
             renderer.fill_text(
                 Text {
                     content: label,
@@ -757,16 +671,20 @@ where
                     line_height: self.text_line_height,
                     font,
                     bounds: Size::new(
-                        bounds.width - self.padding.horizontal(),
+                        bounds.width - self.padding.x(),
                         f32::from(self.text_line_height.to_absolute(text_size)),
                     ),
-                    horizontal_alignment: alignment::Horizontal::Left,
-                    vertical_alignment: alignment::Vertical::Center,
+                    align_x: text::Alignment::Default,
+                    align_y: alignment::Vertical::Center,
                     shaping: self.text_shaping,
                     wrapping: text::Wrapping::default(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
-                text_color,
+                if selected.is_some() {
+                    style.text_color
+                } else {
+                    style.placeholder_color
+                },
                 *viewport,
             );
         }
@@ -777,6 +695,7 @@ where
         tree: &'b mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
@@ -784,20 +703,18 @@ where
 
         if state.is_open {
             let bounds = layout.bounds();
-            let options = self.options.borrow();
-            let disabled = self.disabled.as_ref().map(|f| f(options));
 
             let on_select = &self.on_select;
 
             let mut menu = Menu::new(
                 &mut state.menu,
-                options,
+                self.options.borrow(),
                 &mut state.hovered_option,
                 |option| {
                     state.is_open = false;
+
                     (on_select)(option)
                 },
-                disabled,
                 None,
                 &self.menu_class,
             )
@@ -810,7 +727,12 @@ where
                 menu = menu.text_size(text_size);
             }
 
-            Some(menu.overlay(layout.position() + translation, bounds.height))
+            Some(menu.overlay(
+                layout.position() + translation,
+                *viewport,
+                bounds.height,
+                self.menu_height,
+            ))
         } else {
             None
         }
@@ -917,16 +839,17 @@ pub enum Status {
     /// The [`PickList`] is being hovered.
     Hovered,
     /// The [`PickList`] is open.
-    Opened,
+    Opened {
+        /// Whether the [`PickList`] is hovered, while open.
+        is_hovered: bool,
+    },
 }
 
 /// The appearance of a pick list.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     /// The text [`Color`] of the pick list.
     pub text_color: Color,
-    /// The disabled text [`Color`] of the pick list.
-    pub disabled_text_color: Color,
     /// The placeholder [`Color`] of the pick list.
     pub placeholder_color: Color,
     /// The handle [`Color`] of the pick list.
@@ -980,10 +903,9 @@ pub fn default(theme: &Theme, status: Status) -> Style {
     let palette = theme.extended_palette();
 
     let active = Style {
-        text_color: palette.background.base.text,
-        disabled_text_color: palette.background.weak.text,
+        text_color: palette.background.weak.text,
         background: palette.background.weak.color.into(),
-        placeholder_color: palette.background.strong.color,
+        placeholder_color: palette.secondary.base.color,
         handle_color: palette.background.weak.text,
         border: Border {
             radius: 2.0.into(),
@@ -994,7 +916,7 @@ pub fn default(theme: &Theme, status: Status) -> Style {
 
     match status {
         Status::Active => active,
-        Status::Hovered | Status::Opened => Style {
+        Status::Hovered | Status::Opened { .. } => Style {
             border: Border {
                 color: palette.primary.strong.color,
                 ..active.border
@@ -1003,11 +925,3 @@ pub fn default(theme: &Theme, status: Status) -> Style {
         },
     }
 }
-
-/// The default [`Padding`] of a [`PickList`].
-pub const DEFAULT_PADDING: Padding = Padding {
-    top: 5.0,
-    bottom: 5.0,
-    right: 10.0,
-    left: 10.0,
-};
