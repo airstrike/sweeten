@@ -1,3 +1,35 @@
+//! Text inputs display fields that can be filled with text.
+//!
+//! This is a sweetened version of `iced`'s [`text_input`] with additional
+//! methods:
+//!
+//! - [`TextInput::on_focus`] — Emit a message when the input gains focus
+//! - [`TextInput::on_blur`] — Emit a message when the input loses focus
+//!
+//! [`text_input`]: https://docs.rs/iced/latest/iced/widget/text_input/
+//!
+//! # Example
+//! ```no_run
+//! # pub type State = String;
+//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! use sweeten::widget::text_input;
+//!
+//! #[derive(Clone)]
+//! enum Message {
+//!     ContentChanged(String),
+//!     Focused(String),
+//!     Blurred,
+//! }
+//!
+//! fn view(state: &State) -> Element<'_, Message> {
+//!     text_input("Type something...", state)
+//!         .on_input(Message::ContentChanged)
+//!         .on_focus(Message::Focused)
+//!         .on_blur(Message::Blurred)
+//!         .into()
+//! }
+//! ```
+//
 // This widget is a modification of the original `TextInput` widget from [`iced`]
 //
 // [`iced`]: https://github.com/iced-rs/iced
@@ -367,6 +399,7 @@ where
     /// [`Value`] if provided.
     ///
     /// [`Renderer`]: text::Renderer
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         tree: &Tree,
@@ -1269,9 +1302,9 @@ impl From<Id> for widget::Id {
     }
 }
 
-impl Into<Id> for widget::Id {
-    fn into(self) -> Id {
-        Id(self)
+impl From<widget::Id> for Id {
+    fn from(val: widget::Id) -> Self {
+        Id(val)
     }
 }
 
@@ -1305,7 +1338,7 @@ where
 {
     widget::operate(widget::operation::focusable::focus_next()).chain(
         widget::operate(widget::operation::focusable::find_focused())
-            .then(move |id| f(id)),
+            .then(f),
     )
 }
 
@@ -1318,7 +1351,7 @@ where
 {
     widget::operate(widget::operation::focusable::focus_previous()).chain(
         widget::operate(widget::operation::focusable::find_focused())
-            .then(move |id| f(id)),
+            .then(f),
     )
 }
 

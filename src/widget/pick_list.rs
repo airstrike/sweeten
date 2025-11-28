@@ -1,11 +1,14 @@
 //! Pick lists display a dropdown list of selectable options.
 //!
+//! This is a sweetened version of `iced`'s [`pick_list`] with support for
+//! disabling individual items via a closure passed to the constructor.
+//!
+//! [`pick_list`]: https://docs.rs/iced/latest/iced/widget/pick_list/
+//!
 //! # Example
 //! ```no_run
-//! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
-//! #
-//! use iced::widget::pick_list;
+//! # use iced::Element;
+//! use sweeten::widget::pick_list;
 //!
 //! struct State {
 //!    favorite: Option<Fruit>,
@@ -32,8 +35,15 @@
 //!         Fruit::Tomato,
 //!     ];
 //!
+//!     // Disable Tomato because nobody picks it as their favorite fruit!
 //!     pick_list(
 //!         fruits,
+//!         Some(|options: &[Fruit]| {
+//!             options
+//!                 .iter()
+//!                 .map(|fruit| matches!(fruit, Fruit::Tomato))
+//!                 .collect()
+//!         }),
 //!         state.favorite,
 //!         Message::FruitSelected,
 //!     )
@@ -106,10 +116,8 @@ use crate::widget::overlay::menu::{self, Menu};
 ///
 /// # Example
 /// ```no_run
-/// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-/// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
-/// #
-/// use iced::widget::pick_list;
+/// # use iced::Element;
+/// use sweeten::widget::pick_list;
 ///
 /// struct State {
 ///    favorite: Option<Fruit>,
@@ -136,12 +144,12 @@ use crate::widget::overlay::menu::{self, Menu};
 ///         Fruit::Tomato,
 ///     ];
 ///
-///     pick_list(
-///         fruits,
-///         state.favorite,
-///         Message::FruitSelected,
-///     )
-///     .placeholder("Select your favorite fruit...")
+///     let is_disabled = |fruits: &[Fruit]| {
+///         fruits.iter().map(|f| *f == Fruit::Tomato).collect()
+///     };
+///
+///     pick_list(fruits, Some(is_disabled), state.favorite, Message::FruitSelected)
+///         .placeholder("Select your favorite fruit...")
 ///     .into()
 /// }
 ///
@@ -743,7 +751,7 @@ where
             });
 
             let text_color = if is_selected {
-                if selected_index.map_or(false, |i| disabled_options[i]) {
+                if selected_index.is_some_and(|i| disabled_options[i]) {
                     style.disabled_text_color
                 } else {
                     style.text_color

@@ -1,3 +1,11 @@
+//! Sweetened widgets for [`iced`].
+//!
+//! This module contains enhanced versions of common `iced` widgets. Each widget
+//! is a drop-in replacement for its `iced` counterpart, with additional methods
+//! for extended functionality.
+//!
+//! [`iced`]: https://github.com/iced-rs/iced
+
 use iced::advanced::text;
 use iced::Element;
 use std::borrow::Borrow;
@@ -7,7 +15,13 @@ pub mod overlay;
 pub mod pick_list;
 pub mod text_input;
 
-/// A container intercepting mouse events.
+/// Creates a new [`mouse_area::MouseArea`] for capturing mouse events.
+///
+/// This is a sweetened version of `iced`'s [`MouseArea`] with support for
+/// receiving the click position via [`on_press_with`].
+///
+/// [`MouseArea`]: https://docs.rs/iced/latest/iced/widget/struct.MouseArea.html
+/// [`on_press_with`]: mouse_area::MouseArea::on_press_with
 pub fn mouse_area<'a, Message, Theme, Renderer>(
     widget: impl Into<Element<'a, Message, Theme, Renderer>>,
 ) -> mouse_area::MouseArea<'a, Message, Theme, Renderer>
@@ -17,8 +31,12 @@ where
     mouse_area::MouseArea::new(widget)
 }
 
-/// Pick lists display a dropdown list of selectable options, some of which
-/// may be disabled.
+/// Creates a new [`pick_list::PickList`] for selecting from a list of options.
+///
+/// This is a sweetened version of `iced`'s [`pick_list`] with support for
+/// disabling items in the dropdown.
+///
+/// [`pick_list`]: https://docs.rs/iced/latest/iced/widget/pick_list/
 pub fn pick_list<'a, T, L, V, Message, Theme, Renderer>(
     options: L,
     disabled: Option<impl Fn(&[T]) -> Vec<bool> + 'a>,
@@ -36,10 +54,14 @@ where
     pick_list::PickList::new(options, disabled, selected, on_selected)
 }
 
-/// Creates a new [`TextInput`].
+/// Creates a new [`text_input::TextInput`].
 ///
-/// Text inputs display fields that can be filled with text. This version
-/// also allows you to publish messages `.on_focus` and `.on_blur`.
+/// This is a sweetened version of `iced`'s [`text_input`] with support for
+/// [`on_focus`] and [`on_blur`] messages.
+///
+/// [`text_input`]: https://docs.rs/iced/latest/iced/widget/text_input/
+/// [`on_focus`]: text_input::TextInput::on_focus
+/// [`on_blur`]: text_input::TextInput::on_blur
 pub fn text_input<'a, Message, Theme, Renderer>(
     placeholder: &str,
     value: &str,

@@ -1,4 +1,32 @@
 //! A container for capturing mouse events.
+//!
+//! This is a sweetened version of `iced`'s [`MouseArea`] with additional
+//! methods:
+//!
+//! - [`MouseArea::on_press_with`] — Receive the click position as a [`Point`]
+//! - [`MouseArea::on_press_maybe`] — Conditionally handle press events
+//!
+//! [`MouseArea`]: https://docs.rs/iced/latest/iced/widget/struct.MouseArea.html
+//!
+//! # Example
+//! ```no_run
+//! # pub type State = ();
+//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! use iced::Point;
+//! use iced::widget::text;
+//! use sweeten::widget::mouse_area;
+//!
+//! #[derive(Clone)]
+//! enum Message {
+//!     Clicked(Point),
+//! }
+//!
+//! fn view(state: &State) -> Element<'_, Message> {
+//!     mouse_area(text("Click me!"))
+//!         .on_press_with(Message::Clicked)
+//!         .into()
+//! }
+//! ```
 //
 // This widget is a modification of the original `MouseArea` widget from [`iced`]
 //

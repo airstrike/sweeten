@@ -1,8 +1,8 @@
 [package]
 name = "sweeten"
-version = "0.2.0"
+version = "0.13.0"
 edition = "2021"
-authors = ["Andy Terra <spam@andyterra.com>"]
+authors = ["Andy Terra <tech@andyterra.com>"]
 description = "`sweeten` your daily `iced` brew"
 license = "MIT"
 repository = "https://github.com/airstrike/sweeten"
@@ -14,3 +14,20 @@ readme = "README.md"
 iced.version = "0.13.1"
 iced.features = ["advanced"]
 unicode-segmentation = "1.11.0"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lints.rust]
+rust_2018_idioms = { level = "deny", priority = -1 }
+unsafe_code = "deny"
+
+[lints.clippy]
+semicolon_if_nothing_returned = "deny"
+trivially-copy-pass-by-ref = "deny"
+redundant-closure-for-method-calls = "deny"
+needless_borrow = "deny"
+useless_conversion = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
