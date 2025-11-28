@@ -18,7 +18,7 @@ pub struct MouseArea<
     Renderer = crate::Renderer,
 > {
     content: Element<'a, Message, Theme, Renderer>,
-    on_press: Option<Message>,
+    on_press: Option<OnPress<'a, Message>>,
     on_release: Option<Message>,
     on_double_click: Option<Message>,
     on_right_press: Option<Message>,
@@ -32,11 +32,43 @@ pub struct MouseArea<
     interaction: Option<mouse::Interaction>,
 }
 
+enum OnPress<'a, Message> {
+    Direct(Message),
+    Closure(Box<dyn Fn(Point) -> Message + 'a>),
+}
+
+impl<Message: Clone> OnPress<'_, Message> {
+    fn get(&self, point: Point) -> Message {
+        match self {
+            OnPress::Direct(message) => message.clone(),
+            OnPress::Closure(f) => f(point),
+        }
+    }
+}
+
 impl<'a, Message, Theme, Renderer> MouseArea<'a, Message, Theme, Renderer> {
-    /// The message to emit on a left button press.
+    /// Sets the message to emit on a left button press.
     #[must_use]
     pub fn on_press(mut self, message: Message) -> Self {
-        self.on_press = Some(message);
+        self.on_press = Some(OnPress::Direct(message));
+        self
+    }
+
+    /// Sets the message to emit on a left button press, using a closure
+    /// that receives the click position.
+    #[must_use]
+    pub fn on_press_with(
+        mut self,
+        on_press: impl Fn(Point) -> Message + 'a,
+    ) -> Self {
+        self.on_press = Some(OnPress::Closure(Box::new(on_press)));
+        self
+    }
+
+    /// Sets the message to emit on a left button press, if `Some`.
+    #[must_use]
+    pub fn on_press_maybe(mut self, message: Option<Message>) -> Self {
+        self.on_press = message.map(OnPress::Direct);
         self
     }
 
@@ -373,9 +405,11 @@ fn update<Message: Clone, Theme, Renderer>(
     match event {
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
         | Event::Touch(touch::Event::FingerPressed { .. }) => {
-            if let Some(message) = widget.on_press.as_ref() {
-                shell.publish(message.clone());
-                shell.capture_event();
+            if let Some(on_press) = widget.on_press.as_ref() {
+                if let Some(position) = cursor.position_in(layout.bounds()) {
+                    shell.publish(on_press.get(position));
+                    shell.capture_event();
+                }
             }
 
             if let Some(position) = cursor_position

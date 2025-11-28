@@ -31,6 +31,7 @@ pub struct Menu<
 {
     state: &'a mut State,
     options: &'a [T],
+    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -59,12 +60,14 @@ where
         options: &'a [T],
         hovered_option: &'a mut Option<usize>,
         on_selected: impl FnMut(T) -> Message + 'a,
+        disabled: Option<Vec<bool>>,
         on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
         class: &'a <Theme as Catalog>::Class<'b>,
     ) -> Self {
         Menu {
             state,
             options,
+            disabled,
             hovered_option,
             on_selected: Box::new(on_selected),
             on_option_hovered,
@@ -119,6 +122,15 @@ where
 
     /// Turns the [`Menu`] into an overlay [`Element`] at the given target
     /// position.
+    /// Check if an option at the given index is disabled.
+    pub fn is_disabled(&self, index: usize) -> bool {
+        self.disabled
+            .as_ref()
+            .and_then(|d| d.get(index))
+            .copied()
+            .unwrap_or(false)
+    }
+
     ///
     /// The `target_height` will be used to display the menu either on top
     /// of the target or under it, depending on the screen position and the
@@ -195,6 +207,7 @@ where
         let Menu {
             state,
             options,
+            disabled,
             hovered_option,
             on_selected,
             on_option_hovered,
@@ -209,6 +222,7 @@ where
 
         let list = Scrollable::new(List {
             options,
+            disabled,
             hovered_option,
             on_selected,
             on_option_hovered,
@@ -334,6 +348,7 @@ where
     Renderer: text::Renderer,
 {
     options: &'a [T],
+    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,

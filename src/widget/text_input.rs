@@ -113,6 +113,8 @@ pub struct TextInput<
     size: Option<Pixels>,
     line_height: text::LineHeight,
     alignment: alignment::Horizontal,
+    on_focus: Option<Box<dyn Fn(String) -> Message + 'a>>,
+    on_blur: Option<Message>,
     on_input: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_paste: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_submit: Option<Message>,
@@ -144,6 +146,8 @@ where
             size: None,
             line_height: text::LineHeight::default(),
             alignment: alignment::Horizontal::Left,
+            on_focus: None,
+            on_blur: None,
             on_input: None,
             on_paste: None,
             on_submit: None,
@@ -162,6 +166,23 @@ where
     /// Converts the [`TextInput`] into a secure password input.
     pub fn secure(mut self, is_secure: bool) -> Self {
         self.is_secure = is_secure;
+        self
+    }
+
+    /// Sets the message that should be produced when the [`TextInput`] is
+    /// focused.
+    pub fn on_focus(
+        mut self,
+        on_focus: impl Fn(String) -> Message + 'a,
+    ) -> Self {
+        self.on_focus = Some(Box::new(on_focus));
+        self
+    }
+
+    /// Sets the message that should be produced when the [`TextInput`] is
+    /// blurred.
+    pub fn on_blur(mut self, on_blur: Message) -> Self {
+        self.on_blur = Some(on_blur);
         self
     }
 
@@ -719,11 +740,19 @@ where
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
                 let state = state::<Renderer>(tree);
                 let cursor_before = state.cursor;
+                let was_focused = state.is_focused.is_some();
 
                 let click_position = cursor.position_over(layout.bounds());
 
                 state.is_focused = if click_position.is_some() {
                     let now = Instant::now();
+
+                    if !was_focused {
+                        if let Some(on_focus) = &self.on_focus {
+                            let message = on_focus(self.value.to_string());
+                            shell.publish(message);
+                        }
+                    }
 
                     Some(Focus {
                         updated_at: now,
@@ -731,6 +760,12 @@ where
                         is_window_focused: true,
                     })
                 } else {
+                    if was_focused {
+                        if let Some(on_blur) = &self.on_blur {
+                            shell.publish(on_blur.clone());
+                        }
+                    }
+
                     None
                 };
 
@@ -1230,6 +1265,10 @@ where
 
                             state.keyboard_modifiers =
                                 keyboard::Modifiers::default();
+
+                            if let Some(on_blur) = &self.on_blur {
+                                shell.publish(on_blur.clone());
+                            }
 
                             shell.capture_event();
                         }

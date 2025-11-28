@@ -161,6 +161,7 @@ pub struct PickList<
     on_open: Option<Message>,
     on_close: Option<Message>,
     options: L,
+    disabled: Option<Box<dyn Fn(&[T]) -> Vec<bool> + 'a>>,
     placeholder: Option<String>,
     selected: Option<V>,
     width: Length,
@@ -198,6 +199,7 @@ where
             on_open: None,
             on_close: None,
             options,
+            disabled: None,
             placeholder: None,
             selected,
             width: Length::Shrink,
@@ -217,6 +219,18 @@ where
     /// Sets the placeholder of the [`PickList`].
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    /// Sets a function that determines which options are disabled.
+    ///
+    /// The function receives the list of options and returns a `Vec<bool>`
+    /// where `true` means the option at that index is disabled.
+    pub fn disabled(
+        mut self,
+        disabled: impl Fn(&[T]) -> Vec<bool> + 'a,
+    ) -> Self {
+        self.disabled = Some(Box::new(disabled));
         self
     }
 
@@ -706,6 +720,11 @@ where
 
             let on_select = &self.on_select;
 
+            let disabled = self
+                .disabled
+                .as_ref()
+                .map(|f| f(self.options.borrow()));
+
             let mut menu = Menu::new(
                 &mut state.menu,
                 self.options.borrow(),
@@ -715,6 +734,7 @@ where
 
                     (on_select)(option)
                 },
+                disabled,
                 None,
                 &self.menu_class,
             )
