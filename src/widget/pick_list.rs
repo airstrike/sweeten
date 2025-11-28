@@ -142,6 +142,7 @@ use std::f32;
 ///     }
 /// }
 /// ```
+#[allow(clippy::type_complexity)]
 pub struct PickList<
     'a,
     T,

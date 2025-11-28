@@ -401,9 +401,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.47"
+version = "1.2.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd405d82c84ff7f35739f175f67d8b9fb7687a0e84ccdc78bd3568839827cf07"
+checksum = "c481bdbf0ed3b892f6f806287d72acd515b352a4ec27a208489b8c1bc839633a"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1174,7 +1174,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 [[package]]
 name = "iced"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "iced_core",
  "iced_debug",
@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1247,7 +1247,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -1280,7 +1280,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -1296,7 +1296,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "bitflags 2.10.0",
  "bytemuck",
@@ -1328,7 +1328,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.14.0-dev"
-source = "git+https://github.com/iced-rs/iced.git#d94c080dd4cf94a799c5d5437fc755c1f24b7c1a"
+source = "git+https://github.com/iced-rs/iced.git#c21289df4ad53d2a54e2750d1aead67948777fe2"
 dependencies = [
  "iced_debug",
  "iced_program",
@@ -2846,9 +2846,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.41"
+version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
+checksum = "2d15d90a0b5c19378952d479dc858407149d7bb45a14de0142f6c534b16fc647"
 dependencies = [
  "log",
  "pin-project-lite",

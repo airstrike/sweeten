@@ -468,6 +468,7 @@ where
     /// [`Value`] if provided.
     ///
     /// [`Renderer`]: text::Renderer
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         tree: &Tree,

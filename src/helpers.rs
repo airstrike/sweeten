@@ -10,6 +10,13 @@ use crate::widget::MouseArea;
 use std::borrow::Borrow;
 
 /// Creates a new [`TextInput`].
+///
+/// This is a sweetened version of [`iced`'s `text_input`] with support for
+/// [`on_focus`] and [`on_blur`] messages.
+///
+/// [`iced`'s `text_input`]: https://docs.iced.rs/iced/widget/text_input/index.html
+/// [`on_focus`]: TextInput::on_focus
+/// [`on_blur`]: TextInput::on_blur
 pub fn text_input<'a, Message, Theme, Renderer>(
     placeholder: &str,
     value: &str,
@@ -23,6 +30,12 @@ where
 }
 
 /// Creates a new [`PickList`].
+///
+/// This is a sweetened version of [`iced`'s `pick_list`] with support for
+/// disabling items in the dropdown via [`disabled`].
+///
+/// [`iced`'s `pick_list`]: https://docs.iced.rs/iced/widget/pick_list/index.html
+/// [`disabled`]: PickList::disabled
 pub fn pick_list<'a, T, L, V, Message, Theme, Renderer>(
     options: L,
     selected: Option<V>,
@@ -39,7 +52,13 @@ where
     PickList::new(options, selected, on_selected)
 }
 
-/// Creates a new [`MouseArea`].
+/// Creates a new [`MouseArea`] for capturing mouse events.
+///
+/// This is a sweetened version of [`iced`'s `MouseArea`] with support for
+/// receiving the click position via [`on_press_with`].
+///
+/// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
+/// [`on_press_with`]: MouseArea::on_press_with
 pub fn mouse_area<'a, Message, Theme, Renderer>(
     widget: impl Into<Element<'a, Message, Theme, Renderer>>,
 ) -> MouseArea<'a, Message, Theme, Renderer>
