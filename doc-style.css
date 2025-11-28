@@ -1,0 +1,256 @@
+/* Sweeten brand colors for docs.rs */
+
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Lekton:wght@400;700&display=swap');
+
+:root[data-theme="dark"] {
+    /* Sweeten Color System */
+    /* Green */
+    --green-900: #085e16;
+    --green-700: #2a9d3d;
+    --green-500: #38b24d;
+    --green-300: #3dc754;
+
+    /* Lime */
+    --lime-900: #55931f;
+    --lime-700: #76c431;
+    --lime-500: #88cb4d;
+    --lime-300: #9cdf62;
+
+    /* Blue */
+    --blue-900: #19318f;
+    --blue-700: #2740a5;
+    --blue-500: #3350c1;
+    --blue-300: #5971cf;
+
+    /* Cobalt */
+    --cobalt-900: #1c4359;
+    --cobalt-700: #2d5b76;
+    --cobalt-500: #4682a4;
+    --cobalt-300: #5abaf2;
+
+    /* Neutral */
+    --black: #000000;
+    --gray-950: #0d0f11;
+    --gray-900: #1a1d21;
+    --gray-600: #3d4249;
+    --gray-400: #6b7280;
+    --gray-200: #d1d5db;
+    --white: #f8fafc;
+
+    /* Semantic mappings for docs */
+    --sweeten-bg: var(--gray-900);
+    --sweeten-active: var(--lime-500);
+    --sweeten-muted: var(--gray-400);
+    --sweeten-text: var(--gray-200);
+    --sweeten-link: var(--cobalt-300);
+
+    --font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+    --font-family-code: 'Lekton', ui-monospace, monospace;
+
+    /* Override rustdoc dark theme variables */
+    --main-background-color: var(--sweeten-bg);
+    --main-color: var(--sweeten-text);
+    --sidebar-background-color: var(--sweeten-bg);
+    --sidebar-background-color-hover: var(--gray-600);
+    --link-color: var(--sweeten-link);
+    --sidebar-link-color: var(--sweeten-muted);
+    --sidebar-current-link-background-color: transparent;
+    --search-input-focused-border-color: var(--sweeten-active);
+    --headings-border-bottom-color: var(--gray-600);
+    --settings-button-border-focus: var(--sweeten-active);
+}
+
+#crate-search,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.sidebar,
+.mobile-topbar,
+.search-input,
+.search-results .result-name,
+.item-table dt>a,
+.out-of-band,
+.sub-heading,
+span.since,
+a.src,
+rustdoc-toolbar,
+summary.hideme,
+.scraped-example-list,
+.rustdoc-breadcrumbs,
+ul.all-items {
+    font-family: var(--font-family);
+}
+
+/* Code uses Lekton */
+pre, code, .rustdoc code, .docblock code, .docblock pre {
+    font-family: var(--font-family-code);
+}
+
+/* Inline code in prose should match surrounding text size */
+.docblock p code,
+.docblock li code,
+.docblock td code {
+    font-size: inherit;
+    padding: 0.1em 0.3em;
+}
+
+/* Semantic colors for different item types */
+/* Modules - green */
+.item-table .mod a {
+    color: var(--green-500);
+}
+.item-table .mod a:hover {
+    color: var(--green-300);
+}
+
+/* Functions - lime */
+.item-table .fn a {
+    color: var(--lime-500);
+}
+.item-table .fn a:hover {
+    color: var(--lime-300);
+}
+
+/* Enums/Types - cobalt */
+.item-table .enum a,
+.item-table .struct a,
+.item-table .type a {
+    color: var(--cobalt-300);
+}
+.item-table .enum a:hover,
+.item-table .struct a:hover,
+.item-table .type a:hover {
+    color: var(--cobalt-300);
+}
+
+/* Override dark theme background */
+body {
+    background-color: var(--sweeten-bg);
+    font-family: var(--font-family);
+}
+
+/* Ensure bold text uses proper weight */
+strong, b, h1, h2, h3, .sidebar .logo-container {
+    font-weight: 700;
+}
+
+.sidebar,
+.sidebar-elems,
+nav.sub {
+    background-color: var(--sweeten-bg);
+}
+
+/* Main content area */
+.content,
+main {
+    background-color: var(--sweeten-bg);
+    color: var(--sweeten-text);
+}
+
+/* Links - cobalt by default, lime on hover */
+a {
+    color: var(--sweeten-link);
+    text-decoration: none;
+}
+
+a:hover {
+    color: var(--sweeten-active);
+}
+
+/* Headers - white for h1-h3, muted for rest */
+h1,
+h2,
+h3 {
+    color: var(--white);
+}
+
+h4,
+h5,
+h6 {
+    color: var(--sweeten-text);
+}
+
+/* Sidebar section headers */
+.sidebar .block h3,
+.sidebar-elems .block h3,
+.sidebar .block h3 a,
+.sidebar-elems .block h3 a {
+    color: var(--white);
+}
+
+/* Sidebar active item */
+.sidebar .current {
+    background-color: var(--sweeten-bg) !important;
+    color: var(--sweeten-active);
+}
+
+.sidebar a {
+    color: var(--sweeten-muted);
+}
+
+.sidebar-elems a:hover,
+.sidebar a:hover,
+.sidebar .current a {
+    color: var(--white);
+    background-color: var(--gray-600) !important;
+}
+
+:target:not([data-nosnippet]) {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--sweeten-active);
+    border-right: 1px solid var(--sweeten-active);
+}
+
+/* Search box */
+.search-input {
+    background-color: var(--gray-600);
+    border: none;
+    border-radius: 0;
+    color: var(--white);
+}
+
+.search-input:focus {
+    border: 1px solid var(--sweeten-active);
+}
+
+/* Muted text */
+.since,
+.stability,
+.out-of-band,
+.docblock .warning {
+    color: var(--sweeten-muted);
+}
+
+/* Function/type signatures */
+.item-decl {
+    background-color: var(--gray-950);
+}
+
+/* All code blocks */
+.docblock pre,
+.docblock .example-wrap,
+.rustdoc .example-wrap,
+pre.rust,
+.item-decl pre {
+    background-color: var(--gray-950);
+}
+
+/* Inline code in prose */
+.docblock code,
+.docblock p code,
+.docblock li code {
+    background-color: var(--gray-950);
+}
+
+.docblock li code {
+    display: inline-block;
+}
+
+/* Top bar */
+.top-doc .docblock,
+.search-container {
+    background-color: var(--sweeten-bg);
+}

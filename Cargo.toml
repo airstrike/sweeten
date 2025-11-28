@@ -35,6 +35,7 @@ iced_widget.git = "https://github.com/iced-rs/iced.git"
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--extend-css", "doc-style.css"]
 
 [lints.rust]
 rust_2018_idioms = { level = "deny", priority = -1 }
