@@ -16,10 +16,8 @@ use sweeten::text_input;
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
-        .window(iced::window::Settings {
-            min_size: Some([600.0, 400.0].into()),
-            ..iced::window::Settings::default()
-        })
+        .window_size((500.0, 300.0))
+        .title("sweeten • text_input with focus handling")
         .subscription(App::subscription)
         .run()
 }
@@ -134,6 +132,7 @@ enum Message {
     SubmitForm,
     FocusNext,
     FocusPrevious,
+    FocusedId(Id),
 }
 
 impl App {
@@ -144,7 +143,7 @@ impl App {
                 password: Input::new(Field::Password),
                 focused_field: None,
             },
-            Task::none(),
+            Task::done(Message::FocusNext),
         )
     }
 
@@ -159,7 +158,6 @@ impl App {
                 }
             },
             Message::InputFocused(field, _value) => {
-                // The value is provided by on_focus, demonstrating the callback
                 self.focused_field = Some(field);
             }
             Message::InputBlurred(field) => {
@@ -185,10 +183,13 @@ impl App {
                 }
             }
             Message::FocusNext => {
-                return operation::focus_next();
+                return sweeten::text_input::focus_next().discard();
             }
             Message::FocusPrevious => {
-                return operation::focus_previous();
+                return sweeten::text_input::focus_previous().map(Message::FocusedId);
+            }
+            Message::FocusedId(id) => {
+                println!("focused: {id:?}");
             }
         }
         Task::none()

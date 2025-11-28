@@ -737,6 +737,22 @@ where
             );
         };
 
+        // Detect focus changes from operations (e.g., Tab key)
+        {
+            let state = state::<Renderer>(tree);
+            let is_focused = state.is_focused.is_some();
+            if is_focused != state.was_focused {
+                if is_focused {
+                    if let Some(on_focus) = &self.on_focus {
+                        shell.publish(on_focus(self.value.to_string()));
+                    }
+                } else if let Some(on_blur) = &self.on_blur {
+                    shell.publish(on_blur.clone());
+                }
+                state.was_focused = is_focused;
+            }
+        }
+
         match &event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
@@ -751,8 +767,7 @@ where
 
                     if !was_focused {
                         if let Some(on_focus) = &self.on_focus {
-                            let message = on_focus(self.value.to_string());
-                            shell.publish(message);
+                            shell.publish(on_focus(self.value.to_string()));
                         }
                     }
 
@@ -770,6 +785,8 @@ where
 
                     None
                 };
+
+                state.was_focused = state.is_focused.is_some();
 
                 if let Some(cursor_position) = click_position {
                     let text_layout = layout.children().next().unwrap();
@@ -1495,6 +1512,7 @@ pub struct State<P: text::Paragraph> {
     placeholder: paragraph::Plain<P>,
     icon: paragraph::Plain<P>,
     is_focused: Option<Focus>,
+    was_focused: bool,
     is_dragging: Option<Drag>,
     is_pasting: Option<Value>,
     preedit: Option<input_method::Preedit>,
@@ -1868,29 +1886,25 @@ fn convert_macos_shortcut(
 }
 
 /// Produces a [`Task`] that focuses the next focusable widget
-/// and then applies the provided function to create a resulting task.
+/// and returns the [`widget::Id`] of the newly focused widget.
 ///
-/// This is a sweetened version that tells you which widget received focus.
-pub fn focus_next<T, F>(f: F) -> Task<T>
-where
-    T: Send + 'static,
-    F: Fn(widget::Id) -> Task<T> + Send + Sync + 'static,
-{
-    iced_runtime::widget::operation::focus_next().chain(
-        iced_runtime::task::widget(operation::focusable::find_focused()).then(f),
-    )
+/// This is a sweetened version of [`iced_runtime::widget::operation::focus_next`]
+/// that tells you which widget received focus.
+///
+/// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
+pub fn focus_next() -> Task<widget::Id> {
+    iced_runtime::widget::operation::focus_next()
+        .chain(iced_runtime::task::widget(operation::focusable::find_focused()))
 }
 
 /// Produces a [`Task`] that focuses the previous focusable widget
-/// and then applies the provided function to create a resulting task.
+/// and returns the [`widget::Id`] of the newly focused widget.
 ///
-/// This is a sweetened version that tells you which widget received focus.
-pub fn focus_previous<T, F>(f: F) -> Task<T>
-where
-    T: Send + 'static,
-    F: Fn(widget::Id) -> Task<T> + Send + Sync + 'static,
-{
-    iced_runtime::widget::operation::focus_previous().chain(
-        iced_runtime::task::widget(operation::focusable::find_focused()).then(f),
-    )
+/// This is a sweetened version of [`iced_runtime::widget::operation::focus_previous`]
+/// that tells you which widget received focus.
+///
+/// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
+pub fn focus_previous() -> Task<widget::Id> {
+    iced_runtime::widget::operation::focus_previous()
+        .chain(iced_runtime::task::widget(operation::focusable::find_focused()))
 }
