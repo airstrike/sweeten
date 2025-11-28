@@ -1,11 +1,14 @@
 //! Pick lists display a dropdown list of selectable options.
 //!
+//! This is a sweetened version of `iced`'s [`pick_list`] with support for
+//! disabling individual items via [`PickList::disabled`].
+//!
+//! [`pick_list`]: https://docs.iced.rs/iced/widget/pick_list/
+//!
 //! # Example
 //! ```no_run
-//! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
-//! #
-//! use iced::widget::pick_list;
+//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! use sweeten::widget::pick_list;
 //!
 //! struct State {
 //!    favorite: Option<Fruit>,
@@ -32,21 +35,13 @@
 //!         Fruit::Tomato,
 //!     ];
 //!
-//!     pick_list(
-//!         fruits,
-//!         state.favorite,
-//!         Message::FruitSelected,
-//!     )
-//!     .placeholder("Select your favorite fruit...")
-//!     .into()
-//! }
-//!
-//! fn update(state: &mut State, message: Message) {
-//!     match message {
-//!         Message::FruitSelected(fruit) => {
-//!             state.favorite = Some(fruit);
-//!         }
-//!     }
+//!     // Disable Tomato because it's not a fruit!
+//!     pick_list(fruits, state.favorite, Message::FruitSelected)
+//!         .disabled(|options| {
+//!             options.iter().map(|f| matches!(f, Fruit::Tomato)).collect()
+//!         })
+//!         .placeholder("Select your favorite fruit...")
+//!         .into()
 //! }
 //!
 //! impl std::fmt::Display for Fruit {
@@ -721,10 +716,8 @@ where
 
             let on_select = &self.on_select;
 
-            let disabled = self
-                .disabled
-                .as_ref()
-                .map(|f| f(self.options.borrow()));
+            let disabled =
+                self.disabled.as_ref().map(|f| f(self.options.borrow()));
 
             let mut menu = Menu::new(
                 &mut state.menu,

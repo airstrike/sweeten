@@ -3,9 +3,9 @@
 use crate::core;
 use crate::core::Element;
 use crate::overlay::menu;
+use crate::widget::MouseArea;
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::text_input::{self, TextInput};
-use crate::widget::MouseArea;
 
 use std::borrow::Borrow;
 
@@ -54,11 +54,11 @@ where
 
 /// Creates a new [`MouseArea`] for capturing mouse events.
 ///
-/// This is a sweetened version of [`iced`'s `MouseArea`] with support for
-/// receiving the click position via [`on_press_with`].
+/// This is a sweetened version of [`iced`'s `MouseArea`] where all event
+/// handlers receive the cursor position as a [`Point`].
 ///
 /// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
-/// [`on_press_with`]: MouseArea::on_press_with
+/// [`Point`]: crate::core::Point
 pub fn mouse_area<'a, Message, Theme, Renderer>(
     widget: impl Into<Element<'a, Message, Theme, Renderer>>,
 ) -> MouseArea<'a, Message, Theme, Renderer>

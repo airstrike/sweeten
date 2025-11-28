@@ -528,9 +528,8 @@ where
         renderer: &Renderer,
     ) -> mouse::Interaction {
         if let Some(cursor_position) = cursor.position_in(layout.bounds()) {
-            let text_size = self
-                .text_size
-                .unwrap_or_else(|| renderer.default_size());
+            let text_size =
+                self.text_size.unwrap_or_else(|| renderer.default_size());
 
             let option_height =
                 f32::from(self.text_line_height.to_absolute(text_size))

@@ -1,33 +1,32 @@
 //! Text inputs display fields that can be filled with text.
 //!
+//! This is a sweetened version of `iced`'s [`text_input`] with additional
+//! methods:
+//!
+//! - [`TextInput::on_focus`] — Emit a message when the input gains focus
+//! - [`TextInput::on_blur`] — Emit a message when the input loses focus
+//!
+//! [`text_input`]: https://docs.iced.rs/iced/widget/text_input/
+//!
 //! # Example
 //! ```no_run
-//! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
-//! #
-//! use iced::widget::text_input;
+//! # pub type State = String;
+//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! use sweeten::widget::text_input;
 //!
-//! struct State {
-//!    content: String,
-//! }
-//!
-//! #[derive(Debug, Clone)]
+//! #[derive(Clone)]
 //! enum Message {
-//!     ContentChanged(String)
+//!     ContentChanged(String),
+//!     Focused,
+//!     Blurred,
 //! }
 //!
 //! fn view(state: &State) -> Element<'_, Message> {
-//!     text_input("Type something here...", &state.content)
+//!     text_input("Type something...", state)
 //!         .on_input(Message::ContentChanged)
+//!         .on_focus(Message::Focused)
+//!         .on_blur(Message::Blurred)
 //!         .into()
-//! }
-//!
-//! fn update(state: &mut State, message: Message) {
-//!     match message {
-//!         Message::ContentChanged(content) => {
-//!             state.content = content;
-//!         }
-//!     }
 //! }
 //! ```
 mod editor;
@@ -115,7 +114,7 @@ pub struct TextInput<
     size: Option<Pixels>,
     line_height: text::LineHeight,
     alignment: alignment::Horizontal,
-    on_focus: Option<Box<dyn Fn(String) -> Message + 'a>>,
+    on_focus: Option<Message>,
     on_blur: Option<Message>,
     on_input: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_paste: Option<Box<dyn Fn(String) -> Message + 'a>>,
@@ -173,11 +172,8 @@ where
 
     /// Sets the message that should be produced when the [`TextInput`] is
     /// focused.
-    pub fn on_focus(
-        mut self,
-        on_focus: impl Fn(String) -> Message + 'a,
-    ) -> Self {
-        self.on_focus = Some(Box::new(on_focus));
+    pub fn on_focus(mut self, on_focus: Message) -> Self {
+        self.on_focus = Some(on_focus);
         self
     }
 
@@ -745,7 +741,7 @@ where
             if is_focused != state.was_focused {
                 if is_focused {
                     if let Some(on_focus) = &self.on_focus {
-                        shell.publish(on_focus(self.value.to_string()));
+                        shell.publish(on_focus.clone());
                     }
                 } else if let Some(on_blur) = &self.on_blur {
                     shell.publish(on_blur.clone());
@@ -768,7 +764,7 @@ where
 
                     if !was_focused {
                         if let Some(on_focus) = &self.on_focus {
-                            shell.publish(on_focus(self.value.to_string()));
+                            shell.publish(on_focus.clone());
                         }
                     }
 
@@ -1876,12 +1872,22 @@ fn convert_macos_shortcut(
     }
 
     match key.as_ref() {
-        keyboard::Key::Character("b") => &keyboard::Key::Named(key::Named::ArrowLeft),
-        keyboard::Key::Character("f") => &keyboard::Key::Named(key::Named::ArrowRight),
-        keyboard::Key::Character("a") => &keyboard::Key::Named(key::Named::Home),
+        keyboard::Key::Character("b") => {
+            &keyboard::Key::Named(key::Named::ArrowLeft)
+        }
+        keyboard::Key::Character("f") => {
+            &keyboard::Key::Named(key::Named::ArrowRight)
+        }
+        keyboard::Key::Character("a") => {
+            &keyboard::Key::Named(key::Named::Home)
+        }
         keyboard::Key::Character("e") => &keyboard::Key::Named(key::Named::End),
-        keyboard::Key::Character("h") => &keyboard::Key::Named(key::Named::Backspace),
-        keyboard::Key::Character("d") => &keyboard::Key::Named(key::Named::Delete),
+        keyboard::Key::Character("h") => {
+            &keyboard::Key::Named(key::Named::Backspace)
+        }
+        keyboard::Key::Character("d") => {
+            &keyboard::Key::Named(key::Named::Delete)
+        }
         _ => key,
     }
 }
@@ -1894,8 +1900,9 @@ fn convert_macos_shortcut(
 ///
 /// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
 pub fn focus_next() -> Task<widget::Id> {
-    iced_runtime::widget::operation::focus_next()
-        .chain(iced_runtime::task::widget(operation::focusable::find_focused()))
+    iced_runtime::widget::operation::focus_next().chain(
+        iced_runtime::task::widget(operation::focusable::find_focused()),
+    )
 }
 
 /// Produces a [`Task`] that focuses the previous focusable widget
@@ -1906,6 +1913,7 @@ pub fn focus_next() -> Task<widget::Id> {
 ///
 /// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
 pub fn focus_previous() -> Task<widget::Id> {
-    iced_runtime::widget::operation::focus_previous()
-        .chain(iced_runtime::task::widget(operation::focusable::find_focused()))
+    iced_runtime::widget::operation::focus_previous().chain(
+        iced_runtime::task::widget(operation::focusable::find_focused()),
+    )
 }

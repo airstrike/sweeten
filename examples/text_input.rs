@@ -9,7 +9,9 @@
 //! Run with: `cargo run --example text_input`
 
 use iced::keyboard;
-use iced::widget::{button, center, column, container, operation, row, text, Id};
+use iced::widget::{
+    Id, button, center, column, container, operation, row, text,
+};
 use iced::{Center, Element, Fill, Subscription, Task};
 
 use sweeten::text_input;
@@ -106,8 +108,9 @@ impl Input {
                 if self.value.is_empty() {
                     self.error = Some("Password is required".to_string());
                 } else if self.value.len() < 12 {
-                    self.error =
-                        Some("Password must be at least 12 characters".to_string());
+                    self.error = Some(
+                        "Password must be at least 12 characters".to_string(),
+                    );
                 } else {
                     self.error = None;
                 }
@@ -127,7 +130,7 @@ struct App {
 #[derive(Debug, Clone)]
 enum Message {
     InputChanged(Field, String),
-    InputFocused(Field, String),
+    InputFocused(Field),
     InputBlurred(Field),
     SubmitForm,
     FocusNext,
@@ -151,13 +154,15 @@ impl App {
         match message {
             Message::InputChanged(field, value) => match field {
                 Field::Username => {
-                    self.username = self.username.clone().with_value(value).validate();
+                    self.username =
+                        self.username.clone().with_value(value).validate();
                 }
                 Field::Password => {
-                    self.password = self.password.clone().with_value(value).validate();
+                    self.password =
+                        self.password.clone().with_value(value).validate();
                 }
             },
-            Message::InputFocused(field, _value) => {
+            Message::InputFocused(field) => {
                 self.focused_field = Some(field);
             }
             Message::InputBlurred(field) => {
@@ -186,7 +191,8 @@ impl App {
                 return sweeten::text_input::focus_next().discard();
             }
             Message::FocusPrevious => {
-                return sweeten::text_input::focus_previous().map(Message::FocusedId);
+                return sweeten::text_input::focus_previous()
+                    .map(Message::FocusedId);
             }
             Message::FocusedId(id) => {
                 println!("focused: {id:?}");
@@ -211,7 +217,7 @@ impl App {
             let input_widget = text_input(field.placeholder(), value)
                 .id(field.id())
                 .on_input(move |text| Message::InputChanged(field, text))
-                .on_focus(move |value| Message::InputFocused(field, value))
+                .on_focus(Message::InputFocused(field))
                 .on_blur(Message::InputBlurred(field))
                 .width(Fill)
                 .secure(field == Field::Password);
@@ -249,11 +255,12 @@ impl App {
             ""
         };
 
-        let form_status = text(form_status_content).style(if self.form_is_valid() {
-            text::success
-        } else {
-            text::danger
-        });
+        let form_status =
+            text(form_status_content).style(if self.form_is_valid() {
+                text::success
+            } else {
+                text::danger
+            });
 
         center(
             column![
@@ -273,22 +280,24 @@ impl App {
 
     fn subscription(&self) -> Subscription<Message> {
         use iced::event::{self, Event};
-        use iced::keyboard::{key::Named, Key};
+        use iced::keyboard::{Key, key::Named};
 
         event::listen_with(|event, _, _| match event {
-            Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                match key {
-                    Key::Named(Named::Tab) => {
-                        if modifiers.shift() {
-                            Some(Message::FocusPrevious)
-                        } else {
-                            Some(Message::FocusNext)
-                        }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                ..
+            }) => match key {
+                Key::Named(Named::Tab) => {
+                    if modifiers.shift() {
+                        Some(Message::FocusPrevious)
+                    } else {
+                        Some(Message::FocusNext)
                     }
-                    Key::Named(Named::Enter) => Some(Message::SubmitForm),
-                    _ => None,
                 }
-            }
+                Key::Named(Named::Enter) => Some(Message::SubmitForm),
+                _ => None,
+            },
             _ => None,
         })
     }

@@ -14,3 +14,6 @@ pub mod text_input;
 pub use mouse_area::MouseArea;
 pub use pick_list::PickList;
 pub use text_input::TextInput;
+
+// Re-export helper functions (same pattern as iced_widget)
+pub use crate::helpers::*;

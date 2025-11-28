@@ -1,3 +1,26 @@
+// This crate contains modifications of widgets from [`iced`].
+//
+// [`iced`]: https://github.com/iced-rs/iced
+//
+// Copyright 2019 Héctor Ramón, Iced contributors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+// the Software, and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+// FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+// IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 //! # sweeten
 //!
 //! `sweeten` provides enhanced versions of common [`iced`] widgets with
@@ -9,8 +32,8 @@
 //!
 //! The following widgets are available in the [`widget`] module:
 //!
-//! - [`mouse_area`] — A container for capturing mouse events, with support for
-//!   receiving the click position via [`on_press_with`].
+//! - [`mouse_area`] — A container for capturing mouse events where all handlers
+//!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
 //!   disabling items.
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
@@ -32,7 +55,7 @@
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`text_input`]: mod@widget::text_input
-//! [`on_press_with`]: widget::mouse_area::MouseArea::on_press_with
+//! [`Point`]: crate::core::Point
 //! [`on_focus`]: widget::text_input::TextInput::on_focus
 //! [`on_blur`]: widget::text_input::TextInput::on_blur
 

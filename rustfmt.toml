@@ -1,3 +1,2 @@
-max_width = 80
-edition = "2021"
-indent_style = "Block"
+max_width=80
+edition="2024"

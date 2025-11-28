@@ -1,13 +1,12 @@
 //! Demonstrates the enhanced mouse_area widget with click position tracking.
 //!
-//! This example shows:
-//! - `on_press_with(Fn(Point) -> Message)` - receive click position in local coordinates
-//! - `on_press(Message)` - simple click handler without position
+//! This example shows how all mouse event handlers receive the cursor position
+//! as a [`Point`] in local coordinates.
 //!
 //! Run with: `cargo run --example mouse_area`
 
 use iced::widget::{center, column, container, row, text};
-use iced::{color, Center, Element, Length, Point};
+use iced::{Center, Element, Length, Point, color};
 
 use sweeten::mouse_area;
 
@@ -37,7 +36,8 @@ impl App {
     fn update(&mut self, message: Message) {
         match message {
             Message::ClickWithPoint(point) => {
-                self.last_click = format!("Clicked at ({:.0}, {:.0})", point.x, point.y);
+                self.last_click =
+                    format!("Clicked at ({:.0}, {:.0})", point.x, point.y);
             }
             Message::SimpleClick => {
                 self.last_click = String::from("Simple click");
@@ -53,12 +53,12 @@ impl App {
                         "Click me and I'll tell you where!",
                         0x813060
                     ))
-                    .on_press_with(Message::ClickWithPoint),
+                    .on_press(Message::ClickWithPoint),
                     mouse_area(block(
                         "Click me and I won't say a word...",
                         0x008189
                     ))
-                    .on_press(Message::SimpleClick),
+                    .on_press(|_| Message::SimpleClick),
                 ]
                 .spacing(10),
                 text(&self.last_click).align_x(Center)
