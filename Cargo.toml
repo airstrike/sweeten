@@ -2,7 +2,7 @@
 name = "sweeten"
 version = "0.14.0-dev"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 authors = ["Andy Terra <tech@andyterra.com>"]
 description = "`sweeten` your daily `iced` brew"
 license = "MIT"

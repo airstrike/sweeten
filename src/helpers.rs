@@ -4,10 +4,60 @@ use crate::core;
 use crate::core::Element;
 use crate::overlay::menu;
 use crate::widget::MouseArea;
+use crate::widget::column::{self, Column};
 use crate::widget::pick_list::{self, PickList};
+use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
 
 use std::borrow::Borrow;
+
+/// Creates a [`Column`] with the given children.
+///
+/// Columns distribute their children vertically.
+#[macro_export]
+macro_rules! column {
+    () => (
+        $crate::widget::Column::new()
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::widget::Column::with_children([$($crate::core::Element::from($x)),+])
+    );
+}
+
+/// Creates a [`Row`] with the given children.
+///
+/// Rows distribute their children horizontally.
+#[macro_export]
+macro_rules! row {
+    () => (
+        $crate::widget::Row::new()
+    );
+    ($($x:expr),+ $(,)?) => (
+        $crate::widget::Row::with_children([$($crate::core::Element::from($x)),+])
+    );
+}
+
+/// Creates a new [`Row`] with the given children.
+pub fn row<'a, Message, Theme, Renderer>(
+    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
+) -> Row<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: row::Catalog,
+{
+    Row::with_children(children)
+}
+
+/// Creates a new [`Column`] with the given children.
+pub fn column<'a, Message, Theme, Renderer>(
+    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
+) -> Column<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: column::Catalog,
+{
+    Column::with_children(children)
+}
 
 /// Creates a new [`TextInput`].
 ///

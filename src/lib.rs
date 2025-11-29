@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 // This crate contains modifications of widgets from [`iced`].
 //
 // [`iced`]: https://github.com/iced-rs/iced
@@ -65,7 +66,7 @@ pub mod widget;
 pub use helpers::*;
 
 // Re-exports to mirror iced_widget structure (allows minimal diff for widgets)
-use iced_core as core;
+pub use iced_core as core;
 pub use iced_core::Theme;
 pub use iced_widget::Renderer;
 pub use iced_widget::{button, scrollable, text_editor};
