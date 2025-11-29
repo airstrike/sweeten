@@ -4,6 +4,9 @@
 
 ## `sweeten` your daily `iced` brew
 
+[![Crates.io](https://img.shields.io/crates/v/sweeten.svg)](https://crates.io/crates/sweeten)
+[![Documentation](https://docs.rs/sweeten/badge.svg)](https://docs.rs/sweeten)
+[![License](https://img.shields.io/crates/l/sweeten.svg)](https://github.com/airstrike/sweeten/blob/master/LICENSE)
 [![Made with iced](https://iced.rs/badge.svg)](https://github.com/iced-rs/iced)
 
 </div>
@@ -96,7 +99,7 @@ The library is organized into modules for each enhanced widget:
 - [x] MouseArea widget
 - [x] PickList widget
 - [x] TextInput widget with focus management
-- [ ] Row and Column with drag and drop and enhanced layout capabilities
+- [x] Row and Column with drag and drop
 
 ## Contributing
 
