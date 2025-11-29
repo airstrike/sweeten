@@ -20,11 +20,16 @@ capabilities.
 
 ## Installation
 
-Add this to your `Cargo.toml`:
+If you're using the latest `iced` release:
+
+```bash
+cargo add sweeten
+```
+
+If you're tracking `iced` from git, add this to your `Cargo.toml`:
 
 ```toml
-[dependencies]
-sweeten = "0.1.0"
+sweeten = { git = "https://github.com/airstrike/sweeten", branch = "master" }
 ```
 
 ## Current Features
@@ -69,6 +74,21 @@ A sweetened version of `iced`'s `text_input` widget with additional focus-relate
 
 - `.on_focus` and `.on_blur` methods for handling focus events
 - Sweetened `focus_next` and `focus_previous` focus management functions, which return the ID of the focused element
+
+### `Row` and `Column`
+
+Sweetened versions of `iced`'s `Row` and `Column` with drag-and-drop reordering
+support via `.on_drag`:
+
+```rust
+use sweeten::widget::column;
+use sweeten::widget::drag::DragEvent;
+
+column(items.iter().map(|s| s.as_str().into()))
+    .spacing(5)
+    .on_drag(Message::Reorder)
+    .into()
+```
 
 ## Examples
 

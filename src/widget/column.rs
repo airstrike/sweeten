@@ -1,28 +1,29 @@
 //! Distribute content vertically.
 //!
-//! This widget is a modification of the original `Column` widget from [`iced`]
-//! with added drag-and-drop reordering support.
+//! This is a sweetened version of `iced`'s [`Column`] with drag-and-drop
+//! reordering support via [`Column::on_drag`].
 //!
-//! [`iced`]: https://github.com/iced-rs/iced
+//! [`Column`]: https://docs.iced.rs/iced/widget/struct.Column.html
 //!
-//! Copyright 2019 Hector Ramon, Iced contributors
+//! # Example
 //!
-//! Permission is hereby granted, free of charge, to any person obtaining a copy of
-//! this software and associated documentation files (the "Software"), to deal in
-//! the Software without restriction, including without limitation the rights to
-//! use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-//! the Software, and to permit persons to whom the Software is furnished to do so,
-//! subject to the following conditions:
+//! ```no_run
+//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! use sweeten::widget::column;
+//! use sweeten::widget::drag::DragEvent;
 //!
-//! The above copyright notice and this permission notice shall be included in all
-//! copies or substantial portions of the Software.
+//! #[derive(Clone)]
+//! enum Message {
+//!     Reorder(DragEvent),
+//! }
 //!
-//! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//! IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-//! FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-//! COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-//! IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-//! CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//! fn view(items: &[String]) -> Element<'_, Message> {
+//!     column(items.iter().map(|s| s.as_str().into()))
+//!         .spacing(5)
+//!         .on_drag(Message::Reorder)
+//!         .into()
+//! }
+//! ```
 
 use crate::core::alignment::{self, Alignment};
 use crate::core::layout::{self, Layout};

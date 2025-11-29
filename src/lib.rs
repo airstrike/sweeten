@@ -33,10 +33,14 @@
 //!
 //! The following widgets are available in the [`widget`] module:
 //!
+//! - [`column`] — Distribute content vertically, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
 //!   disabling items.
+//! - [`row`] — Distribute content horizontally, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
 //!
@@ -45,7 +49,7 @@
 //! Import the widgets you need from `sweeten::widget`:
 //!
 //! ```no_run
-//! use sweeten::widget::{mouse_area, pick_list, text_input};
+//! use sweeten::widget::{column, mouse_area, pick_list, row, text_input};
 //! # fn main() {}
 //! ```
 //!
@@ -53,8 +57,10 @@
 //! counterparts, with additional methods for the extended functionality.
 //!
 //! [`iced`]: https://github.com/iced-rs/iced
+//! [`column`]: mod@widget::column
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
+//! [`row`]: mod@widget::row
 //! [`text_input`]: mod@widget::text_input
 //! [`Point`]: crate::core::Point
 //! [`on_focus`]: widget::text_input::TextInput::on_focus
