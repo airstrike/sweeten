@@ -78,7 +78,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let nav_buttons = column![
             text("Click on a # to jump to that item")
                 .width(Fill)
