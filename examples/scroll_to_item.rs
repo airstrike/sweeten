@@ -1,16 +1,17 @@
 use std::sync::LazyLock;
 
-use iced::widget::{button, center, column, container, pop, scrollable, text};
-use iced::{Center, Element, Fill, Length, Task};
+use iced::widget::{button, center, column, container, scrollable, sensor, text};
+use iced::{widget, Center, Element, Fill, Length, Task};
 use sweeten::operation::position;
 use sweeten::widget::row;
 
 fn main() -> iced::Result {
     iced::application(
-        "sweetened iced • lazy loading example",
+        || App::new(),
         App::update,
         App::view,
     )
+    .title("sweetened iced • lazy loading example")
     .window_size((800.0, 350.0))
     .centered()
     .run()
@@ -48,13 +49,17 @@ const LANGUAGES: &[&str] = &[
     "TypeScript",
 ];
 
-const SCROLLABLE: LazyLock<scrollable::Id> =
-    LazyLock::new(|| scrollable::Id::new("my_scrollable"));
+const SCROLLABLE: LazyLock<widget::Id> =
+    LazyLock::new(|| widget::Id::new("my_scrollable"));
 
 const POSITION_TRACKER: LazyLock<position::Id> =
     LazyLock::new(|| position::Id::new("languages_row"));
 
 impl App {
+    fn new() -> Self {
+        Self::default()
+    }
+    
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::JumpTo(idx) => {
@@ -108,8 +113,8 @@ impl App {
                         .height(200.0)
                         .style(container::rounded_box);
 
-                pop(container(item).align_y(Center))
-                    .on_show(Message::ItemVisible(idx))
+                sensor(container(item).align_y(Center))
+                    .on_show(move |_| Message::ItemVisible(idx))
                     .anticipate(100.0)
                     .into()
             }))
