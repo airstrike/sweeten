@@ -1,5 +1,5 @@
 use iced::widget::{center, column, container, row, text};
-use iced::{color, Alignment::Center, Element, Length, Point};
+use iced::{color, Alignment::Center, Color, Element, Length, Point};
 use sweeten::widget::mouse_area;
 
 fn main() -> iced::Result {
@@ -37,18 +37,18 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         center(
             column![
                 row![
                     mouse_area(block(
                         "Click me and I'll tell you where!",
-                        0x813060
+                        color!(0x813060)
                     ))
                     .on_press_with(|point| Message::ClickWithPoint(point)),
                     mouse_area(block(
                         "Click me and I won't say a word...",
-                        0x008189
+                        color!(0x008189)
                     ))
                     .on_press(Message::SimpleClick),
                 ]
@@ -63,12 +63,12 @@ impl App {
     }
 }
 
-fn block(label: &str, hex: u32) -> Element<Message> {
+fn block(label: &str, color: Color) -> Element<'_, Message> {
     container(label)
         .align_y(Center)
         .align_x(Center)
         .width(Length::Fixed(300.0))
         .height(Length::Fixed(200.0))
-        .style(move |_| container::background(color!(hex)))
+        .style(move |_| container::background(color))
         .into()
 }
