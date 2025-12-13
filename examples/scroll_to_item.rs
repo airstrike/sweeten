@@ -2,6 +2,7 @@ use std::sync::LazyLock;
 
 use iced::widget::{button, center, column, container, scrollable, sensor, text};
 use iced::{widget, Center, Element, Fill, Length, Task};
+use iced::advanced::widget::operation::scrollable::scroll_to;
 use sweeten::operation::position;
 use sweeten::widget::row;
 
@@ -63,18 +64,20 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::JumpTo(idx) => {
-                position::find_position(POSITION_TRACKER.clone(), idx).and_then(
+                let _ : Task<Message> = position::find_position(POSITION_TRACKER.clone(), idx).and_then(
                     move |bounds| {
                         println!("Jump to {} at {:?}", idx, bounds.x);
-                        scrollable::scroll_to(
+                        scroll_to::<Message>(
                             SCROLLABLE.clone(),
                             scrollable::AbsoluteOffset {
-                                x: bounds.x,
-                                y: 0.0,
+                                x: Some(bounds.x),
+                                y: Some(0.0),
                             },
-                        )
+                        );
+                        Task::none()
                     },
-                )
+                );
+                Task::none()
             }
             Message::ItemVisible(idx) => {
                 println!("Item {} is now visible", idx);

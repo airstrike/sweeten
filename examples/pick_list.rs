@@ -5,10 +5,11 @@ use sweeten::widget::pick_list;
 
 fn main() -> iced::Result {
     iced::application(
-        "sweetened iced - PickList example",
+        App::default,
         App::update,
         App::view,
     )
+        .title("sweetened iced - PickList example")
     .window_size((300.0, 200.0))
     .theme(App::theme)
     .run()
@@ -37,7 +38,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let pick_list = pick_list(
             &Language::ALL[..],
             Some(|languages: &[Language]| {

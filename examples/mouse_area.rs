@@ -3,7 +3,7 @@ use iced::{color, Alignment::Center, Element, Length, Point};
 use sweeten::widget::mouse_area;
 
 fn main() -> iced::Result {
-    iced::run("sweetened iced - MouseArea example", App::update, App::view)
+    iced::run(App::update, App::view)
 }
 
 struct App {
@@ -32,7 +32,7 @@ impl App {
                     format!("Clicked at ({}, {})", point.x, point.y);
             }
             Message::SimpleClick => {
-                self.last_click = format!("Simple click");
+                self.last_click = "Simple click".to_owned();
             }
         }
     }
@@ -63,7 +63,7 @@ impl App {
     }
 }
 
-fn block<'a>(label: &'a str, hex: u32) -> Element<'a, Message> {
+fn block(label: &str, hex: u32) -> Element<Message> {
     container(label)
         .align_y(Center)
         .align_x(Center)
