@@ -250,24 +250,24 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
         self.content
-            .as_widget()
+            .as_widget_mut()
             .layout(&mut tree.children[0], renderer, limits)
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.content.as_widget().operate(
+        self.content.as_widget_mut().operate(
             &mut tree.children[0],
             layout,
             renderer,
@@ -278,7 +278,7 @@ where
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -288,7 +288,7 @@ where
     ) {
         self.content.as_widget_mut().update(
             &mut tree.children[0],
-            event.clone(),
+            event,
             layout,
             cursor,
             renderer,
@@ -354,14 +354,16 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         self.content.as_widget_mut().overlay(
             &mut tree.children[0],
             layout,
             renderer,
+            viewport,
             translation,
         )
     }
@@ -386,7 +388,7 @@ where
 fn update<Message: Clone, Theme, Renderer>(
     widget: &mut MouseArea<'_, Message, Theme, Renderer>,
     tree: &mut Tree,
-    event: Event,
+    event: &Event,
     layout: Layout<'_>,
     cursor: mouse::Cursor,
     shell: &mut Shell<'_, Message>,
@@ -521,7 +523,7 @@ fn update<Message: Clone, Theme, Renderer>(
 
     if let Some(on_scroll) = widget.on_scroll.as_ref() {
         if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
-            shell.publish(on_scroll(delta));
+            shell.publish(on_scroll(*delta));
 
             return event::Status::Captured;
         }

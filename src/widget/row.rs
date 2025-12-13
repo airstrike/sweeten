@@ -287,7 +287,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -304,7 +304,7 @@ where
             self.padding,
             self.spacing,
             self.align,
-            &self.children,
+            &mut self.children,
             &mut tree.children,
         );
 
@@ -319,7 +319,7 @@ where
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
@@ -353,7 +353,7 @@ where
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -369,7 +369,7 @@ where
         {
             child.as_widget_mut().update(
                 state,
-                event.clone(),
+                event,
                 layout,
                 cursor,
                 renderer,
@@ -435,8 +435,9 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         overlay::from_children(
@@ -444,6 +445,7 @@ where
             tree,
             layout,
             renderer,
+            viewport,
             translation,
         )
     }
@@ -491,7 +493,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -532,8 +534,8 @@ where
             }
         };
 
-        for (i, child) in self.row.children.iter().enumerate() {
-            let node = child.as_widget().layout(
+        for (i, child) in self.row.children.iter_mut().enumerate() {
+            let node = child.as_widget_mut().layout(
                 &mut tree.children[i],
                 renderer,
                 &limits,
@@ -576,7 +578,7 @@ where
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
@@ -588,7 +590,7 @@ where
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -630,11 +632,12 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.row.overlay(tree, layout, renderer, translation)
+        self.row.overlay(tree, layout, renderer, viewport, translation)
     }
 }
 

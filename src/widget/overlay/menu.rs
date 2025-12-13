@@ -35,6 +35,7 @@ use iced::{
     Background, Color, Element, Length, Padding, Pixels, Point, Rectangle,
     Size, Theme, Vector,
 };
+use iced::wgpu::naga::valid::GlobalVariableError::Alignment;
 
 /// A list of selectable options.
 #[allow(missing_debug_implementations)]
@@ -222,7 +223,7 @@ where
 struct Overlay<'a, 'b, Message, Theme, Renderer>
 where
     Theme: Catalog,
-    Renderer: renderer::Renderer,
+    Renderer: renderer::Renderer + iced::advanced::text::Renderer,
 {
     position: Point,
     state: &'a mut Tree,
@@ -327,7 +328,7 @@ where
 
     fn update(
         &mut self,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -346,11 +347,10 @@ where
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
         self.list
-            .mouse_interaction(self.state, layout, cursor, viewport, renderer)
+            .mouse_interaction(self.state, layout, cursor, &Rectangle::INFINITE, renderer)
     }
 
     fn draw(
@@ -413,7 +413,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         _tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -441,7 +441,7 @@ where
     fn update(
         &mut self,
         _state: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
@@ -622,10 +622,10 @@ where
                     size: text_size,
                     line_height: self.text_line_height,
                     font: self.font.unwrap_or_else(|| renderer.default_font()),
-                    horizontal_alignment: alignment::Horizontal::Left,
-                    vertical_alignment: alignment::Vertical::Center,
+                    align_x: text::Alignment::Left,
                     shaping: self.text_shaping,
                     wrapping: text::Wrapping::default(),
+                    align_y: alignment::Vertical::Center,
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
                 if is_disabled {

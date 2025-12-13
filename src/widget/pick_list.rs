@@ -101,7 +101,7 @@ use iced::{
 
 use std::borrow::Borrow;
 use std::f32;
-
+use iced::alignment::Vertical;
 use crate::widget::overlay::menu::{self, Menu};
 
 /// A widget for selecting a single value from a list, with some items optionally disabled.
@@ -374,7 +374,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -397,10 +397,10 @@ where
             size: text_size,
             line_height: self.text_line_height,
             font,
-            horizontal_alignment: alignment::Horizontal::Left,
-            vertical_alignment: alignment::Vertical::Center,
+            align_x: text::Alignment::Left,
             shaping: self.text_shaping,
             wrapping: text::Wrapping::default(),
+            align_y: Vertical::Center,
         };
 
         for (option, paragraph) in options.iter().zip(state.options.iter_mut())
@@ -456,7 +456,7 @@ where
     fn update(
         &mut self,
         tree: &mut Tree,
-        event: Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
@@ -535,7 +535,7 @@ where
                         .map(|f| f(options))
                         .unwrap_or_else(|| vec![false; options.len()]);
 
-                    let next_option = if y < 0.0 {
+                    let next_option = if *y < 0.0 {
                         if let Some(selected) = selected {
                             let mut next = find_next(selected, options.iter());
                             // Keep finding next until we hit a non-disabled
@@ -558,7 +558,7 @@ where
                                 .find(|(i, _)| !disabled[*i])
                                 .map(|(_, opt)| opt)
                         }
-                    } else if y > 0.0 {
+                    } else if *y > 0.0 {
                         if let Some(selected) = selected {
                             let mut next =
                                 find_next(selected, options.iter().rev());
@@ -598,7 +598,7 @@ where
                 let state =
                     tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
-                state.keyboard_modifiers = modifiers;
+                state.keyboard_modifiers = modifiers.clone();
             }
             _ => {}
         }
@@ -711,14 +711,14 @@ where
                     size,
                     line_height,
                     font,
+                    align_x: text::Alignment::Right,
                     bounds: Size::new(
                         bounds.width,
                         f32::from(line_height.to_absolute(size)),
                     ),
-                    horizontal_alignment: alignment::Horizontal::Right,
-                    vertical_alignment: alignment::Vertical::Center,
                     shaping,
                     wrapping: text::Wrapping::default(),
+                    align_y: Vertical::Center,
                 },
                 Point::new(
                     bounds.x + bounds.width - self.padding.right,
@@ -756,14 +756,14 @@ where
                     size: text_size,
                     line_height: self.text_line_height,
                     font,
+                    align_x: text::Alignment::Left,
                     bounds: Size::new(
                         bounds.width - self.padding.horizontal(),
                         f32::from(self.text_line_height.to_absolute(text_size)),
                     ),
-                    horizontal_alignment: alignment::Horizontal::Left,
-                    vertical_alignment: alignment::Vertical::Center,
                     shaping: self.text_shaping,
                     wrapping: text::Wrapping::default(),
+                    align_y: Vertical::Center,
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
                 text_color,
@@ -777,6 +777,7 @@ where
         tree: &'b mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
+        _viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
