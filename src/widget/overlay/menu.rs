@@ -35,7 +35,6 @@ use iced::{
     Background, Color, Element, Length, Padding, Pixels, Point, Rectangle,
     Size, Theme, Vector,
 };
-use iced::wgpu::naga::valid::GlobalVariableError::Alignment;
 
 /// A list of selectable options.
 #[allow(missing_debug_implementations)]
