@@ -757,7 +757,7 @@ where
                     font,
                     align_x: text::Alignment::Left,
                     bounds: Size::new(
-                        bounds.width - self.padding.horizontal(),
+                        bounds.width - self.padding.left - self.padding.right,
                         f32::from(self.text_line_height.to_absolute(text_size)),
                     ),
                     shaping: self.text_shaping,

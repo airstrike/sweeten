@@ -198,7 +198,7 @@ where
             self.text_size.unwrap_or_else(|| renderer.default_size());
         let option_height =
             f32::from(self.text_line_height.to_absolute(text_size))
-                + self.padding.vertical();
+                + self.padding.top + self.padding.bottom;
 
         let index = (cursor_position.y / option_height) as usize;
 
@@ -427,7 +427,7 @@ where
         let size = {
             let intrinsic = Size::new(
                 0.0,
-                (f32::from(text_line_height) + self.padding.vertical())
+                (f32::from(text_line_height) + self.padding.top + self.padding.bottom)
                     * self.options.len() as f32,
             );
 
@@ -561,7 +561,7 @@ where
             self.text_size.unwrap_or_else(|| renderer.default_size());
         let option_height =
             f32::from(self.text_line_height.to_absolute(text_size))
-                + self.padding.vertical();
+                + self.padding.top + self.padding.bottom;
 
         let offset = viewport.y - bounds.y;
         let start = (offset / option_height) as usize;

@@ -2,7 +2,6 @@ use iced::advanced::widget::operation::{Operation, Outcome};
 use iced::advanced::widget::{self, operate};
 use iced::{Rectangle, Task};
 use std::any::Any;
-use std::borrow::Cow;
 
 /// The identifier of a widget that can track positions.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -10,7 +9,7 @@ pub struct Id(pub widget::Id);
 
 impl Id {
     /// Creates a custom [`Id`].
-    pub fn new(id: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(id: &'static str) -> Self {
         Self(widget::Id::new(id))
     }
 
@@ -65,6 +64,7 @@ pub fn find_position(target: Id, index: usize) -> Task<Option<Rectangle>> {
         target: Id,
         index: usize,
         found_bounds: Option<Rectangle>,
+        skip_traverse: bool,
     }
 
     impl Operation<Option<Rectangle>> for FindPosition {
@@ -72,15 +72,21 @@ pub fn find_position(target: Id, index: usize) -> Task<Option<Rectangle>> {
             &mut self,
             id: Option<&widget::Id>,
             _bounds: Rectangle,
-            operate_on_children: &mut dyn FnMut(
-                &mut dyn Operation<Option<Rectangle>>,
-            ),
         ) {
-            if Some(&self.target.0) == id {
-                return;
-            }
+            // If this is the target container, skip traversing its children
+            // (we'll get the position from the custom method instead)
+            self.skip_traverse = Some(&self.target.0) == id;
+        }
 
-            operate_on_children(self);
+        fn traverse(&mut self, operate_on_children: &mut dyn FnMut(
+            &mut dyn Operation<Option<Rectangle>>,
+        )) {
+            // Only traverse if we haven't found the target container
+            if !self.skip_traverse {
+                operate_on_children(self);
+            }
+            // Reset the flag for the next container
+            self.skip_traverse = false;
         }
 
         fn custom(
@@ -108,5 +114,6 @@ pub fn find_position(target: Id, index: usize) -> Task<Option<Rectangle>> {
         target,
         index,
         found_bounds: None,
+        skip_traverse: false,
     })
 }

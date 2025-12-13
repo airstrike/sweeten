@@ -330,18 +330,18 @@ where
         operation.container(
             self.id.as_ref().map(|id| &id.0),
             layout.bounds(),
-            &mut |operation| {
-                self.children
-                    .iter()
-                    .zip(&mut tree.children)
-                    .zip(layout.children())
-                    .for_each(|((child, state), layout)| {
-                        child
-                            .as_widget()
-                            .operate(state, layout, renderer, operation);
-                    });
-            },
         );
+        operation.traverse(&mut |operation| {
+            self.children
+                .iter_mut()
+                .zip(&mut tree.children)
+                .zip(layout.children())
+                .for_each(|((child, state), layout)| {
+                    child
+                        .as_widget_mut()
+                        .operate(state, layout, renderer, operation);
+                });
+        });
 
         operation.custom(
             self.id.as_ref().map(|id| &id.0),
