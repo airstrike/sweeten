@@ -1,6 +1,6 @@
 [package]
 name = "sweeten"
-version = "0.14.0-dev"
+version = "0.15.0-dev"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Andy Terra <tech@andyterra.com>"]
@@ -12,13 +12,13 @@ categories = ["gui"]
 readme = "README.md"
 
 [dependencies]
-iced_core.version = "0.14.0-dev"
-iced_runtime.version = "0.14.0-dev"
-iced_widget.version = "0.14.0-dev"
+iced_core.version = "0.15.0-dev"
+iced_runtime.version = "0.15.0-dev"
+iced_widget.version = "0.15.0-dev"
 unicode-segmentation = "1.11.0"
 
 [dev-dependencies]
-iced.version = "0.14.0-dev"
+iced.version = "0.15.0-dev"
 iced.features = ["advanced"]
 
 [patch.crates-io]

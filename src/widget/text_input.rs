@@ -340,6 +340,7 @@ where
             align_y: alignment::Vertical::Center,
             shaping: text::Shaping::Advanced,
             wrapping: text::Wrapping::default(),
+            hint_factor: renderer.scale_factor(),
         };
 
         let _ = state.placeholder.update(placeholder_text);
@@ -365,6 +366,7 @@ where
                 align_y: alignment::Vertical::Center,
                 shaping: text::Shaping::Advanced,
                 wrapping: text::Wrapping::default(),
+                hint_factor: renderer.scale_factor(),
             };
 
             let _ = state.icon.update(icon_text);
@@ -1734,6 +1736,7 @@ fn replace_paragraph<Renderer>(
         align_y: alignment::Vertical::Center,
         shaping: text::Shaping::Advanced,
         wrapping: text::Wrapping::default(),
+        hint_factor: renderer.scale_factor(),
     });
 }
 
