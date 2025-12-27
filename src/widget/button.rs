@@ -327,6 +327,10 @@ where
             shell,
             viewport,
         );
+
+        if shell.is_event_captured() {
+            return;
+        }
         // Detect focus changes from operations (e.g., Tab key)
         {
             let state = tree.state.downcast_mut::<State>();
@@ -361,6 +365,7 @@ where
                         state.is_focused = true;
                         state.was_focused = true;
 
+                        shell.capture_event();
                         return;
                     } else {
                         if let Some(on_blur) = &self.on_blur {
@@ -389,6 +394,7 @@ where
                             shell.publish(on_press);
                         }
 
+                        shell.capture_event();
                         return;
                     }
                 }
@@ -413,6 +419,8 @@ where
                     {
                         state.status = Status::Pressed;
                         shell.publish(on_press.get());
+
+                        shell.capture_event();
                         return;
                     }
                 }
