@@ -40,7 +40,7 @@ pub use value::Value;
 use editor::Editor;
 
 use crate::core::alignment;
-use crate::core::clipboard::{self, Clipboard};
+use crate::core::clipboard;
 use crate::core::input_method;
 use crate::core::keyboard;
 use crate::core::keyboard::key;
@@ -720,7 +720,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
@@ -764,10 +763,8 @@ where
                 state.is_focused = if click_position.is_some() {
                     let now = Instant::now();
 
-                    if !was_focused {
-                        if let Some(on_focus) = &self.on_focus {
-                            shell.publish(on_focus.clone());
-                        }
+                    if !was_focused && let Some(on_focus) = &self.on_focus {
+                        shell.publish(on_focus.clone());
                     }
 
                     Some(Focus {
@@ -776,10 +773,8 @@ where
                         is_window_focused: true,
                     })
                 } else {
-                    if was_focused {
-                        if let Some(on_blur) = &self.on_blur {
-                            shell.publish(on_blur.clone());
-                        }
+                    if was_focused && let Some(on_blur) = &self.on_blur {
+                        shell.publish(on_blur.clone());
                     }
 
                     None
@@ -967,9 +962,12 @@ where
                             if let Some((start, end)) =
                                 state.cursor.selection(&self.value)
                             {
-                                clipboard.write(
-                                    clipboard::Kind::Standard,
-                                    self.value.select(start, end).to_string(),
+                                shell.write_clipboard(
+                                    clipboard::Content::Text(
+                                        self.value
+                                            .select(start, end)
+                                            .to_string(),
+                                    ),
                                 );
                             }
 
@@ -987,9 +985,12 @@ where
                             if let Some((start, end)) =
                                 state.cursor.selection(&self.value)
                             {
-                                clipboard.write(
-                                    clipboard::Kind::Standard,
-                                    self.value.select(start, end).to_string(),
+                                shell.write_clipboard(
+                                    clipboard::Content::Text(
+                                        self.value
+                                            .select(start, end)
+                                            .to_string(),
+                                    ),
                                 );
                             }
 
@@ -1013,17 +1014,13 @@ where
                                 return;
                             };
 
-                            let content = match state.is_pasting.take() {
-                                Some(content) => content,
+                            let content = match &state.is_pasting {
+                                Some(Paste::Pasting(content)) => content,
+                                Some(Paste::Reading) => return,
                                 None => {
-                                    let content: String = clipboard
-                                        .read(clipboard::Kind::Standard)
-                                        .unwrap_or_default()
-                                        .chars()
-                                        .filter(|c| !c.is_control())
-                                        .collect();
-
-                                    Value::new(&content)
+                                    shell.read_clipboard(clipboard::Kind::Text);
+                                    state.is_pasting = Some(Paste::Reading);
+                                    return;
                                 }
                             };
 
@@ -1039,7 +1036,6 @@ where
                             shell.publish(message);
                             shell.capture_event();
 
-                            state.is_pasting = Some(content);
                             focus.updated_at = Instant::now();
                             update_cache(state, &self.value);
                             return;
@@ -1294,6 +1290,36 @@ where
                     }
                 }
             }
+            Event::Clipboard(clipboard::Event::Read(Ok(content))) => {
+                let Some(on_input) = &self.on_input else {
+                    return;
+                };
+                let state = state::<Renderer>(tree);
+                let Some(focus) = &mut state.is_focused else {
+                    return;
+                };
+
+                if let clipboard::Content::Text(text) = content.as_ref()
+                    && let Some(Paste::Reading) = state.is_pasting
+                {
+                    state.is_pasting = Some(Paste::Pasting(Value::new(text)));
+
+                    let mut editor =
+                        Editor::new(&mut self.value, &mut state.cursor);
+                    editor.paste(Value::new(text));
+
+                    let message = if let Some(paste) = &self.on_paste {
+                        (paste)(editor.contents())
+                    } else {
+                        (on_input)(editor.contents())
+                    };
+                    shell.publish(message);
+                    shell.capture_event();
+                    focus.updated_at = Instant::now();
+                    update_cache(state, &self.value);
+                    return;
+                }
+            }
             Event::Keyboard(keyboard::Event::KeyReleased { key, .. }) => {
                 let state = state::<Renderer>(tree);
 
@@ -1513,12 +1539,18 @@ pub struct State<P: text::Paragraph> {
     is_focused: Option<Focus>,
     was_focused: bool,
     is_dragging: Option<Drag>,
-    is_pasting: Option<Value>,
+    is_pasting: Option<Paste>,
     preedit: Option<input_method::Preedit>,
     last_click: Option<mouse::Click>,
     cursor: Cursor,
     keyboard_modifiers: keyboard::Modifiers,
     // TODO: Add stateful horizontal scrolling offset
+}
+
+#[derive(Debug, Clone)]
+enum Paste {
+    Reading,
+    Pasting(Value),
 }
 
 fn state<Renderer: text::Renderer>(

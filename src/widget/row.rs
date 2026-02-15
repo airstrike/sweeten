@@ -33,9 +33,8 @@ use crate::core::renderer;
 use crate::core::time::Instant;
 use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{
-    Animation, Background, Border, Clipboard, Color, Element, Event, Length,
-    Padding, Pixels, Point, Rectangle, Shell, Size, Transformation, Vector,
-    Widget,
+    Animation, Background, Border, Color, Element, Event, Length, Padding,
+    Pixels, Point, Rectangle, Shell, Size, Transformation, Vector, Widget,
 };
 
 use super::drag::DragEvent;
@@ -444,7 +443,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -457,8 +455,7 @@ where
             .zip(layout.children())
         {
             child.as_widget_mut().update(
-                state, event, layout, cursor, renderer, clipboard, shell,
-                viewport,
+                state, event, layout, cursor, renderer, shell, viewport,
             );
         }
 
@@ -491,30 +488,29 @@ where
                 }
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                if self.on_drag.is_some() {
-                    if let Some(cursor_position) =
+                if self.on_drag.is_some()
+                    && let Some(cursor_position) =
                         cursor.position_over(layout.bounds())
-                    {
-                        let animations = match action {
-                            Action::Idle { animations, .. } => animations,
-                            Action::Picking { animations, .. } => animations,
-                            Action::Dragging { animations, .. } => animations,
-                        };
-                        animations.zero();
+                {
+                    let animations = match action {
+                        Action::Idle { animations, .. } => animations,
+                        Action::Picking { animations, .. } => animations,
+                        Action::Dragging { animations, .. } => animations,
+                    };
+                    animations.zero();
 
-                        let index =
-                            self.compute_target_index(cursor_position, layout);
+                    let index =
+                        self.compute_target_index(cursor_position, layout);
 
-                        *action = Action::Picking {
-                            index,
-                            origin: cursor_position,
-                            now: Instant::now(),
-                            animations: std::mem::take(animations),
-                        };
+                    *action = Action::Picking {
+                        index,
+                        origin: cursor_position,
+                        now: Instant::now(),
+                        animations: std::mem::take(animations),
+                    };
 
-                        shell.capture_event();
-                        shell.request_redraw();
-                    }
+                    shell.capture_event();
+                    shell.request_redraw();
                 }
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => match action {
@@ -524,32 +520,29 @@ where
                     now,
                     animations,
                 } => {
-                    if let Some(cursor_position) = cursor.position() {
-                        if cursor_position.distance(*origin)
+                    if let Some(cursor_position) = cursor.position()
+                        && cursor_position.distance(*origin)
                             > self.deadband_zone
-                        {
-                            let index = *index;
-                            let origin = *origin;
-                            let now = *now;
+                    {
+                        let index = *index;
+                        let origin = *origin;
+                        let now = *now;
 
-                            *action = Action::Dragging {
-                                index,
-                                origin,
-                                last_cursor: cursor_position,
-                                now,
-                                animations: std::mem::take(animations),
-                            };
+                        *action = Action::Dragging {
+                            index,
+                            origin,
+                            last_cursor: cursor_position,
+                            now,
+                            animations: std::mem::take(animations),
+                        };
 
-                            shell.request_redraw();
+                        shell.request_redraw();
 
-                            if let Some(on_drag) = &self.on_drag {
-                                shell.publish(on_drag(DragEvent::Picked {
-                                    index,
-                                }));
-                            }
-
-                            shell.capture_event();
+                        if let Some(on_drag) = &self.on_drag {
+                            shell.publish(on_drag(DragEvent::Picked { index }));
                         }
+
+                        shell.capture_event();
                     }
                 }
                 Action::Dragging {
