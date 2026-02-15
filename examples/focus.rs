@@ -1,25 +1,25 @@
-//! Demonstrates the enhanced text_input widget with focus/blur messages.
+//! Demonstrates focus handling with sweeten's text_input and button widgets.
 //!
 //! This example shows:
-//! - `on_focus(Fn(String) -> Message)` - receive the current value when focused
-//! - `on_blur(Message)` - emit a message when focus is lost
+//! - `on_focus(Message)` / `on_blur(Message)` on text inputs
+//! - `on_focus(Message)` / `on_blur(Message)` on buttons
+//! - Tab / Shift+Tab navigation between text inputs and buttons
+//! - Enter / Space to activate a focused button
 //! - Form validation with inline error display
-//! - Tab navigation between fields
 //!
-//! Run with: `cargo run --example text_input`
+//! Run with: `cargo run --example focus`
 
 use iced::keyboard;
-use iced::widget::{
-    Id, button, center, column, container, operation, row, text,
-};
+use iced::widget::{Id, center, column, container, row, text};
 use iced::{Center, Element, Fill, Subscription, Task};
 
-use sweeten::text_input;
+use sweeten::widget::operation;
+use sweeten::widget::{button, text_input};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
-        .window_size((500.0, 300.0))
-        .title("sweeten • text_input with focus handling")
+        .window_size((500.0, 350.0))
+        .title("sweeten • focus handling")
         .subscription(App::subscription)
         .run()
 }
@@ -120,11 +120,17 @@ impl Input {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FocusedElement {
+    Field(Field),
+    SubmitButton,
+}
+
 #[derive(Debug)]
 struct App {
     username: Input,
     password: Input,
-    focused_field: Option<Field>,
+    focused: Option<FocusedElement>,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +138,8 @@ enum Message {
     InputChanged(Field, String),
     InputFocused(Field),
     InputBlurred(Field),
+    ButtonFocused,
+    ButtonBlurred,
     SubmitForm,
     FocusNext,
     FocusPrevious,
@@ -144,7 +152,7 @@ impl App {
             Self {
                 username: Input::new(Field::Username),
                 password: Input::new(Field::Password),
-                focused_field: None,
+                focused: None,
             },
             Task::done(Message::FocusNext),
         )
@@ -163,36 +171,31 @@ impl App {
                 }
             },
             Message::InputFocused(field) => {
-                self.focused_field = Some(field);
+                self.focused = Some(FocusedElement::Field(field));
             }
             Message::InputBlurred(field) => {
-                if self.focused_field == Some(field) {
-                    self.focused_field = None;
+                if self.focused == Some(FocusedElement::Field(field)) {
+                    self.focused = None;
+                }
+            }
+            Message::ButtonFocused => {
+                self.focused = Some(FocusedElement::SubmitButton);
+            }
+            Message::ButtonBlurred => {
+                if self.focused == Some(FocusedElement::SubmitButton) {
+                    self.focused = None;
                 }
             }
             Message::SubmitForm => {
-                self.username = self.username.clone().validate();
-                self.password = self.password.clone().validate();
-
-                if self.form_is_valid() {
-                    println!("Form submitted successfully!");
-                } else {
-                    // Focus the first invalid field
-                    let field_to_focus = if self.username.error().is_some() {
-                        Field::Username
-                    } else {
-                        Field::Password
-                    };
-
-                    return operation::focus(field_to_focus.id());
-                }
+                self.username = Input::new(Field::Username);
+                self.password = Input::new(Field::Password);
+                return operation::focus(Field::Username.id());
             }
             Message::FocusNext => {
-                return sweeten::text_input::focus_next().discard();
+                return operation::focus_next().discard();
             }
             Message::FocusPrevious => {
-                return sweeten::text_input::focus_previous()
-                    .map(Message::FocusedId);
+                return operation::focus_previous().map(Message::FocusedId);
             }
             Message::FocusedId(id) => {
                 println!("focused: {id:?}");
@@ -209,16 +212,19 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let valid = self.form_is_valid();
+
         let create_field_view = |input: &Input| {
             let field = input.field();
             let value = input.value();
-            let is_focused = self.focused_field == Some(field);
+            let is_focused = self.focused == Some(FocusedElement::Field(field));
 
             let input_widget = text_input(field.placeholder(), value)
                 .id(field.id())
                 .on_input(move |text| Message::InputChanged(field, text))
                 .on_focus(Message::InputFocused(field))
                 .on_blur(Message::InputBlurred(field))
+                .on_submit_maybe(valid.then_some(Message::SubmitForm))
                 .width(Fill)
                 .secure(field == Field::Password);
 
@@ -242,25 +248,27 @@ impl App {
         };
 
         let submit_button = button(text("Submit").center())
-            .on_press_maybe(self.form_is_valid().then_some(Message::SubmitForm))
+            .on_press_maybe(valid.then_some(Message::SubmitForm))
+            .on_focus(Message::ButtonFocused)
+            .on_blur(Message::ButtonBlurred)
             .width(120);
 
-        let form_status_content = if self.username.error().is_some()
-            || self.password.error().is_some()
-        {
+        let has_errors =
+            self.username.error().is_some() || self.password.error().is_some();
+
+        let form_status_content = if has_errors {
             "Please fix the errors above"
-        } else if self.form_is_valid() {
+        } else if valid {
             "Form is valid!"
         } else {
             ""
         };
 
-        let form_status =
-            text(form_status_content).style(if self.form_is_valid() {
-                text::success
-            } else {
-                text::danger
-            });
+        let form_status = text(form_status_content).style(if valid {
+            text::success
+        } else {
+            text::danger
+        });
 
         center(
             column![
@@ -268,7 +276,7 @@ impl App {
                 create_field_view(&self.password),
                 row![form_status, container(submit_button).align_right(Fill)]
                     .spacing(20)
-                    .align_y(Center)
+                    .align_y(Center),
             ]
             .width(400)
             .align_x(Center)
@@ -280,24 +288,21 @@ impl App {
 
     fn subscription(&self) -> Subscription<Message> {
         use iced::event::{self, Event};
-        use iced::keyboard::{Key, key::Named};
+        use iced::keyboard::Key;
+        use iced::keyboard::key::Named;
 
         event::listen_with(|event, _, _| match event {
             Event::Keyboard(keyboard::Event::KeyPressed {
-                key,
+                key: Key::Named(Named::Tab),
                 modifiers,
                 ..
-            }) => match key {
-                Key::Named(Named::Tab) => {
-                    if modifiers.shift() {
-                        Some(Message::FocusPrevious)
-                    } else {
-                        Some(Message::FocusNext)
-                    }
+            }) => {
+                if modifiers.shift() {
+                    Some(Message::FocusPrevious)
+                } else {
+                    Some(Message::FocusNext)
                 }
-                Key::Named(Named::Enter) => Some(Message::SubmitForm),
-                _ => None,
-            },
+            }
             _ => None,
         })
     }

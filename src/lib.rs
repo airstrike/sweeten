@@ -33,6 +33,10 @@
 //!
 //! The following widgets are available in the [`widget`] module:
 //!
+//! - [`button`] — A button that supports
+//!   [`on_focus`](widget::button::Button::on_focus) and
+//!   [`on_blur`](widget::button::Button::on_blur) messages, with keyboard
+//!   activation via Enter/Space when focused.
 //! - [`column`] — Distribute content vertically, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
@@ -49,7 +53,7 @@
 //! Import the widgets you need from `sweeten::widget`:
 //!
 //! ```no_run
-//! use sweeten::widget::{column, mouse_area, pick_list, row, text_input};
+//! use sweeten::widget::{button, column, mouse_area, pick_list, row, text_input};
 //! # fn main() {}
 //! ```
 //!
@@ -57,6 +61,7 @@
 //! counterparts, with additional methods for the extended functionality.
 //!
 //! [`iced`]: https://github.com/iced-rs/iced
+//! [`button`]: mod@widget::button
 //! [`column`]: mod@widget::column
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
@@ -72,11 +77,19 @@ pub mod widget;
 pub use helpers::*;
 
 // Re-exports to mirror iced_widget structure (allows minimal diff for widgets)
+#[doc(hidden)]
 pub use iced_core as core;
+#[doc(hidden)]
 pub use iced_core::Theme;
+#[doc(hidden)]
 pub use iced_widget::Renderer;
-pub use iced_widget::{button, scrollable, text_editor};
+#[doc(hidden)]
+pub use iced_widget::{scrollable, text_editor};
 
 // Re-export widget modules at crate level (mirrors iced_widget's structure)
+#[doc(hidden)]
+pub use widget::button;
+#[doc(hidden)]
 pub use widget::overlay;
+#[doc(hidden)]
 pub use widget::text_input;

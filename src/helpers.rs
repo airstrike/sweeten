@@ -4,6 +4,7 @@ use crate::core;
 use crate::core::Element;
 use crate::overlay::menu;
 use crate::widget::MouseArea;
+use crate::widget::button::{self, Button};
 use crate::widget::column::{self, Column};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
@@ -57,6 +58,24 @@ where
     Theme: column::Catalog,
 {
     Column::with_children(children)
+}
+
+/// Creates a new [`Button`] with the given content.
+///
+/// This is a sweetened version of [`iced`'s `button`] with support for
+/// [`on_focus`] and [`on_blur`] messages.
+///
+/// [`iced`'s `button`]: https://docs.iced.rs/iced/widget/button/index.html
+/// [`on_focus`]: Button::on_focus
+/// [`on_blur`]: Button::on_blur
+pub fn button<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Button<'a, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+    Theme: button::Catalog,
+{
+    Button::new(content)
 }
 
 /// Creates a new [`TextInput`].
