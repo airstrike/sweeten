@@ -1,8 +1,8 @@
 [package]
 name = "sweeten"
-version = "0.14.0"
+version = "0.15.0-dev"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
 authors = ["Andy Terra <tech@andyterra.com>"]
 description = "`sweeten` your daily `iced` brew"
 license = "MIT"
@@ -12,17 +12,23 @@ categories = ["gui"]
 readme = "README.md"
 
 [features]
-crisp = ["iced_widget/crisp"]
+crisp = ["iced_core/crisp"]
 
 [dependencies]
-iced_core.version = "0.14"
-iced_runtime.version = "0.14"
-iced_widget.version = "0.14"
+iced_core.version = "0.15.0-dev"
+iced_runtime.version = "0.15.0-dev"
+iced_widget.version = "0.15.0-dev"
 unicode-segmentation = "1.11.0"
 
 [dev-dependencies]
-iced.version = "0.14"
+iced.version = "0.15.0-dev"
 iced.features = ["advanced"]
+
+[patch.crates-io]
+iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_core = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_runtime = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_widget = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
 
 # Uncomment to test against local iced checkout
 # [patch.crates-io]

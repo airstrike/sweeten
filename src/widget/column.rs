@@ -33,9 +33,8 @@ use crate::core::renderer;
 use crate::core::time::Instant;
 use crate::core::widget::{Operation, Tree, tree};
 use crate::core::{
-    Animation, Background, Border, Clipboard, Color, Element, Event, Length,
-    Padding, Pixels, Point, Rectangle, Shell, Size, Transformation, Vector,
-    Widget,
+    Animation, Background, Border, Color, Element, Event, Length, Padding,
+    Pixels, Point, Rectangle, Shell, Size, Transformation, Vector, Widget,
 };
 
 use super::drag::DragEvent;
@@ -627,7 +626,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -640,8 +638,7 @@ where
             .zip(layout.children())
         {
             child.as_widget_mut().update(
-                state, event, layout, cursor, renderer, clipboard, shell,
-                viewport,
+                state, event, layout, cursor, renderer, shell, viewport,
             );
         }
 
@@ -1146,16 +1143,29 @@ where
                 }
             }
             _ => {
-                for ((child, state), layout) in self
-                    .children
-                    .iter()
-                    .zip(&tree.children)
-                    .zip(layout.children())
+                if let Some(clipped_viewport) =
+                    layout.bounds().intersection(viewport)
                 {
-                    child.as_widget().draw(
-                        state, renderer, theme, defaults, layout, cursor,
-                        viewport,
-                    );
+                    let viewport = if self.clip {
+                        &clipped_viewport
+                    } else {
+                        viewport
+                    };
+
+                    for ((child, state), layout) in self
+                        .children
+                        .iter()
+                        .zip(&tree.children)
+                        .zip(layout.children())
+                        .filter(|(_, layout)| {
+                            layout.bounds().intersects(viewport)
+                        })
+                    {
+                        child.as_widget().draw(
+                            state, renderer, theme, defaults, layout, cursor,
+                            viewport,
+                        );
+                    }
                 }
             }
         }
@@ -1415,13 +1425,11 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        self.column.update(
-            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
-        );
+        self.column
+            .update(tree, event, layout, cursor, renderer, shell, viewport);
     }
 
     fn mouse_interaction(

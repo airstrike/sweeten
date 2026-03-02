@@ -10,8 +10,8 @@ use crate::core::touch;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Background, Clipboard, Color, Event, Length, Padding, Pixels, Point,
-    Rectangle, Shadow, Size, Theme, Vector,
+    Background, Color, Event, Length, Padding, Pixels, Point, Rectangle,
+    Shadow, Size, Theme, Vector,
 };
 use crate::core::{Element, Shell, Widget};
 use crate::scrollable::{self, Scrollable};
@@ -42,6 +42,7 @@ pub struct Menu<
     text_size: Option<Pixels>,
     text_line_height: text::LineHeight,
     text_shaping: text::Shaping,
+    ellipsis: text::Ellipsis,
     font: Option<Renderer::Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
@@ -78,6 +79,7 @@ where
             text_size: None,
             text_line_height: text::LineHeight::default(),
             text_shaping: text::Shaping::default(),
+            ellipsis: text::Ellipsis::default(),
             font: None,
             class,
         }
@@ -113,6 +115,12 @@ where
     /// Sets the [`text::Shaping`] strategy of the [`Menu`].
     pub fn text_shaping(mut self, shaping: text::Shaping) -> Self {
         self.text_shaping = shaping;
+        self
+    }
+
+    /// Sets the [`text::Ellipsis`] strategy of the [`Menu`].
+    pub fn ellipsis(mut self, ellipsis: text::Ellipsis) -> Self {
+        self.ellipsis = ellipsis;
         self
     }
 
@@ -219,6 +227,7 @@ where
             text_size,
             text_line_height,
             text_shaping,
+            ellipsis,
             class,
         } = menu;
 
@@ -232,6 +241,7 @@ where
             text_size,
             text_line_height,
             text_shaping,
+            ellipsis,
             padding,
             class,
         })
@@ -291,15 +301,12 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
         let bounds = layout.bounds();
 
-        self.list.update(
-            self.tree, event, layout, cursor, renderer, clipboard, shell,
-            &bounds,
-        );
+        self.list
+            .update(self.tree, event, layout, cursor, renderer, shell, &bounds);
     }
 
     fn mouse_interaction(
@@ -359,6 +366,7 @@ where
     text_size: Option<Pixels>,
     text_line_height: text::LineHeight,
     text_shaping: text::Shaping,
+    ellipsis: text::Ellipsis,
     font: Option<Renderer::Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
@@ -436,7 +444,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
@@ -616,14 +623,19 @@ where
             renderer.fill_text(
                 Text {
                     content: option.to_string(),
-                    bounds: Size::new(f32::INFINITY, bounds.height),
+                    bounds: Size::new(
+                        bounds.width - self.padding.x(),
+                        bounds.height,
+                    ),
                     size: text_size,
                     line_height: self.text_line_height,
                     font: self.font.unwrap_or_else(|| renderer.default_font()),
                     align_x: text::Alignment::Default,
                     align_y: alignment::Vertical::Center,
                     shaping: self.text_shaping,
-                    wrapping: text::Wrapping::default(),
+                    wrapping: text::Wrapping::None,
+                    ellipsis: self.ellipsis,
+                    hint_factor: renderer.scale_factor(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
                 if is_disabled {

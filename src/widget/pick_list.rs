@@ -67,8 +67,8 @@ use crate::core::touch;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Background, Border, Clipboard, Color, Element, Event, Layout, Length,
-    Padding, Pixels, Point, Rectangle, Shell, Size, Theme, Vector, Widget,
+    Background, Border, Color, Element, Event, Layout, Length, Padding, Pixels,
+    Point, Rectangle, Shell, Size, Theme, Vector, Widget,
 };
 use crate::overlay::menu::{self, Menu};
 
@@ -165,6 +165,7 @@ pub struct PickList<
     text_size: Option<Pixels>,
     text_line_height: text::LineHeight,
     text_shaping: text::Shaping,
+    ellipsis: text::Ellipsis,
     font: Option<Renderer::Font>,
     handle: Handle<Renderer::Font>,
     class: <Theme as Catalog>::Class<'a>,
@@ -203,6 +204,7 @@ where
             text_size: None,
             text_line_height: text::LineHeight::default(),
             text_shaping: text::Shaping::default(),
+            ellipsis: text::Ellipsis::End,
             font: None,
             handle: Handle::default(),
             class: <Theme as Catalog>::default(),
@@ -266,6 +268,12 @@ where
     /// Sets the [`text::Shaping`] strategy of the [`PickList`].
     pub fn text_shaping(mut self, shaping: text::Shaping) -> Self {
         self.text_shaping = shaping;
+        self
+    }
+
+    /// Sets the [`text::Ellipsis`] strategy of the [`PickList`].
+    pub fn ellipsis(mut self, ellipsis: text::Ellipsis) -> Self {
+        self.ellipsis = ellipsis;
         self
     }
 
@@ -389,7 +397,9 @@ where
             align_x: text::Alignment::Default,
             align_y: alignment::Vertical::Center,
             shaping: self.text_shaping,
-            wrapping: text::Wrapping::default(),
+            wrapping: text::Wrapping::None,
+            ellipsis: self.ellipsis,
+            hint_factor: renderer.scale_factor(),
         };
 
         for (option, paragraph) in options.iter().zip(state.options.iter_mut())
@@ -449,7 +459,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
-        _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
@@ -657,7 +666,9 @@ where
                     align_x: text::Alignment::Right,
                     align_y: alignment::Vertical::Center,
                     shaping,
-                    wrapping: text::Wrapping::default(),
+                    wrapping: text::Wrapping::None,
+                    ellipsis: text::Ellipsis::None,
+                    hint_factor: None,
                 },
                 Point::new(
                     bounds.x + bounds.width - self.padding.right,
@@ -687,7 +698,9 @@ where
                     align_x: text::Alignment::Default,
                     align_y: alignment::Vertical::Center,
                     shaping: self.text_shaping,
-                    wrapping: text::Wrapping::default(),
+                    wrapping: text::Wrapping::None,
+                    ellipsis: self.ellipsis,
+                    hint_factor: renderer.scale_factor(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
                 if selected.is_some() {
@@ -735,7 +748,8 @@ where
             .width(bounds.width)
             .padding(self.padding)
             .font(font)
-            .text_shaping(self.text_shaping);
+            .text_shaping(self.text_shaping)
+            .ellipsis(self.ellipsis);
 
             if let Some(text_size) = self.text_size {
                 menu = menu.text_size(text_size);
