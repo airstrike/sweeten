@@ -31,28 +31,28 @@ pub enum Field {
 }
 
 impl Field {
-    fn id(&self) -> Id {
+    fn id(self) -> Id {
         Id::from(match self {
             Field::Username => "username",
             Field::Password => "password",
         })
     }
 
-    fn placeholder(&self) -> &'static str {
+    fn placeholder(self) -> &'static str {
         match self {
             Field::Username => "Enter username",
             Field::Password => "Enter password",
         }
     }
 
-    fn label(&self) -> &'static str {
+    fn label(self) -> &'static str {
         match self {
             Field::Username => "USERNAME",
             Field::Password => "PASSWORD",
         }
     }
 
-    fn validation_hint(&self) -> &'static str {
+    fn validation_hint(self) -> &'static str {
         match self {
             Field::Username => "Letters and numbers only",
             Field::Password => "Go to town, but min length is 12!",
@@ -98,7 +98,7 @@ impl Input {
             Field::Username => {
                 if self.value.is_empty() {
                     self.error = Some("Username is required".to_string());
-                } else if !self.value.chars().all(|c| c.is_alphanumeric()) {
+                } else if !self.value.chars().all(char::is_alphanumeric) {
                     self.error = Some("Letters and numbers only".to_string());
                 } else {
                     self.error = None;

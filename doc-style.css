@@ -2,8 +2,8 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Lekton:wght@400;700&display=swap');
 
-:root[data-theme="dark"] {
-    /* Sweeten Color System */
+/* Shared palette */
+:root {
     /* Green */
     --green-900: #085e16;
     --green-700: #2a9d3d;
@@ -35,28 +35,79 @@
     --gray-600: #3d4249;
     --gray-400: #6b7280;
     --gray-200: #d1d5db;
+    --gray-100: #e2e8f0;
+    --gray-50: #f1f5f9;
     --white: #f8fafc;
-
-    /* Semantic mappings for docs */
-    --sweeten-bg: var(--gray-900);
-    --sweeten-active: var(--lime-500);
-    --sweeten-muted: var(--gray-400);
-    --sweeten-text: var(--gray-200);
-    --sweeten-link: var(--cobalt-300);
 
     --font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
     --font-family-code: 'Lekton', ui-monospace, monospace;
+}
+
+/* Dark theme */
+:root[data-theme="dark"] {
+    --sweeten-bg: var(--gray-900);
+    --sweeten-bg-code: var(--gray-950);
+    --sweeten-active: var(--lime-500);
+    --sweeten-muted: var(--gray-400);
+    --sweeten-text: var(--gray-200);
+    --sweeten-text-heading: var(--white);
+    --sweeten-link: var(--cobalt-300);
+    --sweeten-sidebar-hover-bg: var(--gray-600);
+    --sweeten-search-bg: var(--gray-600);
+    --sweeten-search-text: var(--white);
+    --sweeten-target-bg: rgba(255, 255, 255, 0.05);
+    --sweeten-border: var(--gray-600);
+    --sweeten-mod: var(--green-500);
+    --sweeten-mod-hover: var(--green-300);
+    --sweeten-fn: var(--lime-500);
+    --sweeten-fn-hover: var(--lime-300);
+    --sweeten-type: var(--cobalt-300);
+    --sweeten-type-hover: var(--cobalt-300);
 
     /* Override rustdoc dark theme variables */
     --main-background-color: var(--sweeten-bg);
     --main-color: var(--sweeten-text);
     --sidebar-background-color: var(--sweeten-bg);
-    --sidebar-background-color-hover: var(--gray-600);
+    --sidebar-background-color-hover: var(--sweeten-sidebar-hover-bg);
     --link-color: var(--sweeten-link);
     --sidebar-link-color: var(--sweeten-muted);
     --sidebar-current-link-background-color: transparent;
     --search-input-focused-border-color: var(--sweeten-active);
-    --headings-border-bottom-color: var(--gray-600);
+    --headings-border-bottom-color: var(--sweeten-border);
+    --settings-button-border-focus: var(--sweeten-active);
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+    --sweeten-bg: var(--white);
+    --sweeten-bg-code: var(--gray-50);
+    --sweeten-active: var(--lime-700);
+    --sweeten-muted: var(--gray-400);
+    --sweeten-text: var(--gray-900);
+    --sweeten-text-heading: var(--black);
+    --sweeten-link: var(--cobalt-700);
+    --sweeten-sidebar-hover-bg: var(--gray-100);
+    --sweeten-search-bg: var(--gray-100);
+    --sweeten-search-text: var(--gray-900);
+    --sweeten-target-bg: rgba(0, 0, 0, 0.05);
+    --sweeten-border: var(--gray-200);
+    --sweeten-mod: var(--green-700);
+    --sweeten-mod-hover: var(--green-900);
+    --sweeten-fn: var(--lime-900);
+    --sweeten-fn-hover: var(--lime-700);
+    --sweeten-type: var(--cobalt-700);
+    --sweeten-type-hover: var(--cobalt-500);
+
+    /* Override rustdoc light theme variables */
+    --main-background-color: var(--sweeten-bg);
+    --main-color: var(--sweeten-text);
+    --sidebar-background-color: var(--sweeten-bg);
+    --sidebar-background-color-hover: var(--sweeten-sidebar-hover-bg);
+    --link-color: var(--sweeten-link);
+    --sidebar-link-color: var(--sweeten-muted);
+    --sidebar-current-link-background-color: transparent;
+    --search-input-focused-border-color: var(--sweeten-active);
+    --headings-border-bottom-color: var(--sweeten-border);
     --settings-button-border-focus: var(--sweeten-active);
 }
 
@@ -71,7 +122,6 @@ h6,
 .mobile-topbar,
 .search-input,
 .search-results .result-name,
-.item-table dt>a,
 .out-of-band,
 .sub-heading,
 span.since,
@@ -97,36 +147,43 @@ pre, code, .rustdoc code, .docblock code, .docblock pre {
     padding: 0.1em 0.3em;
 }
 
+/* Item table descriptions: inline code gets background */
+.item-table dd code {
+    background-color: var(--sweeten-bg-code);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+}
+
 /* Semantic colors for different item types */
 /* Modules - green */
 .item-table .mod a {
-    color: var(--green-500);
+    color: var(--sweeten-mod);
 }
 .item-table .mod a:hover {
-    color: var(--green-300);
+    color: var(--sweeten-mod-hover);
 }
 
 /* Functions - lime */
 .item-table .fn a {
-    color: var(--lime-500);
+    color: var(--sweeten-fn);
 }
 .item-table .fn a:hover {
-    color: var(--lime-300);
+    color: var(--sweeten-fn-hover);
 }
 
 /* Enums/Types - cobalt */
 .item-table .enum a,
 .item-table .struct a,
 .item-table .type a {
-    color: var(--cobalt-300);
+    color: var(--sweeten-type);
 }
 .item-table .enum a:hover,
 .item-table .struct a:hover,
 .item-table .type a:hover {
-    color: var(--cobalt-300);
+    color: var(--sweeten-type-hover);
 }
 
-/* Override dark theme background */
+/* Override theme background */
 body {
     background-color: var(--sweeten-bg);
     font-family: var(--font-family);
@@ -160,11 +217,11 @@ a:hover {
     color: var(--sweeten-active);
 }
 
-/* Headers - white for h1-h3, muted for rest */
+/* Headers */
 h1,
 h2,
 h3 {
-    color: var(--white);
+    color: var(--sweeten-text-heading);
 }
 
 h4,
@@ -178,7 +235,7 @@ h6 {
 .sidebar-elems .block h3,
 .sidebar .block h3 a,
 .sidebar-elems .block h3 a {
-    color: var(--white);
+    color: var(--sweeten-text-heading);
 }
 
 /* Sidebar active item */
@@ -194,22 +251,22 @@ h6 {
 .sidebar-elems a:hover,
 .sidebar a:hover,
 .sidebar .current a {
-    color: var(--white);
-    background-color: var(--gray-600) !important;
+    color: var(--sweeten-text-heading);
+    background-color: var(--sweeten-sidebar-hover-bg) !important;
 }
 
 :target:not([data-nosnippet]) {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--sweeten-target-bg);
     color: var(--sweeten-active);
     border-right: 1px solid var(--sweeten-active);
 }
 
 /* Search box */
 .search-input {
-    background-color: var(--gray-600);
+    background-color: var(--sweeten-search-bg);
     border: none;
     border-radius: 0;
-    color: var(--white);
+    color: var(--sweeten-search-text);
 }
 
 .search-input:focus {
@@ -226,7 +283,7 @@ h6 {
 
 /* Function/type signatures */
 .item-decl {
-    background-color: var(--gray-950);
+    background-color: var(--sweeten-bg-code);
 }
 
 /* All code blocks */
@@ -235,14 +292,14 @@ h6 {
 .rustdoc .example-wrap,
 pre.rust,
 .item-decl pre {
-    background-color: var(--gray-950);
+    background-color: var(--sweeten-bg-code);
 }
 
 /* Inline code in prose */
 .docblock code,
 .docblock p code,
 .docblock li code {
-    background-color: var(--gray-950);
+    background-color: var(--sweeten-bg-code);
 }
 
 .docblock li code {

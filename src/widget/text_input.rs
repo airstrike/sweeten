@@ -10,18 +10,18 @@
 //!
 //! # Example
 //! ```no_run
-//! # pub type State = String;
-//! # pub type Element<'a, Message> = iced::Element<'a, Message>;
+//! # pub type Element<'a, Message> = iced_core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+//! #
 //! use sweeten::widget::text_input;
 //!
-//! #[derive(Clone)]
+//! #[derive(Debug, Clone)]
 //! enum Message {
 //!     ContentChanged(String),
 //!     Focused,
 //!     Blurred,
 //! }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &str) -> Element<'_, Message> {
 //!     text_input("Type something...", state)
 //!         .on_input(Message::ContentChanged)
 //!         .on_focus(Message::Focused)
@@ -762,10 +762,8 @@ where
                 state.is_focused = if click_position.is_some() {
                     let now = Instant::now();
 
-                    if !was_focused {
-                        if let Some(on_focus) = &self.on_focus {
-                            shell.publish(on_focus.clone());
-                        }
+                    if !was_focused && let Some(on_focus) = &self.on_focus {
+                        shell.publish(on_focus.clone());
                     }
 
                     Some(Focus {
@@ -774,10 +772,8 @@ where
                         is_window_focused: true,
                     })
                 } else {
-                    if was_focused {
-                        if let Some(on_blur) = &self.on_blur {
-                            shell.publish(on_blur.clone());
-                        }
+                    if was_focused && let Some(on_blur) = &self.on_blur {
+                        shell.publish(on_blur.clone());
                     }
 
                     None
@@ -950,15 +946,19 @@ where
                 }
             }
             Event::Keyboard(keyboard::Event::KeyPressed {
-                key, text, ..
+                key,
+                text,
+                modified_key,
+                physical_key,
+                ..
             }) => {
                 let state = state::<Renderer>(tree);
 
                 if let Some(focus) = &mut state.is_focused {
                     let modifiers = state.keyboard_modifiers;
 
-                    match key.as_ref() {
-                        keyboard::Key::Character("c")
+                    match key.to_latin(*physical_key) {
+                        Some('c')
                             if state.keyboard_modifiers.command()
                                 && !self.is_secure =>
                         {
@@ -974,7 +974,7 @@ where
                             shell.capture_event();
                             return;
                         }
-                        keyboard::Key::Character("x")
+                        Some('x')
                             if state.keyboard_modifiers.command()
                                 && !self.is_secure =>
                         {
@@ -1003,7 +1003,7 @@ where
                             update_cache(state, &self.value);
                             return;
                         }
-                        keyboard::Key::Character("v")
+                        Some('v')
                             if state.keyboard_modifiers.command()
                                 && !state.keyboard_modifiers.alt() =>
                         {
@@ -1042,9 +1042,7 @@ where
                             update_cache(state, &self.value);
                             return;
                         }
-                        keyboard::Key::Character("a")
-                            if state.keyboard_modifiers.command() =>
-                        {
+                        Some('a') if state.keyboard_modifiers.command() => {
                             let cursor_before = state.cursor;
 
                             state.cursor.select_all(&self.value);
@@ -1087,9 +1085,13 @@ where
                     }
 
                     #[cfg(target_os = "macos")]
-                    let key = convert_macos_shortcut(key, modifiers);
+                    let macos_shortcut = convert_macos_shortcut(key, modifiers);
 
-                    match key.as_ref() {
+                    #[cfg(target_os = "macos")]
+                    let modified_key =
+                        macos_shortcut.as_ref().unwrap_or(modified_key);
+
+                    match modified_key.as_ref() {
                         keyboard::Key::Named(key::Named::Enter) => {
                             if let Some(on_submit) = self.on_submit.clone() {
                                 shell.publish(on_submit);
@@ -1866,30 +1868,22 @@ fn alignment_offset(
 fn convert_macos_shortcut(
     key: &keyboard::Key,
     modifiers: keyboard::Modifiers,
-) -> &keyboard::Key {
+) -> Option<keyboard::Key> {
     if modifiers != keyboard::Modifiers::CTRL {
-        return key;
+        return None;
     }
 
-    match key.as_ref() {
-        keyboard::Key::Character("b") => {
-            &keyboard::Key::Named(key::Named::ArrowLeft)
-        }
-        keyboard::Key::Character("f") => {
-            &keyboard::Key::Named(key::Named::ArrowRight)
-        }
-        keyboard::Key::Character("a") => {
-            &keyboard::Key::Named(key::Named::Home)
-        }
-        keyboard::Key::Character("e") => &keyboard::Key::Named(key::Named::End),
-        keyboard::Key::Character("h") => {
-            &keyboard::Key::Named(key::Named::Backspace)
-        }
-        keyboard::Key::Character("d") => {
-            &keyboard::Key::Named(key::Named::Delete)
-        }
-        _ => key,
-    }
+    let key = match key.as_ref() {
+        keyboard::Key::Character("b") => key::Named::ArrowLeft,
+        keyboard::Key::Character("f") => key::Named::ArrowRight,
+        keyboard::Key::Character("a") => key::Named::Home,
+        keyboard::Key::Character("e") => key::Named::End,
+        keyboard::Key::Character("h") => key::Named::Backspace,
+        keyboard::Key::Character("d") => key::Named::Delete,
+        _ => return None,
+    };
+
+    Some(keyboard::Key::Named(key))
 }
 
 /// Produces a [`Task`] that focuses the next focusable widget

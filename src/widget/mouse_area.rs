@@ -441,11 +441,11 @@ fn update<Message, Theme, Renderer>(
     match event {
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
         | Event::Touch(touch::Event::FingerPressed { .. }) => {
-            if let Some(on_press) = widget.on_press.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_press(position));
-                    shell.capture_event();
-                }
+            if let Some(on_press) = widget.on_press.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_press(position));
+                shell.capture_event();
             }
 
             if let Some(position) = cursor.position_in(layout.bounds())
@@ -470,40 +470,40 @@ fn update<Message, Theme, Renderer>(
         }
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
         | Event::Touch(touch::Event::FingerLifted { .. }) => {
-            if let Some(on_release) = widget.on_release.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_release(position));
-                }
+            if let Some(on_release) = widget.on_release.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_release(position));
             }
         }
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
-            if let Some(on_right_press) = widget.on_right_press.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_right_press(position));
-                    shell.capture_event();
-                }
+            if let Some(on_right_press) = widget.on_right_press.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_right_press(position));
+                shell.capture_event();
             }
         }
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)) => {
-            if let Some(on_right_release) = widget.on_right_release.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_right_release(position));
-                }
+            if let Some(on_right_release) = widget.on_right_release.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_right_release(position));
             }
         }
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
-            if let Some(on_middle_press) = widget.on_middle_press.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_middle_press(position));
-                    shell.capture_event();
-                }
+            if let Some(on_middle_press) = widget.on_middle_press.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_middle_press(position));
+                shell.capture_event();
             }
         }
         Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
-            if let Some(on_middle_release) = widget.on_middle_release.as_ref() {
-                if let Some(position) = cursor.position_in(layout.bounds()) {
-                    shell.publish(on_middle_release(position));
-                }
+            if let Some(on_middle_release) = widget.on_middle_release.as_ref()
+                && let Some(position) = cursor.position_in(layout.bounds())
+            {
+                shell.publish(on_middle_release(position));
             }
         }
         Event::Mouse(mouse::Event::WheelScrolled { delta }) => {

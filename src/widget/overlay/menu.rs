@@ -11,10 +11,12 @@ use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
     Background, Clipboard, Color, Event, Length, Padding, Pixels, Point,
-    Rectangle, Size, Theme, Vector,
+    Rectangle, Shadow, Size, Theme, Vector,
 };
 use crate::core::{Element, Shell, Widget};
 use crate::scrollable::{self, Scrollable};
+
+// --- sweeten: disabled items support ---
 
 /// A list of selectable options.
 pub struct Menu<
@@ -120,8 +122,6 @@ where
         self
     }
 
-    /// Turns the [`Menu`] into an overlay [`Element`] at the given target
-    /// position.
     /// Check if an option at the given index is disabled.
     pub fn is_disabled(&self, index: usize) -> bool {
         self.disabled
@@ -131,6 +131,8 @@ where
             .unwrap_or(false)
     }
 
+    /// Turns the [`Menu`] into an overlay [`Element`] at the given target
+    /// position.
     ///
     /// The `target_height` will be used to display the menu either on top
     /// of the target or under it, depending on the screen position and the
@@ -176,7 +178,7 @@ impl Default for State {
 struct Overlay<'a, 'b, Message, Theme, Renderer>
 where
     Theme: Catalog,
-    Renderer: crate::core::text::Renderer,
+    Renderer: text::Renderer,
 {
     position: Point,
     viewport: Rectangle,
@@ -331,6 +333,7 @@ where
             renderer::Quad {
                 bounds,
                 border: style.border,
+                shadow: style.shadow,
                 ..renderer::Quad::default()
             },
             style.background,
@@ -664,6 +667,8 @@ pub struct Style {
     pub selected_text_color: Color,
     /// The background [`Color`] of a selected option in the menu.
     pub selected_background: Background,
+    /// The [`Shadow`] of the menu.
+    pub shadow: Shadow,
     /// The text [`Color`] of a disabled option in the menu.
     pub disabled_text_color: Color,
     /// The background [`Color`] of a disabled option in the menu.
@@ -716,6 +721,7 @@ pub fn default(theme: &Theme) -> Style {
         text_color: palette.background.weak.text,
         selected_text_color: palette.primary.strong.text,
         selected_background: palette.primary.strong.color.into(),
+        shadow: Shadow::default(),
         disabled_text_color: palette.background.strong.color,
         disabled_background: palette.background.weak.color.into(),
     }

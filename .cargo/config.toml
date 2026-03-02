@@ -1,0 +1,2 @@
+[build]
+rustdocflags = ["--extend-css", "doc-style.css"]

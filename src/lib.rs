@@ -21,6 +21,8 @@
 // IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#![warn(missing_docs)]
+
 //! # sweeten
 //!
 //! `sweeten` provides enhanced versions of common [`iced`] widgets with
