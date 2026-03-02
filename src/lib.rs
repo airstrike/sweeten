@@ -34,6 +34,8 @@
 //!
 //! The following widgets are available in the [`widget`] module:
 //!
+//! - [`button`] — A button widget, with support for [`on_focus`][button_on_focus]
+//!   and [`on_blur`][button_on_blur] messages.
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
@@ -46,7 +48,7 @@
 //! Import the widgets you need from `sweeten::widget`:
 //!
 //! ```no_run
-//! use sweeten::widget::{mouse_area, pick_list, text_input};
+//! use sweeten::widget::{button, mouse_area, pick_list, text_input};
 //! # fn main() {}
 //! ```
 //!
@@ -54,10 +56,13 @@
 //! counterparts, with additional methods for the extended functionality.
 //!
 //! [`iced`]: https://github.com/iced-rs/iced
+//! [`button`]: mod@widget::button
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`text_input`]: mod@widget::text_input
 //! [`Point`]: crate::core::Point
+//! [button_on_focus]: widget::button::Button::on_focus
+//! [button_on_blur]: widget::button::Button::on_blur
 //! [`on_focus`]: widget::text_input::TextInput::on_focus
 //! [`on_blur`]: widget::text_input::TextInput::on_blur
 
@@ -67,11 +72,14 @@ pub mod widget;
 pub use helpers::*;
 
 // Re-exports to mirror iced_widget structure (allows minimal diff for widgets)
-use iced_core as core;
+#[doc(hidden)]
+pub use iced_core as core;
 pub use iced_core::Theme;
 pub use iced_widget::Renderer;
-pub use iced_widget::{button, scrollable, text_editor};
+pub use iced_widget::{scrollable, text_editor};
 
 // Re-export widget modules at crate level (mirrors iced_widget's structure)
+#[doc(hidden)]
+pub use widget::button;
 pub use widget::overlay;
 pub use widget::text_input;
