@@ -61,8 +61,6 @@ use crate::core::{
     Widget,
 };
 
-use iced_runtime::Task;
-
 /// A field that can be filled with text.
 ///
 /// # Example
@@ -1886,28 +1884,4 @@ fn convert_macos_shortcut(
     Some(keyboard::Key::Named(key))
 }
 
-/// Produces a [`Task`] that focuses the next focusable widget
-/// and returns the [`widget::Id`] of the newly focused widget.
-///
-/// This is a sweetened version of [`iced_runtime::widget::operation::focus_next`]
-/// that tells you which widget received focus.
-///
-/// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
-pub fn focus_next() -> Task<widget::Id> {
-    iced_runtime::widget::operation::focus_next().chain(
-        iced_runtime::task::widget(operation::focusable::find_focused()),
-    )
-}
-
-/// Produces a [`Task`] that focuses the previous focusable widget
-/// and returns the [`widget::Id`] of the newly focused widget.
-///
-/// This is a sweetened version of [`iced_runtime::widget::operation::focus_previous`]
-/// that tells you which widget received focus.
-///
-/// Use `.discard()` if you don't need the ID, or `.then(|id| ...)` to use it.
-pub fn focus_previous() -> Task<widget::Id> {
-    iced_runtime::widget::operation::focus_previous().chain(
-        iced_runtime::task::widget(operation::focusable::find_focused()),
-    )
-}
+pub use super::operation::{focus_next, focus_previous};

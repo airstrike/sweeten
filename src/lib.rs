@@ -36,10 +36,14 @@
 //!
 //! - [`button`] — A button widget, with support for [`on_focus`][button_on_focus]
 //!   and [`on_blur`][button_on_blur] messages.
+//! - [`column`] — Distribute content vertically, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
 //!   disabling items.
+//! - [`row`] — Distribute content horizontally, with support for drag-and-drop
+//!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
 //!
@@ -48,7 +52,7 @@
 //! Import the widgets you need from `sweeten::widget`:
 //!
 //! ```no_run
-//! use sweeten::widget::{button, mouse_area, pick_list, text_input};
+//! use sweeten::widget::{button, column, mouse_area, pick_list, row, text_input};
 //! # fn main() {}
 //! ```
 //!
@@ -57,8 +61,10 @@
 //!
 //! [`iced`]: https://github.com/iced-rs/iced
 //! [`button`]: mod@widget::button
+//! [`column`]: mod@widget::column
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
+//! [`row`]: mod@widget::row
 //! [`text_input`]: mod@widget::text_input
 //! [`Point`]: crate::core::Point
 //! [button_on_focus]: widget::button::Button::on_focus
@@ -81,5 +87,7 @@ pub use iced_widget::{scrollable, text_editor};
 // Re-export widget modules at crate level (mirrors iced_widget's structure)
 #[doc(hidden)]
 pub use widget::button;
+#[doc(hidden)]
 pub use widget::overlay;
+#[doc(hidden)]
 pub use widget::text_input;
