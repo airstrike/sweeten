@@ -13,6 +13,7 @@ use sweeten::pick_list;
 
 fn main() -> iced::Result {
     iced::application(App::default, App::update, App::view)
+        .title("sweeten • pick_list with disabled items")
         .window_size((300.0, 200.0))
         .theme(App::theme)
         .run()

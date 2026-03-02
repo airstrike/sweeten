@@ -4,6 +4,9 @@
 
 ## `sweeten` your daily `iced` brew
 
+[![Crates.io](https://img.shields.io/crates/v/sweeten.svg)](https://crates.io/crates/sweeten)
+[![Documentation](https://docs.rs/sweeten/badge.svg)](https://docs.rs/sweeten)
+[![License](https://img.shields.io/crates/l/sweeten.svg)](https://github.com/airstrike/sweeten/blob/master/LICENSE)
 [![Made with iced](https://iced.rs/badge.svg)](https://github.com/iced-rs/iced)
 
 </div>
@@ -17,11 +20,16 @@ capabilities.
 
 ## Installation
 
-Add this to your `Cargo.toml`:
+If you're using the latest `iced` release:
+
+```bash
+cargo add sweeten
+```
+
+If you're tracking `iced` from git, add this to your `Cargo.toml`:
 
 ```toml
-[dependencies]
-sweeten = "0.1.0"
+sweeten = { git = "https://github.com/airstrike/sweeten", branch = "master" }
 ```
 
 ## Current Features
@@ -67,6 +75,21 @@ A sweetened version of `iced`'s `text_input` widget with additional focus-relate
 - `.on_focus` and `.on_blur` methods for handling focus events
 - Sweetened `focus_next` and `focus_previous` focus management functions, which return the ID of the focused element
 
+### `Row` and `Column`
+
+Sweetened versions of `iced`'s `Row` and `Column` with drag-and-drop reordering
+support via `.on_drag`:
+
+```rust
+use sweeten::widget::column;
+use sweeten::widget::drag::DragEvent;
+
+column(items.iter().map(|s| s.as_str().into()))
+    .spacing(5)
+    .on_drag(Message::Reorder)
+    .into()
+```
+
 ## Examples
 
 For complete examples, see [`examples/`](examples/) or run an example like this:
@@ -96,7 +119,7 @@ The library is organized into modules for each enhanced widget:
 - [x] MouseArea widget
 - [x] PickList widget
 - [x] TextInput widget with focus management
-- [ ] Row and Column with drag and drop and enhanced layout capabilities
+- [x] Row and Column with drag and drop
 
 ## Contributing
 

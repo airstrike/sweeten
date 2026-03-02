@@ -16,8 +16,8 @@ cargo run --example <example_name>
 
 Demonstrates the enhanced text_input widget with focus/blur messages:
 
-- `on_focus(Fn(String) -> Message)` - receive the current value when focused
-- `on_blur(Message)` - emit a message when focus is lost
+- `on_focus(Message)` - emit a message when the input gains focus
+- `on_blur(Message)` - emit a message when the input loses focus
 - Form validation with inline error display
 - Tab navigation between fields
 
@@ -38,10 +38,6 @@ Demonstrates the enhanced mouse area widget with click position tracking.
 ```bash
 cargo run --example mouse_area
 ```
-
-<div align="center">
-  <img src="../assets/mouse_area.gif" alt="Mouse Area Demo" />
-</div>
 
 ---
 
