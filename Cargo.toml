@@ -25,10 +25,10 @@ iced.version = "0.15.0-dev"
 iced.features = ["advanced"]
 
 [patch.crates-io]
-iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_core = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_runtime = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_widget = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
+iced_core = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
+iced_runtime = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
+iced_widget = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
 
 # Uncomment to test against local iced checkout
 # [patch.crates-io]

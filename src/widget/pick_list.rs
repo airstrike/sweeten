@@ -399,6 +399,8 @@ where
             shaping: self.text_shaping,
             wrapping: text::Wrapping::None,
             ellipsis: self.ellipsis,
+            letter_spacing: Default::default(),
+            font_features: Vec::new(),
             hint_factor: renderer.scale_factor(),
         };
 
@@ -408,7 +410,7 @@ where
 
             let _ = paragraph.update(Text {
                 content: &label,
-                ..option_text
+                ..option_text.clone()
             });
         }
 
@@ -668,6 +670,8 @@ where
                     shaping,
                     wrapping: text::Wrapping::None,
                     ellipsis: text::Ellipsis::None,
+                    letter_spacing: Default::default(),
+                    font_features: Vec::new(),
                     hint_factor: None,
                 },
                 Point::new(
@@ -700,6 +704,8 @@ where
                     shaping: self.text_shaping,
                     wrapping: text::Wrapping::None,
                     ellipsis: self.ellipsis,
+                    letter_spacing: Default::default(),
+                    font_features: Vec::new(),
                     hint_factor: renderer.scale_factor(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),

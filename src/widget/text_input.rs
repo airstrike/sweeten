@@ -339,10 +339,12 @@ where
             shaping: text::Shaping::Advanced,
             wrapping: text::Wrapping::None,
             ellipsis: text::Ellipsis::default(),
+            letter_spacing: Default::default(),
+            font_features: Vec::new(),
             hint_factor: renderer.scale_factor(),
         };
 
-        let _ = state.placeholder.update(placeholder_text);
+        let _ = state.placeholder.update(placeholder_text.clone());
 
         let secure_value = self.is_secure.then(|| value.secure());
         let value = secure_value.as_ref().unwrap_or(value);
@@ -366,6 +368,8 @@ where
                 shaping: text::Shaping::Advanced,
                 wrapping: text::Wrapping::None,
                 ellipsis: text::Ellipsis::default(),
+                letter_spacing: Default::default(),
+                font_features: Vec::new(),
                 hint_factor: renderer.scale_factor(),
             };
 
@@ -1786,6 +1790,8 @@ fn replace_paragraph<Renderer>(
         shaping: text::Shaping::Advanced,
         wrapping: text::Wrapping::None,
         ellipsis: text::Ellipsis::default(),
+        letter_spacing: Default::default(),
+        font_features: Vec::new(),
         hint_factor: renderer.scale_factor(),
     });
 }
