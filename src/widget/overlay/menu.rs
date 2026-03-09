@@ -637,6 +637,7 @@ where
                     ellipsis: self.ellipsis,
                     letter_spacing: Default::default(),
                     font_features: Vec::new(),
+                    font_variations: Vec::new(),
                     hint_factor: renderer.scale_factor(),
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),

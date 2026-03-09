@@ -341,6 +341,7 @@ where
             ellipsis: text::Ellipsis::default(),
             letter_spacing: Default::default(),
             font_features: Vec::new(),
+            font_variations: Vec::new(),
             hint_factor: renderer.scale_factor(),
         };
 
@@ -370,6 +371,7 @@ where
                 ellipsis: text::Ellipsis::default(),
                 letter_spacing: Default::default(),
                 font_features: Vec::new(),
+                font_variations: Vec::new(),
                 hint_factor: renderer.scale_factor(),
             };
 
@@ -1792,6 +1794,7 @@ fn replace_paragraph<Renderer>(
         ellipsis: text::Ellipsis::default(),
         letter_spacing: Default::default(),
         font_features: Vec::new(),
+        font_variations: Vec::new(),
         hint_factor: renderer.scale_factor(),
     });
 }
