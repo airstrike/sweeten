@@ -540,7 +540,7 @@ dependencies = [
 [[package]]
 name = "cosmic-text"
 version = "0.18.2"
-source = "git+https://github.com/airstrike/cosmic-text?branch=dev#408adef4188e3e6705dc39bbabfaf9302a50f4cf"
+source = "git+https://github.com/airstrike/cosmic-text?branch=dev#fe7887f468804a6367a31f8a8af5dcf2fabc17c4"
 dependencies = [
  "bitflags 2.11.0",
  "fontdb",
@@ -1118,7 +1118,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 [[package]]
 name = "iced"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "iced_core",
  "iced_debug",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
@@ -1150,7 +1150,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1160,7 +1160,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "futures",
  "iced_core",
@@ -1173,7 +1173,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1191,7 +1191,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -1200,7 +1200,7 @@ dependencies = [
 [[package]]
 name = "iced_renderer"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "iced_graphics",
  "iced_tiny_skia",
@@ -1212,7 +1212,7 @@ dependencies = [
 [[package]]
 name = "iced_runtime"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "bytes",
  "iced_core",
@@ -1224,7 +1224,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -1240,7 +1240,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1259,7 +1259,7 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "iced_renderer",
  "log",
@@ -1272,7 +1272,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#2be0e766b7bfdc4eb6095c60c4671dc23ac86689"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
 dependencies = [
  "arboard",
  "iced_debug",
@@ -1389,9 +1389,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
 
 [[package]]
 name = "libloading"
@@ -2006,15 +2006,15 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.3"
+version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "orbclient"
-version = "0.3.50"
+version = "0.3.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ad2c6bae700b7aa5d1cc30c59bdd3a1c180b09dbaea51e2ae2b8e1cf211fdd"
+checksum = "59aed3b33578edcfa1bc96a321d590d31832b6ad55a26f0313362ce687e9abd6"
 dependencies = [
  "libc",
  "libredox",
@@ -2685,9 +2685,9 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.26.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
  "getrandom 0.4.2",
@@ -4017,18 +4017,18 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a789c6e490b576db9f7e6b6d661bcc9799f7c0ac8352f56ea20193b2681532e5"
+checksum = "f2578b716f8a7a858b7f02d5bd870c14bf4ddbbcf3a4c05414ba6503640505e3"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.40"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f65c489a7071a749c849713807783f70672b28094011623e200cb86dcb835953"
+checksum = "7e6cc098ea4d3bd6246687de65af3f920c430e236bee1e3bf2e441463f08a02f"
 dependencies = [
  "proc-macro2",
  "quote",

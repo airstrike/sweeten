@@ -1527,19 +1527,14 @@ impl Catalog for crate::Theme {
 pub fn default(theme: &crate::Theme) -> Style {
     Style {
         scale: 1.05,
-        moved_item_overlay: theme
-            .extended_palette()
-            .primary
-            .base
-            .color
-            .scale_alpha(0.2),
+        moved_item_overlay: theme.palette().primary.base.color.scale_alpha(0.2),
         ghost_border: Border {
             width: 1.0,
-            color: theme.extended_palette().secondary.base.color,
+            color: theme.palette().secondary.base.color,
             radius: 0.0.into(),
         },
         ghost_background: theme
-            .extended_palette()
+            .palette()
             .secondary
             .base
             .color
