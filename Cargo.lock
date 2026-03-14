@@ -540,7 +540,7 @@ dependencies = [
 [[package]]
 name = "cosmic-text"
 version = "0.18.2"
-source = "git+https://github.com/airstrike/cosmic-text?branch=dev#fe7887f468804a6367a31f8a8af5dcf2fabc17c4"
+source = "git+https://github.com/airstrike/cosmic-text?branch=dev#bd9f4e56cbaa013b68e03514ad63a76843f64fd6"
 dependencies = [
  "bitflags 2.11.0",
  "fontdb",
@@ -1118,7 +1118,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 [[package]]
 name = "iced"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "iced_core",
  "iced_debug",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
@@ -1150,7 +1150,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1160,7 +1160,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "futures",
  "iced_core",
@@ -1173,7 +1173,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1191,7 +1191,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -1200,7 +1200,7 @@ dependencies = [
 [[package]]
 name = "iced_renderer"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "iced_graphics",
  "iced_tiny_skia",
@@ -1212,7 +1212,7 @@ dependencies = [
 [[package]]
 name = "iced_runtime"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "bytes",
  "iced_core",
@@ -1224,7 +1224,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -1240,7 +1240,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1259,7 +1259,7 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "iced_renderer",
  "log",
@@ -1272,7 +1272,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#0e39fcdf1ee65a219d442796ee226f0cbc927eab"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#bac4122cdd8f26b1b01fd9c5a0998457e1dd5cea"
 dependencies = [
  "arboard",
  "iced_debug",
