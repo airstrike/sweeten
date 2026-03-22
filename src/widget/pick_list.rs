@@ -403,6 +403,7 @@ where
             font_features: Vec::new(),
             font_variations: Vec::new(),
             hint_factor: renderer.scale_factor(),
+            weight: None,
         };
 
         for (option, paragraph) in options.iter().zip(state.options.iter_mut())
@@ -675,6 +676,7 @@ where
                     font_features: Vec::new(),
                     font_variations: Vec::new(),
                     hint_factor: None,
+                    weight: None,
                 },
                 Point::new(
                     bounds.x + bounds.width - self.padding.right,
@@ -710,6 +712,7 @@ where
                     font_features: Vec::new(),
                     font_variations: Vec::new(),
                     hint_factor: renderer.scale_factor(),
+                    weight: None,
                 },
                 Point::new(bounds.x + self.padding.left, bounds.center_y()),
                 if selected.is_some() {

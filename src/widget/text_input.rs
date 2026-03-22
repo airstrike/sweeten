@@ -343,6 +343,7 @@ where
             font_features: Vec::new(),
             font_variations: Vec::new(),
             hint_factor: renderer.scale_factor(),
+            weight: None,
         };
 
         let _ = state.placeholder.update(placeholder_text.clone());
@@ -373,6 +374,7 @@ where
                 font_features: Vec::new(),
                 font_variations: Vec::new(),
                 hint_factor: renderer.scale_factor(),
+                weight: None,
             };
 
             let _ = state.icon.update(icon_text);
@@ -1796,6 +1798,7 @@ fn replace_paragraph<Renderer>(
         font_features: Vec::new(),
         font_variations: Vec::new(),
         hint_factor: renderer.scale_factor(),
+        weight: None,
     });
 }
 
