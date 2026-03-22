@@ -540,7 +540,7 @@ dependencies = [
 [[package]]
 name = "cosmic-text"
 version = "0.18.2"
-source = "git+https://github.com/airstrike/cosmic-text?branch=dev#8c79e0404019c9afd40429cda59e9d26a3153ceb"
+source = "git+https://github.com/airstrike/cosmic-text?branch=dev#2d6b10e8bb918621398449bbb02fb210a1545cb4"
 dependencies = [
  "bitflags 2.11.0",
  "fontdb",
