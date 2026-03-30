@@ -6,6 +6,7 @@ use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
 use crate::widget::column::{self, Column};
+use crate::widget::grid_stack as grid_stack_mod;
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
@@ -135,4 +136,24 @@ where
     Renderer: core::Renderer,
 {
     MouseArea::new(widget)
+}
+
+/// Creates a new [`GridStack`] with the given state and view function.
+///
+/// The view function is called once for each item, receiving the item's
+/// [`ItemId`](grid_stack_mod::ItemId) and a reference to its user data.
+///
+/// [`GridStack`]: grid_stack_mod::GridStack
+pub fn grid_stack<'a, T, Message, Theme, Renderer>(
+    state: &'a grid_stack_mod::State<T>,
+    view: impl Fn(
+        grid_stack_mod::ItemId,
+        &'a T,
+    ) -> grid_stack_mod::Content<'a, Message, Theme, Renderer>,
+) -> grid_stack_mod::GridStack<'a, Message, Theme, Renderer>
+where
+    Theme: grid_stack_mod::Catalog,
+    Renderer: core::Renderer,
+{
+    grid_stack_mod::GridStack::new(state, view)
 }

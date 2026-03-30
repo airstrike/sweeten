@@ -9,6 +9,7 @@
 pub mod button;
 pub mod column;
 pub mod drag;
+pub mod grid_stack;
 pub mod mouse_area;
 pub mod operation;
 pub mod overlay;
@@ -18,6 +19,7 @@ pub mod text_input;
 
 pub use button::Button;
 pub use column::Column;
+pub use grid_stack::GridStack;
 pub use mouse_area::MouseArea;
 pub use pick_list::PickList;
 pub use row::Row;

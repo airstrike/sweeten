@@ -1,0 +1,7 @@
+module = "icon"
+
+[icons]
+x          = "x"
+pin        = "pin"
+pin_off    = "pin-off"
+grip       = "grip"
