@@ -10,6 +10,7 @@ name = "grid_stack"
 [dependencies]
 sweeten = { path = "../.." }
 iced.workspace = true
+fount = { git = "https://github.com/airstrike/fount" }
 
 [build-dependencies]
 iced_lucide = { git = "https://github.com/airstrike/iced_lucide" }

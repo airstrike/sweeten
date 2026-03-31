@@ -185,10 +185,6 @@ impl GridEngine {
         self.items.iter().map(GridItem::bottom).max().unwrap_or(0)
     }
 
-    // ---------------------------------------------------------------
-    // Constraint enforcement
-    // ---------------------------------------------------------------
-
     /// Enforces all constraints on an item: min/max dimensions, grid
     /// boundaries, and position clamping.
     ///
@@ -253,10 +249,6 @@ impl GridEngine {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Auto-placement
-    // ---------------------------------------------------------------
-
     /// Scans the grid left-to-right, top-to-bottom for the first position
     /// where an item of the given size can be placed without overlapping
     /// any existing item.
@@ -307,10 +299,6 @@ impl GridEngine {
         None
     }
 
-    // ---------------------------------------------------------------
-    // Collision resolution
-    // ---------------------------------------------------------------
-
     /// Finds the index of the first item that overlaps with `area`,
     /// excluding the item with ID `skip_id`.
     fn find_collision(
@@ -348,20 +336,9 @@ impl GridEngine {
                 break;
             };
 
-            // Build a temporary GridItem with full-row width for collision
-            // detection in gravity mode (prevents items from leapfrogging)
-            let check_area = if !self.float {
-                GridItem {
-                    x: 0,
-                    w: self.columns,
-                    ..self.items[item_idx].clone()
-                }
-            } else {
-                self.items[item_idx].clone()
-            };
-
-            // Find collision (excluding self)
-            let collision_idx = match self.find_collision(&check_area, item_id)
+            // Find collision using the item's actual bounding box.
+            let collision_idx = match self
+                .find_collision(&self.items[item_idx].clone(), item_id)
             {
                 Some(idx) => idx,
                 None => break, // No more collisions
@@ -422,17 +399,8 @@ impl GridEngine {
                 break;
             };
 
-            let check_area = if !self.float {
-                GridItem {
-                    x: 0,
-                    w: self.columns,
-                    ..self.items[item_idx].clone()
-                }
-            } else {
-                self.items[item_idx].clone()
-            };
-
-            let collision_idx = match self.find_collision(&check_area, item_id)
+            let collision_idx = match self
+                .find_collision(&self.items[item_idx].clone(), item_id)
             {
                 Some(idx) => idx,
                 None => break,
@@ -478,10 +446,6 @@ impl GridEngine {
         self.items[idx] = item;
     }
 
-    // ---------------------------------------------------------------
-    // Vertical compaction (gravity)
-    // ---------------------------------------------------------------
-
     /// Compacts all items upward (toward y=0) when gravity mode is active.
     ///
     /// Items are sorted in reading order (top-to-bottom, left-to-right)
@@ -492,7 +456,10 @@ impl GridEngine {
     /// computing the lowest y where no collision occurs. It does this
     /// by collecting the bottom edges of all horizontally-overlapping
     /// items and trying y=0 first, then each of those bottom edges.
-    pub fn pack_nodes(&mut self) {
+    ///
+    /// If `hold` is `Some(id)`, that item is treated as locked in place
+    /// for this compaction pass (e.g. the item currently being resized).
+    pub fn pack_nodes_with_hold(&mut self, hold: Option<ItemId>) {
         if self.float {
             return;
         }
@@ -503,7 +470,7 @@ impl GridEngine {
 
         // For each item, find the highest valid y position
         for i in 0..self.items.len() {
-            if self.items[i].locked {
+            if self.items[i].locked || hold == Some(self.items[i].id) {
                 continue;
             }
 
@@ -551,9 +518,10 @@ impl GridEngine {
         }
     }
 
-    // ---------------------------------------------------------------
-    // Add / Remove
-    // ---------------------------------------------------------------
+    /// Compacts all items upward. Equivalent to `pack_nodes_with_hold(None)`.
+    pub fn pack_nodes(&mut self) {
+        self.pack_nodes_with_hold(None);
+    }
 
     /// Adds a new item to the grid at the given position and size.
     ///
@@ -617,10 +585,6 @@ impl GridEngine {
 
         Some(item)
     }
-
-    // ---------------------------------------------------------------
-    // Move / Resize
-    // ---------------------------------------------------------------
 
     /// Moves an item to a new grid position.
     ///
@@ -694,16 +658,14 @@ impl GridEngine {
 
         self.fix_collisions(id);
 
+        // Compact with the resized item held in place — resizing should
+        // never move the item itself, only push others out of the way.
         if !self.float {
-            self.pack_nodes();
+            self.pack_nodes_with_hold(Some(id));
         }
 
         true
     }
-
-    // ---------------------------------------------------------------
-    // Pixel region computation
-    // ---------------------------------------------------------------
 
     /// Converts all grid items to pixel rectangles within the given bounds.
     ///

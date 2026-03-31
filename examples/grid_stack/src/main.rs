@@ -9,6 +9,7 @@
 //! - Styled focused/unfocused items
 //! - Moving items by dragging the title bar area
 //! - Resizing items by dragging the bottom-right corner/edges
+//! - Loading a Google Font (Geist) via fount
 //!
 //! Run with: `cargo run -p grid_stack`
 
@@ -16,21 +17,28 @@
 mod icon;
 
 use iced::keyboard;
-use iced::widget::{
-    button, center_y, column, container, row, rule, scrollable, text,
+use iced::widget::{button, center_y, column, container, row, rule, text};
+use iced::{
+    Center, Color, Element, Fill, Font, Size, Subscription, Task, Theme, window,
 };
-use iced::{Center, Color, Element, Fill, Font, Subscription, Theme};
 
 use sweeten::widget::grid_stack::{self, GridStack};
+use sweeten::widget::grid_stack::{grid_content, title_bar};
 
 fn main() -> iced::Result {
-    iced::application(Example::default, Example::update, Example::view)
-        .subscription(Example::subscription)
-        .window_size((900.0, 700.0))
+    iced::application(App::new, App::update, App::view)
+        .subscription(App::subscription)
+        .window_size((300.0, 200.0))
         .theme(Theme::Light)
         .font(icon::FONT)
+        .default_font(Font::with_family("Geist"))
         .title("sweeten - GridStack")
         .run()
+}
+
+enum App {
+    Loading,
+    Loaded(Example),
 }
 
 struct Example {
@@ -47,6 +55,7 @@ struct Item {
 
 #[derive(Debug, Clone)]
 enum Message {
+    FontLoaded,
     Clicked(grid_stack::ItemId),
     Moved(grid_stack::MoveEvent),
     Resized(grid_stack::ResizeEvent),
@@ -54,6 +63,64 @@ enum Message {
     TogglePin(grid_stack::ItemId),
     Close(grid_stack::ItemId),
     CloseFocused,
+}
+
+impl App {
+    fn new() -> (Self, Task<Message>) {
+        (
+            App::Loading,
+            Task::future(fount::google::load("Geist", None)).then(|result| {
+                match result {
+                    Ok(bytes_list) => {
+                        Task::batch(bytes_list.into_iter().map(|bytes| {
+                            iced::font::load(bytes).map(|_| Message::FontLoaded)
+                        }))
+                    }
+                    Err(_) => Task::done(Message::FontLoaded),
+                }
+            }),
+        )
+    }
+
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::FontLoaded => {
+                if matches!(self, App::Loading) {
+                    *self = App::Loaded(Example::new());
+
+                    return window::latest().and_then(|id| {
+                        window::resize(id, Size::new(900.0, 700.0))
+                    });
+                }
+                Task::none()
+            }
+            _ => {
+                if let App::Loaded(example) = self {
+                    example.update(message);
+                }
+                Task::none()
+            }
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        match self {
+            App::Loading => container(text("GridStack").size(32).font(Font {
+                weight: iced::font::Weight::Bold,
+                ..Font::DEFAULT
+            }))
+            .center(Fill)
+            .into(),
+            App::Loaded(example) => example.view(),
+        }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        match self {
+            App::Loading => Subscription::none(),
+            App::Loaded(example) => example.subscription(),
+        }
+    }
 }
 
 impl Example {
@@ -121,7 +188,7 @@ impl Example {
             Message::Close(id) => {
                 self.state.remove(id);
                 if self.focus == Some(id) {
-                    self.focus = None;
+                    self.focus = prev_or_last_item(&self.state, id);
                 }
             }
             Message::CloseFocused => {
@@ -130,9 +197,10 @@ impl Example {
                     && !item.is_pinned
                 {
                     self.state.remove(id);
-                    self.focus = None;
+                    self.focus = prev_or_last_item(&self.state, id);
                 }
             }
+            Message::FontLoaded => {}
         }
     }
 
@@ -173,9 +241,9 @@ impl Example {
 
             let controls = view_controls(id, total_items, item.is_pinned);
 
-            let mut title_bar = grid_stack::TitleBar::new(title)
+            let mut title_bar = title_bar(title)
                 .controls(controls)
-                .padding([6, 10])
+                .padding([8, 10])
                 .style(if is_focused {
                     style::title_bar_focused
                 } else {
@@ -191,7 +259,7 @@ impl Example {
                 .map(|i| (i.x, i.y, i.w, i.h))
                 .unwrap_or((0, 0, 0, 0));
 
-            grid_stack::Content::new(view_content(gx, gy, gw, gh))
+            grid_content(view_content(gx, gy, gw, gh))
                 .title_bar(title_bar)
                 .style(if is_focused {
                     style::item_focused
@@ -234,12 +302,6 @@ impl Example {
     }
 }
 
-impl Default for Example {
-    fn default() -> Self {
-        Example::new()
-    }
-}
-
 const TITLE_COLOR: Color = Color::from_rgb(
     0x33 as f32 / 255.0,
     0x33 as f32 / 255.0,
@@ -258,22 +320,42 @@ const LABEL_COLOR: Color = Color::from_rgb(
     0x66 as f32 / 255.0,
 );
 
+/// Focus the item before `id`, or the last item if none precede it.
+fn prev_or_last_item<T>(
+    state: &grid_stack::State<T>,
+    id: grid_stack::ItemId,
+) -> Option<grid_stack::ItemId> {
+    let ids: Vec<_> = state.iter().map(|(item_id, _)| item_id).collect();
+    ids.iter()
+        .rev()
+        .copied()
+        .find(|&item_id| item_id < id)
+        .or_else(|| ids.last().copied())
+}
+
 fn view_content<'a>(
     gx: u16,
     gy: u16,
     gw: u16,
     gh: u16,
 ) -> Element<'a, Message> {
-    let info = column![
-        text!("Position  ({}, {})", gx, gy)
-            .size(13)
-            .color(LABEL_COLOR),
-        text!("Size  {} x {}", gw, gh).size(13).color(LABEL_COLOR),
-    ]
-    .spacing(4)
-    .align_x(Center);
-
-    center_y(scrollable(info.max_width(200))).padding(10).into()
+    center_y(
+        column![
+            text!("Position  ({}, {})", gx, gy)
+                .center()
+                .size(13)
+                .color(LABEL_COLOR),
+            text!("Size  {} x {}", gw, gh)
+                .center()
+                .size(13)
+                .color(LABEL_COLOR),
+        ]
+        .spacing(4)
+        .width(Fill)
+        .align_x(Center),
+    )
+    .padding(10)
+    .into()
 }
 
 fn view_controls(

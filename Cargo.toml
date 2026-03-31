@@ -2,7 +2,7 @@
 members = [".", "examples/grid_stack"]
 
 [workspace.dependencies]
-iced = { version = "0.15.0-dev", features = ["advanced"] }
+iced = { version = "0.15.0-dev", features = ["advanced", "tokio"] }
 sweeten = { path = "." }
 
 [package]

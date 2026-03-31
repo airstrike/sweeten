@@ -1,6 +1,6 @@
 // Generated automatically by iced_lucide at build time.
 // Do not edit manually.
-// f9ffb474ec0c9a87f18f05912db84d540b4c5eeff58f26a1194d6ab928e0e400
+// c48922b3ce293c2b6bb262ff1f93269eb4e998eb6521079b9c31cc5c10800d33
 use iced::widget::text::{self, Text};
 
 pub const FONT: &[u8] = include_bytes!("../fonts/lucide.ttf");
@@ -10,6 +10,7 @@ pub const FONT: &[u8] = include_bytes!("../fonts/lucide.ttf");
 #[allow(dead_code)]
 pub const ALL_ICONS: &[(&str, &str)] = &[
     ("grip", "\u{E3B1}"),
+    ("move_diagonal_2", "\u{E1C5}"),
     ("pin", "\u{E259}"),
     ("pin_off", "\u{E2B6}"),
     ("x", "\u{E1B2}"),
@@ -20,6 +21,13 @@ where
     Theme: text::Catalog + 'a,
 {
     icon("\u{E3B1}")
+}
+
+pub fn move_diagonal_2<'a, Theme>() -> Text<'a, Theme>
+where
+    Theme: text::Catalog + 'a,
+{
+    icon("\u{E1C5}")
 }
 
 pub fn pin<'a, Theme>() -> Text<'a, Theme>

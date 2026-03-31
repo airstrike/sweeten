@@ -3,18 +3,22 @@
 //! This module contains the main [`GridStack`] widget, event types, and the
 //! [`Catalog`] trait for theming.
 
+use std::collections::HashMap;
+
 use iced_widget::container;
 
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay::{self, Group};
 use crate::core::renderer;
+use crate::core::time::Instant;
 use crate::core::touch;
 use crate::core::widget;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::window;
 use crate::core::{
-    self, Background, Border, Color, Element, Event, Layout, Length, Pixels,
-    Point, Rectangle, Shell, Size, Theme, Vector, Widget,
+    self, Animation, Background, Border, Color, Element, Event, Layout, Length,
+    Pixels, Point, Rectangle, Shell, Size, Theme, Vector, Widget,
 };
 
 use super::content::Content;
@@ -108,6 +112,7 @@ pub struct GridStack<
     on_move: Option<Box<dyn Fn(MoveEvent) -> Message + 'a>>,
     on_resize: Option<Box<dyn Fn(ResizeEvent) -> Message + 'a>>,
     class: <Theme as Catalog>::Class<'a>,
+    last_mouse_interaction: Option<mouse::Interaction>,
 }
 
 impl<'a, Message, Theme, Renderer> GridStack<'a, Message, Theme, Renderer>
@@ -141,6 +146,7 @@ where
             on_move: None,
             on_resize: None,
             class: <Theme as Catalog>::default(),
+            last_mouse_interaction: None,
         }
     }
 
@@ -287,6 +293,138 @@ struct Memory {
     action: Action,
     order: Vec<ItemId>,
     last_hovered: Option<usize>,
+    animations: ItemAnimations,
+}
+
+/// Per-item position animations for smooth transitions.
+#[derive(Debug, Clone)]
+struct ItemAnimations {
+    /// Animated X offset for each item (pixels, from layout position).
+    offsets_x: HashMap<ItemId, Animation<f32>>,
+    /// Animated Y offset for each item (pixels, from layout position).
+    offsets_y: HashMap<ItemId, Animation<f32>>,
+    /// Last known pixel position for each item (top-left corner).
+    last_positions: HashMap<ItemId, (f32, f32)>,
+    /// Ghost placeholder opacity animation.
+    ghost_opacity: Animation<bool>,
+    /// The item that was being dragged when the ghost was last shown.
+    ghost_item: Option<ItemId>,
+    /// Current time instant for interpolation.
+    now: Option<Instant>,
+}
+
+impl Default for ItemAnimations {
+    fn default() -> Self {
+        Self {
+            offsets_x: HashMap::new(),
+            offsets_y: HashMap::new(),
+            last_positions: HashMap::new(),
+            ghost_opacity: Animation::new(false),
+            ghost_item: None,
+            now: None,
+        }
+    }
+}
+
+impl ItemAnimations {
+    fn new_animation(value: f32) -> Animation<f32> {
+        Animation::new(value)
+            .quick()
+            .easing(crate::core::animation::Easing::EaseOut)
+    }
+
+    fn new_ghost_animation(value: bool) -> Animation<bool> {
+        Animation::new(value)
+            .quick()
+            .easing(crate::core::animation::Easing::EaseOut)
+    }
+
+    /// Returns true if any item animation is in progress.
+    fn is_animating(&self, now: Instant) -> bool {
+        self.offsets_x.values().any(|anim| anim.is_animating(now))
+            || self.offsets_y.values().any(|anim| anim.is_animating(now))
+            || self.ghost_opacity.is_animating(now)
+    }
+
+    /// Update animations based on new item positions from layout.
+    /// `regions` maps ItemId -> (px_x, px_y, pw, ph).
+    /// `dragged_id` is the item currently being dragged (should not be animated).
+    #[allow(clippy::type_complexity)]
+    fn update_positions(
+        &mut self,
+        regions: &[(ItemId, (f32, f32, f32, f32))],
+        dragged_id: Option<ItemId>,
+        now: Instant,
+    ) {
+        for &(id, (px, py, _, _)) in regions {
+            // Don't animate the item being dragged
+            if dragged_id == Some(id) {
+                self.last_positions.insert(id, (px, py));
+                continue;
+            }
+
+            if let Some(&(old_x, old_y)) = self.last_positions.get(&id) {
+                let dx = old_x - px;
+                let dy = old_y - py;
+
+                // Only start a new animation if the position actually changed
+                // by a meaningful amount (> 0.5px to avoid float noise).
+                if dx.abs() > 0.5 || dy.abs() > 0.5 {
+                    let anim_x = Self::new_animation(dx).go(0.0, now);
+                    let anim_y = Self::new_animation(dy).go(0.0, now);
+                    self.offsets_x.insert(id, anim_x);
+                    self.offsets_y.insert(id, anim_y);
+                }
+            }
+
+            self.last_positions.insert(id, (px, py));
+        }
+
+        // Clean up stale entries for items that no longer exist.
+        let current_ids: std::collections::HashSet<ItemId> =
+            regions.iter().map(|(id, _)| *id).collect();
+        self.offsets_x.retain(|id, _| current_ids.contains(id));
+        self.offsets_y.retain(|id, _| current_ids.contains(id));
+        self.last_positions.retain(|id, _| current_ids.contains(id));
+    }
+
+    /// Get the current interpolated offset for an item.
+    fn get_offset(&self, id: ItemId, now: Instant) -> Vector {
+        let x = self
+            .offsets_x
+            .get(&id)
+            .filter(|anim| anim.is_animating(now))
+            .map(|anim| anim.interpolate_with(|v| v, now))
+            .unwrap_or(0.0);
+        let y = self
+            .offsets_y
+            .get(&id)
+            .filter(|anim| anim.is_animating(now))
+            .map(|anim| anim.interpolate_with(|v| v, now))
+            .unwrap_or(0.0);
+        Vector::new(x, y)
+    }
+
+    /// Start the ghost fade-in animation.
+    fn show_ghost(&mut self, id: ItemId, now: Instant) {
+        if self.ghost_item != Some(id) {
+            self.ghost_opacity = Self::new_ghost_animation(false).go(true, now);
+            self.ghost_item = Some(id);
+        }
+    }
+
+    /// Hide the ghost (reset state).
+    fn hide_ghost(&mut self) {
+        if self.ghost_item.is_some() {
+            self.ghost_item = None;
+            self.ghost_opacity = Self::new_ghost_animation(false);
+        }
+    }
+
+    /// Get the current ghost opacity (0.0 to 1.0).
+    fn ghost_alpha(&self, now: Instant) -> f32 {
+        self.ghost_opacity.interpolate(0.0, 1.0, now)
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -370,6 +508,19 @@ where
         // Use custom item_regions computation that respects CellHeight
         let regions = self.compute_regions(resolved_width, cell_w, cell_h);
 
+        // Update animation state with the new positions.
+        let memory = tree.state.downcast_mut::<Memory>();
+        let dragged_id = match &memory.action {
+            Action::Moving { id, .. } | Action::Resizing { id, .. } => {
+                Some(*id)
+            }
+            Action::Idle => None,
+        };
+        let now = memory.animations.now.unwrap_or_else(Instant::now);
+        memory
+            .animations
+            .update_positions(&regions, dragged_id, now);
+
         let children = self
             .items
             .iter()
@@ -452,8 +603,33 @@ where
         }
 
         let bounds = layout.bounds();
+        let Memory {
+            action, animations, ..
+        } = tree.state.downcast_mut();
 
         match event {
+            Event::Window(window::Event::RedrawRequested(now)) => {
+                animations.now = Some(*now);
+
+                // Request another frame if animations are still in progress.
+                if animations.is_animating(*now) {
+                    shell.request_redraw();
+                }
+
+                // Manage ghost animation based on drag state.
+                match action {
+                    Action::Moving { id, origin, .. } => {
+                        if cursor.position().is_some_and(|pos| {
+                            pos.distance(*origin) > DRAG_DEADBAND_DISTANCE
+                        }) {
+                            animations.show_ghost(*id, *now);
+                        }
+                    }
+                    Action::Idle | Action::Resizing { .. } => {
+                        animations.hide_ghost();
+                    }
+                }
+            }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
                 if let Some(cursor_position) = cursor.position_over(bounds) {
@@ -497,6 +673,7 @@ where
             | Event::Touch(touch::Event::FingerLifted { .. })
             | Event::Touch(touch::Event::FingerLost { .. }) => {
                 *action = Action::Idle;
+                animations.hide_ghost();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. })
             | Event::Touch(touch::Event::FingerMoved { .. }) => match action {
@@ -522,6 +699,10 @@ where
                         let grid_dy = (dy / step_h).round() as i32;
                         let new_x = (*start_x as i32 + grid_dx).max(0) as u16;
                         let new_y = (*start_y as i32 + grid_dy).max(0) as u16;
+
+                        // Start ghost animation when drag begins
+                        let now = animations.now.unwrap_or_else(Instant::now);
+                        animations.show_ghost(*id, now);
 
                         shell.publish(on_move(MoveEvent {
                             id: *id,
@@ -578,6 +759,38 @@ where
             let memory = tree.state.downcast_mut::<Memory>();
             if memory.last_hovered != hovered_index {
                 memory.last_hovered = hovered_index;
+                shell.request_redraw();
+            }
+        }
+
+        // Detect mouse interaction changes (cursor type) so we request redraws
+        // for hover effects like the resize cursor or grab cursor.
+        if shell.redraw_request() != window::RedrawRequest::NextFrame {
+            let action = &tree.state.downcast_ref::<Memory>().action;
+
+            let interaction = self
+                .grid_interaction(action, layout, cursor)
+                .or_else(|| {
+                    self.items
+                        .iter()
+                        .zip(&self.contents)
+                        .zip(layout.children())
+                        .find_map(|((_, content), layout)| {
+                            content.grid_interaction(
+                                layout,
+                                cursor,
+                                self.on_move.is_some(),
+                            )
+                        })
+                })
+                .unwrap_or(mouse::Interaction::None);
+
+            if let Event::Window(window::Event::RedrawRequested(_)) = event {
+                self.last_mouse_interaction = Some(interaction);
+            } else if self
+                .last_mouse_interaction
+                .is_some_and(|last| last != interaction)
+            {
                 shell.request_redraw();
             }
         }
@@ -652,7 +865,10 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let Memory { action, .. } = tree.state.downcast_ref();
+        let Memory {
+            action, animations, ..
+        } = tree.state.downcast_ref();
+        let now = animations.now.unwrap_or_else(Instant::now);
 
         let picked_item = match action {
             Action::Moving {
@@ -664,6 +880,11 @@ where
                 .position()
                 .filter(|pos| pos.distance(*origin) > DRAG_DEADBAND_DISTANCE)
                 .map(|_| (*id, *grab_offset)),
+            _ => None,
+        };
+
+        let resizing_id = match action {
+            Action::Resizing { id, .. } => Some(*id),
             _ => None,
         };
 
@@ -689,15 +910,101 @@ where
                         Some(((content, tree), item_layout, grab_offset));
                 }
                 _ => {
-                    content.draw(
-                        tree,
-                        renderer,
-                        theme,
-                        defaults,
-                        item_layout,
-                        item_cursor,
-                        viewport,
-                    );
+                    // When resizing an item, force its controls to stay
+                    // visible by providing a cursor over its bounds.
+                    let draw_cursor = if resizing_id == Some(id) {
+                        let b = item_layout.bounds();
+                        mouse::Cursor::Available(Point::new(
+                            b.x + b.width / 2.0,
+                            b.y + b.height / 2.0,
+                        ))
+                    } else {
+                        item_cursor
+                    };
+
+                    // Apply animated offset for smooth transitions.
+                    let offset = animations.get_offset(id, now);
+
+                    if offset.x != 0.0 || offset.y != 0.0 {
+                        renderer.with_translation(offset, |renderer| {
+                            content.draw(
+                                tree,
+                                renderer,
+                                theme,
+                                defaults,
+                                item_layout,
+                                draw_cursor,
+                                viewport,
+                            );
+                        });
+                    } else {
+                        content.draw(
+                            tree,
+                            renderer,
+                            theme,
+                            defaults,
+                            item_layout,
+                            draw_cursor,
+                            viewport,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Draw resize grip indicator on hovered, non-locked items when
+        // resize is enabled and the style provides a grip appearance.
+        let grid_style = Catalog::style(theme, &self.class);
+
+        if self.on_resize.is_some()
+            && let Some(ref grip) = grid_style.resize_grip
+            && let Some(cursor_position) = item_cursor.position()
+        {
+            for (id, item_layout) in
+                self.items.iter().copied().zip(layout.children())
+            {
+                let item_bounds = item_layout.bounds();
+                if !item_bounds.contains(cursor_position) {
+                    continue;
+                }
+                if self.engine.get(id).is_some_and(|item| item.locked) {
+                    continue;
+                }
+                if picked_item.is_some_and(|(pid, _)| pid == id) {
+                    continue;
+                }
+
+                // Draw a triangular grip pattern at the bottom-right:
+                //       .
+                //     . .
+                //   . . .
+                let margin = 6.0;
+                let gap = 4.0;
+                let anchor_x = item_bounds.x + item_bounds.width - margin;
+                let anchor_y = item_bounds.y + item_bounds.height - margin;
+
+                for row in 0..3_u8 {
+                    for col in 0..=row {
+                        let x = anchor_x - (col as f32) * gap;
+                        let y = anchor_y - ((2 - row) as f32) * gap;
+
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x,
+                                    y,
+                                    width: grip.dot_size,
+                                    height: grip.dot_size,
+                                },
+                                border: Border {
+                                    radius: (grip.dot_size / 2.0).into(),
+                                    ..Border::default()
+                                },
+                                ..renderer::Quad::default()
+                            },
+                            Background::Color(grip.color),
+                        );
+                    }
                 }
             }
         }
@@ -709,17 +1016,27 @@ where
             && let Some(cursor_position) = cursor.position()
         {
             // Draw a translucent ghost rectangle at the engine's snap position
-            // (where the item would land if released now).
-            let grid_style = Catalog::style(theme, &self.class);
+            // (where the item would land if released now), with animated opacity.
             let ghost_bounds = item_layout.bounds();
+            let ghost_alpha = animations.ghost_alpha(now);
 
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: ghost_bounds,
-                    border: grid_style.hovered_region.border,
+                    border: Border {
+                        color: grid_style
+                            .hovered_region
+                            .border
+                            .color
+                            .scale_alpha(ghost_alpha),
+                        ..grid_style.hovered_region.border
+                    },
                     ..renderer::Quad::default()
                 },
-                grid_style.hovered_region.background,
+                grid_style
+                    .hovered_region
+                    .background
+                    .scale_alpha(ghost_alpha),
             );
 
             // Draw the floating item under the cursor.
@@ -789,10 +1106,10 @@ where
                 let w = f32::from(item.w);
                 let h = f32::from(item.h);
 
-                let px = x * cell_w + x * self.spacing;
-                let py = y * cell_h + y * self.spacing;
-                let pw = w * cell_w + (w - 1.0) * self.spacing;
-                let ph = h * cell_h + (h - 1.0) * self.spacing;
+                let px = (x * cell_w + x * self.spacing).round();
+                let py = (y * cell_h + y * self.spacing).round();
+                let pw = (w * cell_w + (w - 1.0) * self.spacing).round();
+                let ph = (h * cell_h + (h - 1.0) * self.spacing).round();
 
                 // Clamp width to not exceed total_width
                 let pw = pw.min(total_width - px);
@@ -842,6 +1159,43 @@ where
             if near_right || near_bottom {
                 return Some(*id);
             }
+        }
+
+        None
+    }
+
+    /// Computes the current mouse interaction based on the action state and
+    /// cursor position, without consulting child widgets.
+    fn grid_interaction(
+        &self,
+        action: &Action,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+    ) -> Option<mouse::Interaction> {
+        match action {
+            Action::Moving { origin, .. } => {
+                if cursor.position().is_some_and(|pos| {
+                    pos.distance(*origin) > DRAG_DEADBAND_DISTANCE
+                }) {
+                    return Some(mouse::Interaction::Grabbing);
+                }
+                return Some(mouse::Interaction::Grab);
+            }
+            Action::Resizing { .. } => {
+                return Some(mouse::Interaction::ResizingDiagonallyDown);
+            }
+            Action::Idle => {}
+        }
+
+        let bounds = layout.bounds();
+
+        if self.on_resize.is_some()
+            && let Some(cursor_position) = cursor.position_over(bounds)
+            && self
+                .find_resize_target(layout, cursor_position, bounds)
+                .is_some()
+        {
+            return Some(mouse::Interaction::ResizingDiagonallyDown);
         }
 
         None
@@ -907,10 +1261,6 @@ where
     }
 }
 
-// -------------------------------------------------------------------
-// Styling
-// -------------------------------------------------------------------
-
 /// The appearance of a [`GridStack`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
@@ -920,6 +1270,10 @@ pub struct Style {
     pub border: Border,
     /// The highlight shown when an item is being dragged over another.
     pub hovered_region: Highlight,
+    /// The appearance of the resize grip indicator shown on hovered items.
+    ///
+    /// Set to `None` to disable the resize grip.
+    pub resize_grip: Option<ResizeGrip>,
 }
 
 /// A highlight region appearance.
@@ -929,6 +1283,16 @@ pub struct Highlight {
     pub background: Background,
     /// The [`Border`] of the highlighted region.
     pub border: Border,
+}
+
+/// The appearance of the resize grip indicator drawn at the bottom-right
+/// corner of a hovered grid item.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResizeGrip {
+    /// The color of the grip dots.
+    pub color: Color,
+    /// The size of each dot in pixels.
+    pub dot_size: f32,
 }
 
 /// The theme catalog for a [`GridStack`].
@@ -977,5 +1341,14 @@ pub fn default_style(_theme: &Theme) -> Style {
                 radius: 6.0.into(),
             },
         },
+        resize_grip: Some(ResizeGrip {
+            color: Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.25,
+            },
+            dot_size: 2.0,
+        }),
     }
 }

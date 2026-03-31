@@ -33,8 +33,8 @@
 //!
 //! // In view:
 //! let grid = GridStack::new(&state, |id, label| {
-//!     Content::new(text(*label))
-//!         .title_bar(TitleBar::new(text("Title")).padding(5))
+//!     grid_content(text(*label))
+//!         .title_bar(title_bar(text("Title")).padding(5))
 //! })
 //! .spacing(10)
 //! .on_click(Message::Clicked)
@@ -55,6 +55,33 @@ pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;
 pub use widget::{
-    Catalog, CellHeight, GridStack, Highlight, MoveEvent, ResizeEvent, Style,
-    StyleFn,
+    Catalog, CellHeight, GridStack, Highlight, MoveEvent, ResizeEvent,
+    ResizeGrip, Style, StyleFn,
 };
+
+use iced_widget::container;
+
+use crate::core;
+use crate::core::Element;
+
+/// Creates a new [`Content`] with the provided body.
+pub fn grid_content<'a, Message, Theme, Renderer>(
+    body: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> Content<'a, Message, Theme, Renderer>
+where
+    Theme: container::Catalog,
+    Renderer: core::Renderer,
+{
+    Content::new(body)
+}
+
+/// Creates a new [`TitleBar`] with the given content.
+pub fn title_bar<'a, Message, Theme, Renderer>(
+    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+) -> TitleBar<'a, Message, Theme, Renderer>
+where
+    Theme: container::Catalog,
+    Renderer: core::Renderer,
+{
+    TitleBar::new(content)
+}
