@@ -39,6 +39,22 @@ pub enum CellHeight {
     Fixed(f32),
 }
 
+/// The phase of a drag or resize interaction.
+///
+/// Use this to bracket engine batch operations: call
+/// [`begin_batch`](super::engine::GridEngine::begin_batch) on `Started` and
+/// [`end_batch`](super::engine::GridEngine::end_batch) on `Ended` so that
+/// gravity compaction is deferred until the interaction finishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DragPhase {
+    /// The drag/resize interaction just began (first frame).
+    Started,
+    /// The drag/resize is in progress (subsequent frames).
+    Ongoing,
+    /// The drag/resize just ended (mouse/finger released).
+    Ended,
+}
+
 /// An event produced when an item is moved by dragging.
 #[derive(Debug, Clone, Copy)]
 pub struct MoveEvent {
@@ -48,6 +64,8 @@ pub struct MoveEvent {
     pub x: u16,
     /// The new row position.
     pub y: u16,
+    /// The phase of the drag interaction.
+    pub phase: DragPhase,
 }
 
 /// An event produced when an item is resized by dragging an edge.
@@ -59,6 +77,8 @@ pub struct ResizeEvent {
     pub w: u16,
     /// The new height in rows.
     pub h: u16,
+    /// The phase of the resize interaction.
+    pub phase: DragPhase,
 }
 
 /// A grid-based layout widget inspired by [GridStack.js](https://gridstackjs.com/).
@@ -272,6 +292,8 @@ enum Action {
         /// Cell dimensions at drag start (for pixel-to-grid conversion).
         cell_w: f32,
         cell_h: f32,
+        /// Whether a `DragPhase::Started` event has already been emitted.
+        started: bool,
     },
     /// The user is dragging an edge to resize an item.
     Resizing {
@@ -285,6 +307,8 @@ enum Action {
         /// Cell dimensions at drag start.
         cell_w: f32,
         cell_h: f32,
+        /// Whether a `DragPhase::Started` event has already been emitted.
+        started: bool,
     },
 }
 
@@ -309,6 +333,12 @@ struct ItemAnimations {
     ghost_opacity: Animation<bool>,
     /// The item that was being dragged when the ghost was last shown.
     ghost_item: Option<ItemId>,
+    /// Last known ghost snap position (top-left pixel coords).
+    ghost_last_pos: Option<(f32, f32)>,
+    /// Animated X offset for the ghost (pixels, from snap position).
+    ghost_offset_x: Animation<f32>,
+    /// Animated Y offset for the ghost (pixels, from snap position).
+    ghost_offset_y: Animation<f32>,
     /// Current time instant for interpolation.
     now: Option<Instant>,
 }
@@ -321,6 +351,9 @@ impl Default for ItemAnimations {
             last_positions: HashMap::new(),
             ghost_opacity: Animation::new(false),
             ghost_item: None,
+            ghost_last_pos: None,
+            ghost_offset_x: Animation::new(0.0),
+            ghost_offset_y: Animation::new(0.0),
             now: None,
         }
     }
@@ -344,6 +377,8 @@ impl ItemAnimations {
         self.offsets_x.values().any(|anim| anim.is_animating(now))
             || self.offsets_y.values().any(|anim| anim.is_animating(now))
             || self.ghost_opacity.is_animating(now)
+            || self.ghost_offset_x.is_animating(now)
+            || self.ghost_offset_y.is_animating(now)
     }
 
     /// Update animations based on new item positions from layout.
@@ -418,12 +453,45 @@ impl ItemAnimations {
         if self.ghost_item.is_some() {
             self.ghost_item = None;
             self.ghost_opacity = Self::new_ghost_animation(false);
+            self.ghost_last_pos = None;
         }
     }
 
     /// Get the current ghost opacity (0.0 to 1.0).
     fn ghost_alpha(&self, now: Instant) -> f32 {
         self.ghost_opacity.interpolate(0.0, 1.0, now)
+    }
+
+    /// Update ghost position animation when the snap position changes.
+    fn update_ghost_position(&mut self, target: Rectangle, now: Instant) {
+        let new_pos = (target.x, target.y);
+
+        if let Some((old_x, old_y)) = self.ghost_last_pos {
+            let dx = old_x - new_pos.0;
+            let dy = old_y - new_pos.1;
+
+            if dx.abs() > 0.5 || dy.abs() > 0.5 {
+                self.ghost_offset_x = Self::new_animation(dx).go(0.0, now);
+                self.ghost_offset_y = Self::new_animation(dy).go(0.0, now);
+            }
+        }
+
+        self.ghost_last_pos = Some(new_pos);
+    }
+
+    /// Get the current interpolated offset for the ghost.
+    fn ghost_offset(&self, now: Instant) -> Vector {
+        let x = if self.ghost_offset_x.is_animating(now) {
+            self.ghost_offset_x.interpolate_with(|v| v, now)
+        } else {
+            0.0
+        };
+        let y = if self.ghost_offset_y.is_animating(now) {
+            self.ghost_offset_y.interpolate_with(|v| v, now)
+        } else {
+            0.0
+        };
+        Vector::new(x, y)
     }
 }
 
@@ -520,6 +588,16 @@ where
         memory
             .animations
             .update_positions(&regions, dragged_id, now);
+
+        if let Some(dragged) = dragged_id
+            && let Some(&(_, (px, py, pw, ph))) =
+                regions.iter().find(|(id, _)| *id == dragged)
+        {
+            memory.animations.update_ghost_position(
+                Rectangle::new(Point::new(px, py), Size::new(pw, ph)),
+                now,
+            );
+        }
 
         let children = self
             .items
@@ -654,6 +732,7 @@ where
                             start_h: item.h,
                             cell_w,
                             cell_h,
+                            started: false,
                         };
                         return;
                     }
@@ -672,6 +751,72 @@ where
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerLifted { .. })
             | Event::Touch(touch::Event::FingerLost { .. }) => {
+                match action {
+                    Action::Moving {
+                        id,
+                        origin,
+                        start_x,
+                        start_y,
+                        cell_w,
+                        cell_h,
+                        started,
+                        ..
+                    } if *started => {
+                        if let Some(on_move) = &self.on_move
+                            && let Some(cursor_position) = cursor.position()
+                        {
+                            let dx = cursor_position.x - origin.x;
+                            let dy = cursor_position.y - origin.y;
+                            let step_w = *cell_w + self.spacing;
+                            let step_h = *cell_h + self.spacing;
+                            let grid_dx = (dx / step_w).round() as i32;
+                            let grid_dy = (dy / step_h).round() as i32;
+                            let new_x =
+                                (*start_x as i32 + grid_dx).max(0) as u16;
+                            let new_y =
+                                (*start_y as i32 + grid_dy).max(0) as u16;
+
+                            shell.publish(on_move(MoveEvent {
+                                id: *id,
+                                x: new_x,
+                                y: new_y,
+                                phase: DragPhase::Ended,
+                            }));
+                        }
+                    }
+                    Action::Resizing {
+                        id,
+                        origin,
+                        start_w,
+                        start_h,
+                        cell_w,
+                        cell_h,
+                        started,
+                    } if *started => {
+                        if let Some(on_resize) = &self.on_resize
+                            && let Some(cursor_position) = cursor.position()
+                        {
+                            let dx = cursor_position.x - origin.x;
+                            let dy = cursor_position.y - origin.y;
+                            let step_w = *cell_w + self.spacing;
+                            let step_h = *cell_h + self.spacing;
+                            let grid_dw = (dx / step_w).round() as i32;
+                            let grid_dh = (dy / step_h).round() as i32;
+                            let new_w =
+                                (*start_w as i32 + grid_dw).max(1) as u16;
+                            let new_h =
+                                (*start_h as i32 + grid_dh).max(1) as u16;
+
+                            shell.publish(on_resize(ResizeEvent {
+                                id: *id,
+                                w: new_w,
+                                h: new_h,
+                                phase: DragPhase::Ended,
+                            }));
+                        }
+                    }
+                    _ => {}
+                }
                 *action = Action::Idle;
                 animations.hide_ghost();
             }
@@ -684,6 +829,7 @@ where
                     start_y,
                     cell_w,
                     cell_h,
+                    started,
                     ..
                 } => {
                     if let Some(on_move) = &self.on_move
@@ -704,10 +850,18 @@ where
                         let now = animations.now.unwrap_or_else(Instant::now);
                         animations.show_ghost(*id, now);
 
+                        let phase = if *started {
+                            DragPhase::Ongoing
+                        } else {
+                            *started = true;
+                            DragPhase::Started
+                        };
+
                         shell.publish(on_move(MoveEvent {
                             id: *id,
                             x: new_x,
                             y: new_y,
+                            phase,
                         }));
                     }
                     shell.request_redraw();
@@ -719,6 +873,7 @@ where
                     start_h,
                     cell_w,
                     cell_h,
+                    started,
                 } => {
                     if let Some(on_resize) = &self.on_resize
                         && let Some(cursor_position) = cursor.position()
@@ -732,10 +887,18 @@ where
                         let new_w = (*start_w as i32 + grid_dw).max(1) as u16;
                         let new_h = (*start_h as i32 + grid_dh).max(1) as u16;
 
+                        let phase = if *started {
+                            DragPhase::Ongoing
+                        } else {
+                            *started = true;
+                            DragPhase::Started
+                        };
+
                         shell.publish(on_resize(ResizeEvent {
                             id: *id,
                             w: new_w,
                             h: new_h,
+                            phase,
                         }));
                     }
                     shell.request_redraw();
@@ -1017,9 +1180,16 @@ where
         {
             // Draw a translucent ghost rectangle at the engine's snap position
             // (where the item would land if released now), with animated opacity.
-            // The ghost is clipped to avoid overlapping items that are still
-            // animating away from the ghost area.
-            let ghost_target = item_layout.bounds();
+            // The ghost slides smoothly between snap positions via an offset
+            // animation, and is clipped to avoid overlapping items that are
+            // still animating away from the ghost area.
+            let snap_bounds = item_layout.bounds();
+            let ghost_pos_offset = animations.ghost_offset(now);
+            let ghost_target = Rectangle {
+                x: snap_bounds.x + ghost_pos_offset.x,
+                y: snap_bounds.y + ghost_pos_offset.y,
+                ..snap_bounds
+            };
             let ghost_alpha = animations.ghost_alpha(now);
 
             let dragged_id = picked_item.unwrap().0;
@@ -1063,7 +1233,9 @@ where
             );
 
             // Draw the floating item under the cursor.
-            let layout_pos = ghost_target.position();
+            // Use the un-offset snap_bounds for translation so the floating
+            // item follows the cursor freely regardless of ghost animation.
+            let layout_pos = snap_bounds.position();
             let target = Point::new(
                 cursor_position.x - grab_offset.x,
                 cursor_position.y - grab_offset.y,
@@ -1072,7 +1244,7 @@ where
                 Vector::new(target.x - layout_pos.x, target.y - layout_pos.y);
 
             renderer.with_translation(translation, |renderer| {
-                renderer.with_layer(ghost_target, |renderer| {
+                renderer.with_layer(snap_bounds, |renderer| {
                     content.draw(
                         tree,
                         renderer,
@@ -1266,6 +1438,7 @@ where
                     start_y: item.y,
                     cell_w,
                     cell_h,
+                    started: false,
                 };
             }
         }

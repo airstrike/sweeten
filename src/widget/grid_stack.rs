@@ -55,8 +55,8 @@ pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;
 pub use widget::{
-    Catalog, CellHeight, GridStack, Highlight, MoveEvent, ResizeEvent,
-    ResizeGrip, Style, StyleFn,
+    Catalog, CellHeight, DragPhase, GridStack, Highlight, MoveEvent,
+    ResizeEvent, ResizeGrip, Style, StyleFn,
 };
 
 use iced_widget::container;

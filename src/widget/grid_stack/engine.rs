@@ -109,6 +109,9 @@ pub struct GridEngine {
     max_rows: Option<u16>,
     /// Float mode: if false, items compact upward (gravity).
     float: bool,
+    /// Batch mode: when true, gravity compaction is deferred until
+    /// [`end_batch`](GridEngine::end_batch) is called.
+    batch_mode: bool,
     /// All items in the grid.
     items: Vec<GridItem>,
     /// Monotonically increasing ID counter.
@@ -130,6 +133,7 @@ impl GridEngine {
             columns,
             max_rows: None,
             float: false,
+            batch_mode: false,
             items: Vec::new(),
             next_id: 0,
         }
@@ -164,6 +168,33 @@ impl GridEngine {
         if !float {
             self.pack_nodes();
         }
+    }
+
+    /// Enters batch mode. While active, gravity compaction is deferred.
+    ///
+    /// This matches the GridStack.js `beginUpdate` pattern: during an
+    /// interactive drag or resize, items that collide are pushed down
+    /// but no items float upward. Call [`end_batch`](Self::end_batch) to
+    /// compact and apply deferred gravity.
+    pub fn begin_batch(&mut self) {
+        self.batch_mode = true;
+    }
+
+    /// Exits batch mode and runs gravity compaction.
+    ///
+    /// If float mode is also enabled, compaction is still skipped (float
+    /// takes precedence).
+    pub fn end_batch(&mut self) {
+        self.batch_mode = false;
+        if !self.float {
+            self.pack_nodes();
+        }
+    }
+
+    /// Returns whether batch mode is active.
+    #[must_use]
+    pub fn is_batch(&self) -> bool {
+        self.batch_mode
     }
 
     /// Returns an iterator over all items in the grid.
@@ -460,7 +491,7 @@ impl GridEngine {
     /// If `hold` is `Some(id)`, that item is treated as locked in place
     /// for this compaction pass (e.g. the item currently being resized).
     pub fn pack_nodes_with_hold(&mut self, hold: Option<ItemId>) {
-        if self.float {
+        if self.float || self.batch_mode {
             return;
         }
 
@@ -1702,6 +1733,129 @@ mod tests {
         // free should compact to y=3 (just below locked)
         assert_eq!(engine.get(locked).unwrap().y, 0);
         assert_eq!(engine.get(free).unwrap().y, 3);
+    }
+
+    // =================================================================
+    // 11. Batch Mode Tests
+    // =================================================================
+
+    #[test]
+    fn batch_mode_defers_packing() {
+        let mut engine = GridEngine::new(12);
+        let _a = engine.add_item(0, 0, 12, 2); // rows 0..2
+        let b = engine.add_item(0, 2, 12, 2); // rows 2..4
+
+        engine.begin_batch();
+        assert!(engine.is_batch());
+
+        // Remove a -- normally b would compact to y=0
+        engine.remove_item(_a);
+
+        // In batch mode, b should NOT have compacted
+        assert_eq!(engine.get(b).unwrap().y, 2);
+
+        // End batch -- b should now compact to y=0
+        engine.end_batch();
+        assert!(!engine.is_batch());
+        assert_eq!(engine.get(b).unwrap().y, 0);
+    }
+
+    #[test]
+    fn batch_mode_resize_no_float_up() {
+        let mut engine = GridEngine::new(12);
+
+        // Three items stacked:
+        //   a: (0,0) 6x2
+        //   b: (6,0) 6x2
+        //   c: (0,2) 12x2
+        let _a = engine.add_item(0, 0, 6, 2);
+        let b = engine.add_item(6, 0, 6, 2);
+        let c = engine.add_item(0, 2, 12, 2);
+
+        engine.begin_batch();
+
+        // Resize a to be wider, overlapping b. b gets pushed down but
+        // should NOT float up because batch mode defers packing.
+        engine.resize_item(_a, 12, 2);
+
+        // b was displaced below a (y >= 2). c was displaced below b.
+        // Crucially, nothing floated up during batch mode.
+        let item_b = engine.get(b).unwrap();
+        assert!(item_b.y >= 2, "b should have been pushed down");
+
+        let item_c = engine.get(c).unwrap();
+        // c was at y=2 and may have been displaced further down by b
+        assert!(item_c.y >= 2, "c should not have floated up");
+
+        engine.end_batch();
+
+        // After end_batch, items settle via gravity.
+        // a occupies (0,0) 12x2. b compacts to y=2. c compacts to y=4.
+        let item_b = engine.get(b).unwrap();
+        let item_c = engine.get(c).unwrap();
+        assert_eq!(item_b.y, 2);
+        assert_eq!(item_c.y, 4);
+    }
+
+    #[test]
+    fn batch_mode_move_no_float_up() {
+        let mut engine = GridEngine::new(12);
+
+        // a at (0,0) 6x2, b at (6,0) 6x2, c at (0,2) 6x2
+        let a = engine.add_item(0, 0, 6, 2);
+        let _b = engine.add_item(6, 0, 6, 2);
+        let c = engine.add_item(0, 2, 6, 2);
+
+        engine.begin_batch();
+
+        // Move a down to row 4 -- c was below a at y=2 and should not
+        // float up while batch mode is active.
+        engine.move_item(a, 0, 4);
+
+        let item_c = engine.get(c).unwrap();
+        assert_eq!(item_c.y, 2, "c should not float up during batch mode");
+
+        engine.end_batch();
+
+        // After end_batch, c should compact to y=0 (a moved away).
+        let item_c = engine.get(c).unwrap();
+        assert_eq!(item_c.y, 0);
+    }
+
+    #[test]
+    fn batch_mode_with_float_no_compaction() {
+        let mut engine = GridEngine::new(12);
+        engine.set_float(true);
+
+        let a = engine.add_item(0, 5, 6, 2);
+
+        engine.begin_batch();
+        // Even after end_batch, float mode prevents compaction
+        engine.end_batch();
+
+        assert_eq!(engine.get(a).unwrap().y, 5);
+    }
+
+    #[test]
+    fn batch_mode_pack_nodes_is_noop() {
+        let mut engine = GridEngine::new(12);
+
+        let a = engine.add_item(0, 0, 12, 2);
+        let b = engine.add_item(0, 2, 12, 2);
+
+        engine.begin_batch();
+
+        // Manually remove a and call pack_nodes -- should be a no-op.
+        engine.remove_item(a);
+        engine.pack_nodes();
+
+        // b should still be at y=2 because pack_nodes is a no-op in batch mode.
+        assert_eq!(engine.get(b).unwrap().y, 2);
+
+        engine.end_batch();
+
+        // Now b should compact.
+        assert_eq!(engine.get(b).unwrap().y, 0);
     }
 
     // Helper to create a GridItem for intersection tests

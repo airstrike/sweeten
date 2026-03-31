@@ -165,9 +165,19 @@ impl Example {
             Message::Moved(event) => {
                 self.state.move_item(event.id, event.x, event.y);
             }
-            Message::Resized(event) => {
-                self.state.resize_item(event.id, event.w, event.h);
-            }
+            Message::Resized(event) => match event.phase {
+                grid_stack::DragPhase::Started => {
+                    self.state.engine_mut().begin_batch();
+                    self.state.resize_item(event.id, event.w, event.h);
+                }
+                grid_stack::DragPhase::Ongoing => {
+                    self.state.resize_item(event.id, event.w, event.h);
+                }
+                grid_stack::DragPhase::Ended => {
+                    self.state.resize_item(event.id, event.w, event.h);
+                    self.state.engine_mut().end_batch();
+                }
+            },
             Message::AddItem => {
                 let item = Item {
                     id: self.items_created,
