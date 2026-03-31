@@ -1017,8 +1017,31 @@ where
         {
             // Draw a translucent ghost rectangle at the engine's snap position
             // (where the item would land if released now), with animated opacity.
-            let ghost_bounds = item_layout.bounds();
+            // The ghost is clipped to avoid overlapping items that are still
+            // animating away from the ghost area.
+            let ghost_target = item_layout.bounds();
             let ghost_alpha = animations.ghost_alpha(now);
+
+            let dragged_id = picked_item.unwrap().0;
+            let animating: Vec<(Rectangle, Vector)> = self
+                .items
+                .iter()
+                .copied()
+                .zip(layout.children())
+                .filter_map(|(id, child_layout)| {
+                    if id == dragged_id {
+                        return None;
+                    }
+                    let offset = animations.get_offset(id, now);
+                    if offset.x == 0.0 && offset.y == 0.0 {
+                        return None;
+                    }
+                    Some((child_layout.bounds(), offset))
+                })
+                .collect();
+
+            let ghost_bounds =
+                clip_ghost_for_animating_items(ghost_target, &animating);
 
             renderer.fill_quad(
                 renderer::Quad {
@@ -1040,7 +1063,7 @@ where
             );
 
             // Draw the floating item under the cursor.
-            let layout_pos = ghost_bounds.position();
+            let layout_pos = ghost_target.position();
             let target = Point::new(
                 cursor_position.x - grab_offset.x,
                 cursor_position.y - grab_offset.y,
@@ -1049,7 +1072,7 @@ where
                 Vector::new(target.x - layout_pos.x, target.y - layout_pos.y);
 
             renderer.with_translation(translation, |renderer| {
-                renderer.with_layer(ghost_bounds, |renderer| {
+                renderer.with_layer(ghost_target, |renderer| {
                     content.draw(
                         tree,
                         renderer,
@@ -1322,6 +1345,86 @@ impl Catalog for Theme {
     }
 }
 
+/// Clips a ghost rectangle to avoid overlapping with items that are
+/// animating away from the ghost's area.
+///
+/// Each entry in `animating_items` is `(layout_bounds, animation_offset)`,
+/// where `layout_bounds` is the item's final (layout) position, and
+/// `animation_offset` is the current visual offset from that position (the
+/// offset starts large and converges to zero as the animation completes).
+///
+/// The returned rectangle is the ghost shrunk so it never visually overlaps
+/// any of the animating items.
+fn clip_ghost_for_animating_items(
+    ghost: Rectangle,
+    animating_items: &[(Rectangle, Vector)],
+) -> Rectangle {
+    let mut bounds = ghost;
+
+    for &(layout_rect, offset) in animating_items {
+        if offset.x == 0.0 && offset.y == 0.0 {
+            continue;
+        }
+
+        // The item's visual rectangle: layout position + current offset.
+        let visual = Rectangle {
+            x: layout_rect.x + offset.x,
+            y: layout_rect.y + offset.y,
+            width: layout_rect.width,
+            height: layout_rect.height,
+        };
+
+        // Skip if no overlap between current ghost bounds and this item.
+        if bounds.y >= visual.y + visual.height
+            || bounds.y + bounds.height <= visual.y
+            || bounds.x >= visual.x + visual.width
+            || bounds.x + bounds.width <= visual.x
+        {
+            continue;
+        }
+
+        // Clip vertically based on offset direction.
+        if offset.y < 0.0 {
+            // Item visual is above its layout position, sliding DOWN.
+            // It occupies space in the lower portion of the ghost area.
+            // Reveal the ghost from the top: clip the bottom edge.
+            let available = (visual.y - bounds.y).max(0.0);
+            bounds.height = bounds.height.min(available);
+        } else if offset.y > 0.0 {
+            // Item visual is below its layout position, sliding UP.
+            // It occupies space in the upper portion of the ghost area.
+            // Reveal the ghost from the bottom: clip the top edge.
+            let new_top = (visual.y + visual.height)
+                .max(bounds.y)
+                .min(bounds.y + bounds.height);
+            bounds.height -= new_top - bounds.y;
+            bounds.y = new_top;
+        }
+
+        // Clip horizontally based on offset direction.
+        if offset.x < 0.0 {
+            // Item visual is left of its layout position, sliding RIGHT.
+            // Reveal the ghost from the left: clip the right edge.
+            let available = (visual.x - bounds.x).max(0.0);
+            bounds.width = bounds.width.min(available);
+        } else if offset.x > 0.0 {
+            // Item visual is right of its layout position, sliding LEFT.
+            // Reveal the ghost from the right: clip the left edge.
+            let new_left = (visual.x + visual.width)
+                .max(bounds.x)
+                .min(bounds.x + bounds.width);
+            bounds.width -= new_left - bounds.x;
+            bounds.x = new_left;
+        }
+    }
+
+    // Ensure non-negative dimensions.
+    bounds.width = bounds.width.max(0.0);
+    bounds.height = bounds.height.max(0.0);
+
+    bounds
+}
+
 /// The default style of a [`GridStack`].
 pub fn default_style(_theme: &Theme) -> Style {
     Style {
@@ -1350,5 +1453,181 @@ pub fn default_style(_theme: &Theme) -> Style {
             },
             dot_size: 2.0,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rectangle {
+        Rectangle {
+            x,
+            y,
+            width: w,
+            height: h,
+        }
+    }
+
+    fn vec2(x: f32, y: f32) -> Vector {
+        Vector::new(x, y)
+    }
+
+    #[test]
+    fn ghost_unchanged_when_no_animating_items() {
+        let ghost = rect(0.0, 0.0, 280.0, 200.0);
+        let result = clip_ghost_for_animating_items(ghost, &[]);
+        assert_eq!(result, ghost);
+    }
+
+    #[test]
+    fn ghost_unchanged_when_items_not_overlapping() {
+        let ghost = rect(0.0, 0.0, 280.0, 200.0);
+        // Item far below ghost, animating but not overlapping.
+        let items = [(rect(0.0, 500.0, 280.0, 200.0), vec2(0.0, -50.0))];
+        let result = clip_ghost_for_animating_items(ghost, &items);
+        assert_eq!(result, ghost);
+    }
+
+    #[test]
+    fn ghost_grows_from_top_as_item_slides_down() {
+        // Ghost at (0, 0, 280, 200).
+        // Item displaced from y=0 to y=208 (layout).
+        // offset_y starts at -208 (visual at y=0), goes to 0 (visual at y=208).
+        let ghost = rect(0.0, 0.0, 280.0, 200.0);
+        let layout_bounds = rect(0.0, 208.0, 280.0, 200.0);
+
+        // At animation start: offset_y = -208, visual at y=0 — full overlap.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(0.0, -208.0))],
+        );
+        assert_eq!(result.height, 0.0);
+        assert_eq!(result.y, 0.0);
+
+        // At midpoint: offset_y = -104, visual at y=104.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(0.0, -104.0))],
+        );
+        assert_eq!(result.height, 104.0);
+        assert_eq!(result.y, 0.0);
+
+        // Near end: offset_y = -8, visual at y=200 — no overlap.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(0.0, -8.0))],
+        );
+        assert_eq!(result.height, 200.0);
+        assert_eq!(result.y, 0.0);
+    }
+
+    #[test]
+    fn ghost_grows_from_bottom_as_item_slides_up() {
+        // Ghost at (0, 208, 280, 200) — from y=208 to y=408.
+        // Item displaced from y=208 to y=0 (layout).
+        // offset_y starts at 208 (visual at y=208), goes to 0 (visual at y=0).
+        let ghost = rect(0.0, 208.0, 280.0, 200.0);
+        let layout_bounds = rect(0.0, 0.0, 280.0, 200.0);
+
+        // At animation start: offset_y = 208, visual at y=208 — full overlap.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(0.0, 208.0))],
+        );
+        assert_eq!(result.height, 0.0);
+
+        // At midpoint: offset_y = 104, visual at y=104 — bottom of visual is 304.
+        // Ghost from 208..408, visual from 104..304. Overlap = 208..304.
+        // Ghost should show 304..408, height = 104.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(0.0, 104.0))],
+        );
+        assert!((result.y - 304.0).abs() < f32::EPSILON);
+        assert!((result.height - 104.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ghost_grows_from_left_as_item_slides_right() {
+        // Ghost at (0, 0, 280, 200).
+        // Item displaced from x=0 to x=300 (layout).
+        // offset_x starts at -300 (visual at x=0), goes to 0 (visual at x=300).
+        let ghost = rect(0.0, 0.0, 280.0, 200.0);
+        let layout_bounds = rect(300.0, 0.0, 280.0, 200.0);
+
+        // At animation start: offset_x = -300, visual at x=0 — full overlap.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(-300.0, 0.0))],
+        );
+        assert_eq!(result.width, 0.0);
+        assert_eq!(result.x, 0.0);
+
+        // At midpoint: offset_x = -150, visual at x=150.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(-150.0, 0.0))],
+        );
+        assert_eq!(result.width, 150.0);
+        assert_eq!(result.x, 0.0);
+    }
+
+    #[test]
+    fn ghost_grows_from_right_as_item_slides_left() {
+        // Ghost at (300, 0, 280, 200).
+        // Item displaced from x=300 to x=0 (layout).
+        // offset_x starts at 300 (visual at x=300), goes to 0 (visual at x=0).
+        let ghost = rect(300.0, 0.0, 280.0, 200.0);
+        let layout_bounds = rect(0.0, 0.0, 280.0, 200.0);
+
+        // At animation start: offset_x = 300, visual at x=300 — full overlap.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(300.0, 0.0))],
+        );
+        assert_eq!(result.width, 0.0);
+
+        // At midpoint: offset_x = 150, visual at x=150 — visual right = 430.
+        // Ghost from x=300..580. Overlap = 300..430.
+        // Ghost should show 430..580, width = 150.
+        let result = clip_ghost_for_animating_items(
+            ghost,
+            &[(layout_bounds, vec2(150.0, 0.0))],
+        );
+        assert!((result.x - 430.0).abs() < f32::EPSILON);
+        assert!((result.width - 150.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ghost_clipped_by_multiple_items() {
+        // Ghost at (0, 0, 280, 400).
+        // Item A sliding down from top of ghost.
+        // Item B sliding up from bottom of ghost.
+        let ghost = rect(0.0, 0.0, 280.0, 400.0);
+
+        // Item A: layout at y=200, offset_y = -100, visual at y=100.
+        // Clips ghost bottom to y=100.
+        let item_a = (rect(0.0, 200.0, 280.0, 200.0), vec2(0.0, -100.0));
+
+        // Item B: layout at y=-200, offset_y = 100, visual at y=-100, bottom=100.
+        // Clips ghost top to y=100. But after item A already clipped bottom
+        // to height=100 (ghost goes from 0..100), item B visual bottom is 100
+        // which equals the ghost bottom, so overlap check: ghost 0..100,
+        // visual -100..100 — they overlap. Clip top: new_top = 100.
+        // ghost height = 0.
+        let item_b = (rect(0.0, -200.0, 280.0, 200.0), vec2(0.0, 100.0));
+
+        let result = clip_ghost_for_animating_items(ghost, &[item_a, item_b]);
+        assert_eq!(result.height, 0.0);
+    }
+
+    #[test]
+    fn ghost_full_size_when_item_animation_complete() {
+        // Item has zero offset — animation finished.
+        let ghost = rect(0.0, 0.0, 280.0, 200.0);
+        let items = [(rect(0.0, 208.0, 280.0, 200.0), vec2(0.0, 0.0))];
+        let result = clip_ghost_for_animating_items(ghost, &items);
+        assert_eq!(result, ghost);
     }
 }
