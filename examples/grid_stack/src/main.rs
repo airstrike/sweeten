@@ -17,13 +17,14 @@
 mod icon;
 
 use iced::keyboard;
-use iced::widget::{button, center_y, column, container, row, rule, text};
+use iced::widget::{
+    button, center_y, column, container, row, rule, space, text,
+};
 use iced::{
     Center, Color, Element, Fill, Font, Size, Subscription, Task, Theme, window,
 };
 
-use sweeten::widget::grid_stack::{self, GridStack};
-use sweeten::widget::grid_stack::{grid_content, title_bar};
+use sweeten::widget::grid_stack::{self, grid_content, title_bar};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -45,6 +46,7 @@ struct Example {
     state: grid_stack::State<Item>,
     items_created: usize,
     focus: Option<grid_stack::ItemId>,
+    locked_all: bool,
 }
 
 #[derive(Clone)]
@@ -63,6 +65,7 @@ enum Message {
     TogglePin(grid_stack::ItemId),
     Close(grid_stack::ItemId),
     CloseFocused,
+    ToggleLockAll,
 }
 
 impl App {
@@ -154,6 +157,7 @@ impl Example {
             state,
             items_created,
             focus: None,
+            locked_all: false,
         }
     }
 
@@ -210,6 +214,18 @@ impl Example {
                     self.focus = prev_or_last_item(&self.state, id);
                 }
             }
+            Message::ToggleLockAll => {
+                self.locked_all = !self.locked_all;
+                let items: Vec<_> = self
+                    .state
+                    .iter()
+                    .map(|(id, data)| (id, data.is_pinned))
+                    .collect();
+                for (id, is_pinned) in items {
+                    let should_lock = self.locked_all || is_pinned;
+                    self.state.engine_mut().set_item_locked(id, should_lock);
+                }
+            }
             Message::FontLoaded => {}
         }
     }
@@ -238,7 +254,7 @@ impl Example {
         let total_items = self.state.len();
         let state = &self.state;
 
-        let grid = GridStack::new(state, |id, item| {
+        let grid = sweeten::grid_stack(state, |id, item| {
             let is_focused = focus == Some(id);
 
             let title = text!("Item {}", item.id)
@@ -281,13 +297,23 @@ impl Example {
         .height(Fill)
         .spacing(8)
         .on_click(Message::Clicked)
-        .on_move(Message::Moved)
-        .on_resize(Message::Resized);
+        .on_move_maybe((!self.locked_all).then_some(Message::Moved))
+        .on_resize_maybe((!self.locked_all).then_some(Message::Resized));
 
         let add_button = button(text("+ Add Item").size(13))
             .on_press(Message::AddItem)
             .style(button::primary)
             .padding([6, 16]);
+
+        let lock_icon = if self.locked_all {
+            icon::lock().size(14)
+        } else {
+            icon::lock_open().size(14)
+        };
+        let lock_button = button(lock_icon)
+            .on_press(Message::ToggleLockAll)
+            .style(button::text)
+            .padding([4, 8]);
 
         let toolbar = container(
             row![
@@ -299,6 +325,8 @@ impl Example {
                 )
                 .size(12)
                 .color(MUTED_COLOR),
+                space::horizontal(),
+                lock_button,
             ]
             .spacing(16)
             .align_y(Center),

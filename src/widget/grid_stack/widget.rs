@@ -145,8 +145,10 @@ where
     /// The view function is called once for each item in the grid, receiving
     /// the item's [`ItemId`] and a reference to its user data.
     ///
+    /// Prefer the [`grid_stack`](super::super::grid_stack) helper function.
+    ///
     /// [`State`]: super::State
-    pub fn new<T>(
+    pub(crate) fn new<T>(
         state: &'a state::State<T>,
         view: impl Fn(ItemId, &'a T) -> Content<'a, Message, Theme, Renderer>,
     ) -> Self {
@@ -226,6 +228,40 @@ where
         F: 'a + Fn(ResizeEvent) -> Message,
     {
         self.on_resize = Some(Box::new(f));
+        self
+    }
+
+    /// Sets the message that will be produced when an item is clicked,
+    /// if `Some`.
+    ///
+    /// If `None`, click events will be disabled.
+    pub fn on_click_maybe<F>(mut self, f: Option<F>) -> Self
+    where
+        F: 'a + Fn(ItemId) -> Message,
+    {
+        self.on_click = f.map(|f| Box::new(f) as _);
+        self
+    }
+
+    /// Enables move interactions (drag to reposition), if `Some`.
+    ///
+    /// If `None`, move interactions will be disabled.
+    pub fn on_move_maybe<F>(mut self, f: Option<F>) -> Self
+    where
+        F: 'a + Fn(MoveEvent) -> Message,
+    {
+        self.on_move = f.map(|f| Box::new(f) as _);
+        self
+    }
+
+    /// Enables resize interactions (drag edges to resize), if `Some`.
+    ///
+    /// If `None`, resize interactions will be disabled.
+    pub fn on_resize_maybe<F>(mut self, f: Option<F>) -> Self
+    where
+        F: 'a + Fn(ResizeEvent) -> Message,
+    {
+        self.on_resize = f.map(|f| Box::new(f) as _);
         self
     }
 
