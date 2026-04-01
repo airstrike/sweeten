@@ -70,17 +70,19 @@ impl App {
     fn new() -> (Self, Task<Message>) {
         (
             App::Loading,
-            Task::future(fount::google::load("Geist", None)).then(|result| {
-                match result {
-                    Ok(bytes_list) => {
-                        Task::batch(bytes_list.into_iter().map(|bytes| {
-                            iced::font::load(bytes).map(|_| Message::FontLoaded)
-                        }))
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to load font: {e}");
-                        Task::done(Message::FontLoaded)
-                    }
+            Task::future(fount::google::load_variants(
+                "Geist".into(),
+                vec!["400".into(), "700".into()],
+            ))
+            .then(|result| match result {
+                Ok(bytes_list) => {
+                    Task::batch(bytes_list.into_iter().map(|bytes| {
+                        iced::font::load(bytes).map(|_| Message::FontLoaded)
+                    }))
+                }
+                Err(e) => {
+                    eprintln!("Failed to load font: {e}");
+                    Task::done(Message::FontLoaded)
                 }
             }),
         )
