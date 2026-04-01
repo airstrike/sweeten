@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use super::ItemId;
 use super::engine::{GridEngine, GridItem};
+use super::widget::{Action, DragPhase};
 
 /// User-facing state that pairs a [`GridEngine`] with user data for each item.
 ///
@@ -24,7 +25,6 @@ use super::engine::{GridEngine, GridItem};
 /// let id = state.add(0, 0, 4, 2, "Widget A".to_string());
 /// assert_eq!(state.get(id), Some(&"Widget A".to_string()));
 ///
-/// state.move_item(id, 4, 0);
 /// state.remove(id);
 /// ```
 #[derive(Debug, Clone)]
@@ -51,11 +51,6 @@ impl<T> State<T> {
     #[must_use]
     pub fn engine(&self) -> &GridEngine {
         &self.engine
-    }
-
-    /// Returns a mutable reference to the underlying [`GridEngine`].
-    pub fn engine_mut(&mut self) -> &mut GridEngine {
-        &mut self.engine
     }
 
     /// Returns the number of columns in the grid.
@@ -179,5 +174,83 @@ impl<T> State<T> {
         spacing: f32,
     ) -> Vec<(ItemId, (f32, f32, f32, f32))> {
         self.engine.item_regions(bounds, spacing)
+    }
+
+    /// Performs an [`Action`] on the grid state.
+    ///
+    /// The `is_held` predicate determines which items are immovable
+    /// (e.g. pinned items that should not be displaced by collisions).
+    ///
+    /// Click actions are informational -- they do not mutate state. The
+    /// caller should inspect the action *before* calling `perform` if it
+    /// needs to react to clicks (e.g. to update a focus tracker).
+    ///
+    /// Move and resize actions are applied to the engine, with batch mode
+    /// managed automatically for resize operations.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if action.is_click() {
+    ///     self.focus = Some(action.id());
+    /// }
+    /// self.state.perform(action, |_, item| item.is_pinned);
+    /// ```
+    pub fn perform(
+        &mut self,
+        action: Action,
+        is_held: impl Fn(ItemId, &T) -> bool,
+    ) {
+        match action {
+            Action::Click(_) => {
+                // Click is informational -- no state mutation needed.
+            }
+            Action::Move {
+                id, x, y, phase, ..
+            } => {
+                let held = self.held_ids(&is_held);
+                match phase {
+                    DragPhase::Started => {
+                        self.engine.begin_batch();
+                        self.engine.move_item_held(id, x, y, &held);
+                    }
+                    DragPhase::Ongoing => {
+                        self.engine.move_item_held(id, x, y, &held);
+                    }
+                    DragPhase::Ended => {
+                        self.engine.move_item_held(id, x, y, &held);
+                        self.engine.end_batch();
+                    }
+                }
+            }
+            Action::Resize {
+                id, w, h, phase, ..
+            } => {
+                let held = self.held_ids(&is_held);
+                match phase {
+                    DragPhase::Started => {
+                        self.engine.begin_batch();
+                        self.engine.resize_item_held(id, w, h, &held);
+                    }
+                    DragPhase::Ongoing => {
+                        self.engine.resize_item_held(id, w, h, &held);
+                    }
+                    DragPhase::Ended => {
+                        self.engine.resize_item_held(id, w, h, &held);
+                        self.engine.end_batch();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Collects the IDs of items for which the `is_held` predicate
+    /// returns `true`.
+    fn held_ids(&self, is_held: &impl Fn(ItemId, &T) -> bool) -> Vec<ItemId> {
+        self.data
+            .iter()
+            .filter(|&(&id, data)| is_held(id, data))
+            .map(|(&id, _)| id)
+            .collect()
     }
 }

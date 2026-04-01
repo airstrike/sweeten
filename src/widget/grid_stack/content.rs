@@ -47,6 +47,8 @@ pub struct Content<
     title_bar: Option<TitleBar<'a, Message, Theme, Renderer>>,
     body: Element<'a, Message, Theme, Renderer>,
     class: Theme::Class<'a>,
+    draggable: bool,
+    resizable: bool,
 }
 
 impl<'a, Message, Theme, Renderer> Content<'a, Message, Theme, Renderer>
@@ -55,11 +57,15 @@ where
     Renderer: core::Renderer,
 {
     /// Creates a new [`Content`] with the provided body.
+    ///
+    /// By default, the content is both draggable and resizable.
     pub fn new(body: impl Into<Element<'a, Message, Theme, Renderer>>) -> Self {
         Self {
             title_bar: None,
             body: body.into(),
             class: Theme::default(),
+            draggable: true,
+            resizable: true,
         }
     }
 
@@ -84,6 +90,27 @@ where
         self.class = (Box::new(style) as container::StyleFn<'a, Theme>).into();
         self
     }
+
+    /// Sets whether this item can be dragged to move it.
+    ///
+    /// When `false`, the widget will not initiate a drag interaction
+    /// on this item, even if the cursor is over its title bar.
+    /// Defaults to `true`.
+    #[must_use]
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
+        self
+    }
+
+    /// Sets whether this item can be resized by dragging its edges.
+    ///
+    /// When `false`, the widget will not show a resize grip or allow
+    /// resize interactions on this item. Defaults to `true`.
+    #[must_use]
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.resizable = resizable;
+        self
+    }
 }
 
 impl<Message, Theme, Renderer> Content<'_, Message, Theme, Renderer>
@@ -91,6 +118,16 @@ where
     Theme: container::Catalog,
     Renderer: core::Renderer,
 {
+    /// Returns whether this content is draggable.
+    pub(crate) fn is_draggable(&self) -> bool {
+        self.draggable
+    }
+
+    /// Returns whether this content is resizable.
+    pub(crate) fn is_resizable(&self) -> bool {
+        self.resizable
+    }
+
     pub(super) fn state(&self) -> Tree {
         let children = if let Some(title_bar) = self.title_bar.as_ref() {
             vec![Tree::new(&self.body), title_bar.state()]

@@ -55,12 +55,10 @@ struct Item {
     is_pinned: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum Message {
     FontLoaded,
-    Clicked(grid_stack::ItemId),
-    Moved(grid_stack::MoveEvent),
-    Resized(grid_stack::ResizeEvent),
+    GridAction(grid_stack::Action),
     AddItem,
     TogglePin(grid_stack::ItemId),
     Close(grid_stack::ItemId),
@@ -163,25 +161,15 @@ impl Example {
 
     fn update(&mut self, message: Message) {
         match message {
-            Message::Clicked(id) => {
-                self.focus = Some(id);
+            Message::GridAction(action) => {
+                // Track focus on click
+                if action.is_click() {
+                    self.focus = Some(action.id());
+                }
+
+                // Perform the action (handles batch mode, held items, everything)
+                self.state.perform(action, |_, item| item.is_pinned);
             }
-            Message::Moved(event) => {
-                self.state.move_item(event.id, event.x, event.y);
-            }
-            Message::Resized(event) => match event.phase {
-                grid_stack::DragPhase::Started => {
-                    self.state.engine_mut().begin_batch();
-                    self.state.resize_item(event.id, event.w, event.h);
-                }
-                grid_stack::DragPhase::Ongoing => {
-                    self.state.resize_item(event.id, event.w, event.h);
-                }
-                grid_stack::DragPhase::Ended => {
-                    self.state.resize_item(event.id, event.w, event.h);
-                    self.state.engine_mut().end_batch();
-                }
-            },
             Message::AddItem => {
                 let item = Item {
                     id: self.items_created,
@@ -195,8 +183,6 @@ impl Example {
             Message::TogglePin(id) => {
                 if let Some(item) = self.state.get_mut(id) {
                     item.is_pinned = !item.is_pinned;
-                    let pinned = item.is_pinned;
-                    self.state.engine_mut().set_item_locked(id, pinned);
                 }
             }
             Message::Close(id) => {
@@ -216,15 +202,6 @@ impl Example {
             }
             Message::ToggleLockAll => {
                 self.locked_all = !self.locked_all;
-                let items: Vec<_> = self
-                    .state
-                    .iter()
-                    .map(|(id, data)| (id, data.is_pinned))
-                    .collect();
-                for (id, is_pinned) in items {
-                    let should_lock = self.locked_all || is_pinned;
-                    self.state.engine_mut().set_item_locked(id, should_lock);
-                }
             }
             Message::FontLoaded => {}
         }
@@ -285,8 +262,12 @@ impl Example {
                 .map(|i| (i.x, i.y, i.w, i.h))
                 .unwrap_or((0, 0, 0, 0));
 
+            let can_interact = !item.is_pinned && !self.locked_all;
+
             grid_content(view_content(gx, gy, gw, gh))
                 .title_bar(title_bar)
+                .draggable(can_interact)
+                .resizable(can_interact)
                 .style(if is_focused {
                     style::item_focused
                 } else {
@@ -296,9 +277,8 @@ impl Example {
         .width(Fill)
         .height(Fill)
         .spacing(8)
-        .on_click(Message::Clicked)
-        .on_move_maybe((!self.locked_all).then_some(Message::Moved))
-        .on_resize_maybe((!self.locked_all).then_some(Message::Resized));
+        .on_action(Message::GridAction)
+        .locked(self.locked_all);
 
         let add_button = button(text("+ Add Item").size(13))
             .on_press(Message::AddItem)

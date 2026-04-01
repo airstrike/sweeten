@@ -37,9 +37,7 @@
 //!         .title_bar(title_bar(text("Title")).padding(5))
 //! })
 //! .spacing(10)
-//! .on_click(Message::Clicked)
-//! .on_move(Message::Moved)
-//! .on_resize(Message::Resized);
+//! .on_action(Message::GridAction);
 //! ```
 
 pub mod content;
@@ -55,8 +53,8 @@ pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;
 pub use widget::{
-    Catalog, CellHeight, DragPhase, GridStack, Highlight, MoveEvent,
-    ResizeEvent, ResizeGrip, Style, StyleFn,
+    Action, Catalog, CellHeight, DragPhase, GridStack, Highlight, ResizeGrip,
+    Style, StyleFn,
 };
 
 use iced_widget::container;

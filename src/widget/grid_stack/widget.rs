@@ -41,10 +41,9 @@ pub enum CellHeight {
 
 /// The phase of a drag or resize interaction.
 ///
-/// Use this to bracket engine batch operations: call
-/// [`begin_batch`](super::engine::GridEngine::begin_batch) on `Started` and
-/// [`end_batch`](super::engine::GridEngine::end_batch) on `Ended` so that
-/// gravity compaction is deferred until the interaction finishes.
+/// [`State::perform`](super::State::perform) uses this to bracket engine
+/// batch operations automatically, so callers do not need to manage
+/// `begin_batch`/`end_batch` manually.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragPhase {
     /// The drag/resize interaction just began (first frame).
@@ -55,30 +54,80 @@ pub enum DragPhase {
     Ended,
 }
 
-/// An event produced when an item is moved by dragging.
+/// An action produced by a [`GridStack`] widget.
+///
+/// The widget emits these through its [`on_action`](GridStack::on_action)
+/// callback. The application should call
+/// [`State::perform`](super::State::perform) to apply the action to the
+/// grid state, optionally inspecting the action first (e.g. to track
+/// focus on click).
+///
+/// # Example
+///
+/// ```ignore
+/// Message::GridAction(action) => {
+///     if action.is_click() {
+///         self.focus = Some(action.id());
+///     }
+///     self.state.perform(action, |_, item| item.is_pinned);
+/// }
+/// ```
 #[derive(Debug, Clone, Copy)]
-pub struct MoveEvent {
-    /// The item that was moved.
-    pub id: ItemId,
-    /// The new column position.
-    pub x: u16,
-    /// The new row position.
-    pub y: u16,
-    /// The phase of the drag interaction.
-    pub phase: DragPhase,
+pub enum Action {
+    /// An item was clicked.
+    Click(ItemId),
+    /// An item move operation (drag by title bar).
+    Move {
+        /// The item being moved.
+        id: ItemId,
+        /// The new column position.
+        x: u16,
+        /// The new row position.
+        y: u16,
+        /// The phase of the drag interaction.
+        phase: DragPhase,
+    },
+    /// An item resize operation (drag by edge).
+    Resize {
+        /// The item being resized.
+        id: ItemId,
+        /// The new width in columns.
+        w: u16,
+        /// The new height in rows.
+        h: u16,
+        /// The phase of the resize interaction.
+        phase: DragPhase,
+    },
 }
 
-/// An event produced when an item is resized by dragging an edge.
-#[derive(Debug, Clone, Copy)]
-pub struct ResizeEvent {
-    /// The item that was resized.
-    pub id: ItemId,
-    /// The new width in columns.
-    pub w: u16,
-    /// The new height in rows.
-    pub h: u16,
-    /// The phase of the resize interaction.
-    pub phase: DragPhase,
+impl Action {
+    /// Returns the [`ItemId`] of the item this action targets.
+    #[must_use]
+    pub fn id(&self) -> ItemId {
+        match *self {
+            Self::Click(id)
+            | Self::Move { id, .. }
+            | Self::Resize { id, .. } => id,
+        }
+    }
+
+    /// Returns `true` if this is a click action.
+    #[must_use]
+    pub fn is_click(&self) -> bool {
+        matches!(self, Self::Click(_))
+    }
+
+    /// Returns `true` if this is any move action.
+    #[must_use]
+    pub fn is_move(&self) -> bool {
+        matches!(self, Self::Move { .. })
+    }
+
+    /// Returns `true` if this is any resize action.
+    #[must_use]
+    pub fn is_resize(&self) -> bool {
+        matches!(self, Self::Resize { .. })
+    }
 }
 
 /// A grid-based layout widget inspired by [GridStack.js](https://gridstackjs.com/).
@@ -93,8 +142,8 @@ pub struct ResizeEvent {
 /// L-shaped arrangements and items of varying sizes.
 ///
 /// The widget does **not** mutate the engine state directly. Instead, it emits
-/// [`MoveEvent`] and [`ResizeEvent`] messages that the application handles in
-/// its `update` function.
+/// [`Action`]s through a single callback that the application handles in its
+/// `update` function by calling [`State::perform`](super::State::perform).
 ///
 /// # Example
 ///
@@ -106,9 +155,7 @@ pub struct ResizeEvent {
 ///         .title_bar(TitleBar::new(text("Title")).padding(5))
 /// })
 /// .spacing(10)
-/// .on_click(Message::Clicked)
-/// .on_move(Message::Moved)
-/// .on_resize(Message::Resized);
+/// .on_action(Message::GridAction);
 /// ```
 ///
 /// [`PaneGrid`]: https://docs.iced.rs/iced/widget/pane_grid/struct.PaneGrid.html
@@ -128,9 +175,8 @@ pub struct GridStack<
     height: Length,
     spacing: f32,
     cell_height: CellHeight,
-    on_click: Option<Box<dyn Fn(ItemId) -> Message + 'a>>,
-    on_move: Option<Box<dyn Fn(MoveEvent) -> Message + 'a>>,
-    on_resize: Option<Box<dyn Fn(ResizeEvent) -> Message + 'a>>,
+    on_action: Option<Box<dyn Fn(Action) -> Message + 'a>>,
+    locked: bool,
     class: <Theme as Catalog>::Class<'a>,
     last_mouse_interaction: Option<mouse::Interaction>,
 }
@@ -164,9 +210,8 @@ where
             height: Length::Shrink,
             spacing: 0.0,
             cell_height: CellHeight::default(),
-            on_click: None,
-            on_move: None,
-            on_resize: None,
+            on_action: None,
+            locked: false,
             class: <Theme as Catalog>::default(),
             last_mouse_interaction: None,
         }
@@ -199,69 +244,38 @@ where
         self
     }
 
-    /// Sets the message that will be produced when an item is clicked.
-    pub fn on_click<F>(mut self, f: F) -> Self
-    where
-        F: 'a + Fn(ItemId) -> Message,
-    {
-        self.on_click = Some(Box::new(f));
-        self
-    }
-
-    /// Enables move interactions (drag to reposition).
+    /// Sets the callback invoked when the widget produces an [`Action`].
     ///
-    /// When enabled, items can be moved by dragging their title bar.
-    pub fn on_move<F>(mut self, f: F) -> Self
+    /// The single callback replaces separate click/move/resize callbacks.
+    /// The application should call [`State::perform`](super::State::perform)
+    /// to apply the action, optionally inspecting it first.
+    pub fn on_action<F>(mut self, f: F) -> Self
     where
-        F: 'a + Fn(MoveEvent) -> Message,
+        F: 'a + Fn(Action) -> Message,
     {
-        self.on_move = Some(Box::new(f));
+        self.on_action = Some(Box::new(f));
         self
     }
 
-    /// Enables resize interactions (drag edges to resize).
-    ///
-    /// When enabled, items can be resized by dragging their right or bottom
-    /// edges.
-    pub fn on_resize<F>(mut self, f: F) -> Self
-    where
-        F: 'a + Fn(ResizeEvent) -> Message,
-    {
-        self.on_resize = Some(Box::new(f));
-        self
-    }
-
-    /// Sets the message that will be produced when an item is clicked,
+    /// Sets the callback invoked when the widget produces an [`Action`],
     /// if `Some`.
     ///
-    /// If `None`, click events will be disabled.
-    pub fn on_click_maybe<F>(mut self, f: Option<F>) -> Self
+    /// If `None`, all interactions will be disabled.
+    pub fn on_action_maybe<F>(mut self, f: Option<F>) -> Self
     where
-        F: 'a + Fn(ItemId) -> Message,
+        F: 'a + Fn(Action) -> Message,
     {
-        self.on_click = f.map(|f| Box::new(f) as _);
+        self.on_action = f.map(|f| Box::new(f) as _);
         self
     }
 
-    /// Enables move interactions (drag to reposition), if `Some`.
+    /// Locks the grid, disabling all move and resize interactions.
     ///
-    /// If `None`, move interactions will be disabled.
-    pub fn on_move_maybe<F>(mut self, f: Option<F>) -> Self
-    where
-        F: 'a + Fn(MoveEvent) -> Message,
-    {
-        self.on_move = f.map(|f| Box::new(f) as _);
-        self
-    }
-
-    /// Enables resize interactions (drag edges to resize), if `Some`.
-    ///
-    /// If `None`, resize interactions will be disabled.
-    pub fn on_resize_maybe<F>(mut self, f: Option<F>) -> Self
-    where
-        F: 'a + Fn(ResizeEvent) -> Message,
-    {
-        self.on_resize = f.map(|f| Box::new(f) as _);
+    /// When locked, items cannot be dragged or resized. Click events
+    /// are still emitted. Per-item control is available via
+    /// [`Content::draggable`] and [`Content::resizable`].
+    pub fn locked(mut self, locked: bool) -> Self {
+        self.locked = locked;
         self
     }
 
@@ -307,9 +321,9 @@ where
     }
 }
 
-/// Ephemeral action state stored in the widget tree.
+/// Ephemeral interaction state stored in the widget tree.
 #[derive(Debug, Default, Clone)]
-enum Action {
+enum Interaction {
     /// No interaction in progress.
     #[default]
     Idle,
@@ -350,7 +364,7 @@ enum Action {
 
 #[derive(Default)]
 struct Memory {
-    action: Action,
+    interaction: Interaction,
     order: Vec<ItemId>,
     last_hovered: Option<usize>,
     animations: ItemAnimations,
@@ -614,11 +628,10 @@ where
 
         // Update animation state with the new positions.
         let memory = tree.state.downcast_mut::<Memory>();
-        let dragged_id = match &memory.action {
-            Action::Moving { id, .. } | Action::Resizing { id, .. } => {
-                Some(*id)
-            }
-            Action::Idle => None,
+        let dragged_id = match &memory.interaction {
+            Interaction::Moving { id, .. }
+            | Interaction::Resizing { id, .. } => Some(*id),
+            Interaction::Idle => None,
         };
         let now = memory.animations.now.unwrap_or_else(Instant::now);
         memory
@@ -692,13 +705,12 @@ where
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let Memory { action, .. } = tree.state.downcast_mut();
+        let Memory { interaction, .. } = tree.state.downcast_mut();
 
-        let picked_item = match action {
-            Action::Moving { id, .. } | Action::Resizing { id, .. } => {
-                Some(*id)
-            }
-            Action::Idle => None,
+        let picked_item = match interaction {
+            Interaction::Moving { id, .. }
+            | Interaction::Resizing { id, .. } => Some(*id),
+            Interaction::Idle => None,
         };
 
         // Propagate events to contents
@@ -718,7 +730,9 @@ where
 
         let bounds = layout.bounds();
         let Memory {
-            action, animations, ..
+            interaction,
+            animations,
+            ..
         } = tree.state.downcast_mut();
 
         match event {
@@ -731,15 +745,15 @@ where
                 }
 
                 // Manage ghost animation based on drag state.
-                match action {
-                    Action::Moving { id, origin, .. } => {
+                match interaction {
+                    Interaction::Moving { id, origin, .. } => {
                         if cursor.position().is_some_and(|pos| {
                             pos.distance(*origin) > DRAG_DEADBAND_DISTANCE
                         }) {
                             animations.show_ghost(*id, *now);
                         }
                     }
-                    Action::Idle | Action::Resizing { .. } => {
+                    Interaction::Idle | Interaction::Resizing { .. } => {
                         animations.hide_ghost();
                     }
                 }
@@ -752,16 +766,16 @@ where
                     let (cell_w, cell_h) = self.cell_dimensions(bounds.width);
 
                     // Check for resize first (bottom-right edge detection)
-                    if self.on_resize.is_some()
+                    if self.on_action.is_some()
+                        && !self.locked
                         && let Some(resize_id) = self.find_resize_target(
                             layout,
                             cursor_position,
                             bounds,
                         )
                         && let Some(item) = self.engine.get(resize_id)
-                        && !item.locked
                     {
-                        *action = Action::Resizing {
+                        *interaction = Interaction::Resizing {
                             id: resize_id,
                             origin: cursor_position,
                             start_w: item.w,
@@ -775,7 +789,7 @@ where
 
                     // Check for click/drag on an item
                     self.click_item(
-                        action,
+                        interaction,
                         layout,
                         cursor_position,
                         shell,
@@ -787,8 +801,8 @@ where
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerLifted { .. })
             | Event::Touch(touch::Event::FingerLost { .. }) => {
-                match action {
-                    Action::Moving {
+                match interaction {
+                    Interaction::Moving {
                         id,
                         origin,
                         start_x,
@@ -798,7 +812,7 @@ where
                         started,
                         ..
                     } if *started => {
-                        if let Some(on_move) = &self.on_move
+                        if let Some(on_action) = &self.on_action
                             && let Some(cursor_position) = cursor.position()
                         {
                             let dx = cursor_position.x - origin.x;
@@ -812,7 +826,7 @@ where
                             let new_y =
                                 (*start_y as i32 + grid_dy).max(0) as u16;
 
-                            shell.publish(on_move(MoveEvent {
+                            shell.publish(on_action(Action::Move {
                                 id: *id,
                                 x: new_x,
                                 y: new_y,
@@ -820,7 +834,7 @@ where
                             }));
                         }
                     }
-                    Action::Resizing {
+                    Interaction::Resizing {
                         id,
                         origin,
                         start_w,
@@ -829,7 +843,7 @@ where
                         cell_h,
                         started,
                     } if *started => {
-                        if let Some(on_resize) = &self.on_resize
+                        if let Some(on_action) = &self.on_action
                             && let Some(cursor_position) = cursor.position()
                         {
                             let dx = cursor_position.x - origin.x;
@@ -843,7 +857,7 @@ where
                             let new_h =
                                 (*start_h as i32 + grid_dh).max(1) as u16;
 
-                            shell.publish(on_resize(ResizeEvent {
+                            shell.publish(on_action(Action::Resize {
                                 id: *id,
                                 w: new_w,
                                 h: new_h,
@@ -853,94 +867,101 @@ where
                     }
                     _ => {}
                 }
-                *action = Action::Idle;
+                *interaction = Interaction::Idle;
                 animations.hide_ghost();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. })
-            | Event::Touch(touch::Event::FingerMoved { .. }) => match action {
-                Action::Moving {
-                    id,
-                    origin,
-                    start_x,
-                    start_y,
-                    cell_w,
-                    cell_h,
-                    started,
-                    ..
-                } => {
-                    if let Some(on_move) = &self.on_move
-                        && let Some(cursor_position) = cursor.position()
-                        && cursor_position.distance(*origin)
-                            > DRAG_DEADBAND_DISTANCE
-                    {
-                        let dx = cursor_position.x - origin.x;
-                        let dy = cursor_position.y - origin.y;
-                        let step_w = *cell_w + self.spacing;
-                        let step_h = *cell_h + self.spacing;
-                        let grid_dx = (dx / step_w).round() as i32;
-                        let grid_dy = (dy / step_h).round() as i32;
-                        let new_x = (*start_x as i32 + grid_dx).max(0) as u16;
-                        let new_y = (*start_y as i32 + grid_dy).max(0) as u16;
+            | Event::Touch(touch::Event::FingerMoved { .. }) => {
+                match interaction {
+                    Interaction::Moving {
+                        id,
+                        origin,
+                        start_x,
+                        start_y,
+                        cell_w,
+                        cell_h,
+                        started,
+                        ..
+                    } => {
+                        if let Some(on_action) = &self.on_action
+                            && let Some(cursor_position) = cursor.position()
+                            && cursor_position.distance(*origin)
+                                > DRAG_DEADBAND_DISTANCE
+                        {
+                            let dx = cursor_position.x - origin.x;
+                            let dy = cursor_position.y - origin.y;
+                            let step_w = *cell_w + self.spacing;
+                            let step_h = *cell_h + self.spacing;
+                            let grid_dx = (dx / step_w).round() as i32;
+                            let grid_dy = (dy / step_h).round() as i32;
+                            let new_x =
+                                (*start_x as i32 + grid_dx).max(0) as u16;
+                            let new_y =
+                                (*start_y as i32 + grid_dy).max(0) as u16;
 
-                        // Start ghost animation when drag begins
-                        let now = animations.now.unwrap_or_else(Instant::now);
-                        animations.show_ghost(*id, now);
+                            // Start ghost animation when drag begins
+                            let now =
+                                animations.now.unwrap_or_else(Instant::now);
+                            animations.show_ghost(*id, now);
 
-                        let phase = if *started {
-                            DragPhase::Ongoing
-                        } else {
-                            *started = true;
-                            DragPhase::Started
-                        };
+                            let phase = if *started {
+                                DragPhase::Ongoing
+                            } else {
+                                *started = true;
+                                DragPhase::Started
+                            };
 
-                        shell.publish(on_move(MoveEvent {
-                            id: *id,
-                            x: new_x,
-                            y: new_y,
-                            phase,
-                        }));
+                            shell.publish(on_action(Action::Move {
+                                id: *id,
+                                x: new_x,
+                                y: new_y,
+                                phase,
+                            }));
+                        }
+                        shell.request_redraw();
                     }
-                    shell.request_redraw();
-                }
-                Action::Resizing {
-                    id,
-                    origin,
-                    start_w,
-                    start_h,
-                    cell_w,
-                    cell_h,
-                    started,
-                } => {
-                    if let Some(on_resize) = &self.on_resize
-                        && let Some(cursor_position) = cursor.position()
-                    {
-                        let dx = cursor_position.x - origin.x;
-                        let dy = cursor_position.y - origin.y;
-                        let step_w = *cell_w + self.spacing;
-                        let step_h = *cell_h + self.spacing;
-                        let grid_dw = (dx / step_w).round() as i32;
-                        let grid_dh = (dy / step_h).round() as i32;
-                        let new_w = (*start_w as i32 + grid_dw).max(1) as u16;
-                        let new_h = (*start_h as i32 + grid_dh).max(1) as u16;
+                    Interaction::Resizing {
+                        id,
+                        origin,
+                        start_w,
+                        start_h,
+                        cell_w,
+                        cell_h,
+                        started,
+                    } => {
+                        if let Some(on_action) = &self.on_action
+                            && let Some(cursor_position) = cursor.position()
+                        {
+                            let dx = cursor_position.x - origin.x;
+                            let dy = cursor_position.y - origin.y;
+                            let step_w = *cell_w + self.spacing;
+                            let step_h = *cell_h + self.spacing;
+                            let grid_dw = (dx / step_w).round() as i32;
+                            let grid_dh = (dy / step_h).round() as i32;
+                            let new_w =
+                                (*start_w as i32 + grid_dw).max(1) as u16;
+                            let new_h =
+                                (*start_h as i32 + grid_dh).max(1) as u16;
 
-                        let phase = if *started {
-                            DragPhase::Ongoing
-                        } else {
-                            *started = true;
-                            DragPhase::Started
-                        };
+                            let phase = if *started {
+                                DragPhase::Ongoing
+                            } else {
+                                *started = true;
+                                DragPhase::Started
+                            };
 
-                        shell.publish(on_resize(ResizeEvent {
-                            id: *id,
-                            w: new_w,
-                            h: new_h,
-                            phase,
-                        }));
+                            shell.publish(on_action(Action::Resize {
+                                id: *id,
+                                w: new_w,
+                                h: new_h,
+                                phase,
+                            }));
+                        }
+                        shell.request_redraw();
                     }
-                    shell.request_redraw();
+                    Interaction::Idle => {}
                 }
-                Action::Idle => {}
-            },
+            }
             _ => {}
         }
 
@@ -965,11 +986,13 @@ where
         // Detect mouse interaction changes (cursor type) so we request redraws
         // for hover effects like the resize cursor or grab cursor.
         if shell.redraw_request() != window::RedrawRequest::NextFrame {
-            let action = &tree.state.downcast_ref::<Memory>().action;
+            let current_interaction =
+                &tree.state.downcast_ref::<Memory>().interaction;
 
             let interaction = self
-                .grid_interaction(action, layout, cursor)
+                .grid_interaction(current_interaction, layout, cursor)
                 .or_else(|| {
+                    let drag_enabled = self.on_action.is_some() && !self.locked;
                     self.items
                         .iter()
                         .zip(&self.contents)
@@ -978,7 +1001,7 @@ where
                             content.grid_interaction(
                                 layout,
                                 cursor,
-                                self.on_move.is_some(),
+                                drag_enabled,
                             )
                         })
                 })
@@ -1003,10 +1026,13 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let Memory { action, .. } = tree.state.downcast_ref();
+        let Memory {
+            interaction: current_interaction,
+            ..
+        } = tree.state.downcast_ref();
 
-        match action {
-            Action::Moving { origin, .. } => {
+        match current_interaction {
+            Interaction::Moving { origin, .. } => {
                 if let Some(pos) = cursor.position()
                     && pos.distance(*origin) > DRAG_DEADBAND_DISTANCE
                 {
@@ -1014,16 +1040,17 @@ where
                 }
                 return mouse::Interaction::Grab;
             }
-            Action::Resizing { .. } => {
+            Interaction::Resizing { .. } => {
                 return mouse::Interaction::ResizingDiagonallyDown;
             }
-            Action::Idle => {}
+            Interaction::Idle => {}
         }
 
         let bounds = layout.bounds();
 
         // Check for resize cursor on edges
-        if self.on_resize.is_some()
+        if self.on_action.is_some()
+            && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
             && self
                 .find_resize_target(layout, cursor_position, bounds)
@@ -1033,7 +1060,7 @@ where
         }
 
         // Check content interactions
-        let drag_enabled = self.on_move.is_some();
+        let drag_enabled = self.on_action.is_some() && !self.locked;
 
         self.items
             .iter()
@@ -1065,12 +1092,14 @@ where
         viewport: &Rectangle,
     ) {
         let Memory {
-            action, animations, ..
+            interaction,
+            animations,
+            ..
         } = tree.state.downcast_ref();
         let now = animations.now.unwrap_or_else(Instant::now);
 
-        let picked_item = match action {
-            Action::Moving {
+        let picked_item = match interaction {
+            Interaction::Moving {
                 id,
                 origin,
                 grab_offset,
@@ -1082,8 +1111,8 @@ where
             _ => None,
         };
 
-        let resizing_id = match action {
-            Action::Resizing { id, .. } => Some(*id),
+        let resizing_id = match interaction {
+            Interaction::Resizing { id, .. } => Some(*id),
             _ => None,
         };
 
@@ -1151,22 +1180,27 @@ where
             }
         }
 
-        // Draw resize grip indicator on hovered, non-locked items when
+        // Draw resize grip indicator on hovered, resizable items when
         // resize is enabled and the style provides a grip appearance.
         let grid_style = Catalog::style(theme, &self.class);
 
-        if self.on_resize.is_some()
+        if self.on_action.is_some()
+            && !self.locked
             && let Some(ref grip) = grid_style.resize_grip
             && let Some(cursor_position) = item_cursor.position()
         {
-            for (id, item_layout) in
-                self.items.iter().copied().zip(layout.children())
+            for ((id, content), item_layout) in self
+                .items
+                .iter()
+                .copied()
+                .zip(&self.contents)
+                .zip(layout.children())
             {
                 let item_bounds = item_layout.bounds();
                 if !item_bounds.contains(cursor_position) {
                     continue;
                 }
-                if self.engine.get(id).is_some_and(|item| item.locked) {
+                if !content.is_resizable() {
                     continue;
                 }
                 if picked_item.is_some_and(|(pid, _)| pid == id) {
@@ -1361,8 +1395,12 @@ where
         let regions = self.compute_regions(bounds.width, cell_w, cell_h);
 
         for (id, region) in &regions {
-            // Skip locked items — they cannot be resized.
-            if self.engine.get(*id).is_some_and(|item| item.locked) {
+            // Look up the content for this item to check resizability.
+            let content_idx =
+                self.items.iter().position(|item_id| item_id == id);
+            if let Some(idx) = content_idx
+                && !self.contents[idx].is_resizable()
+            {
                 continue;
             }
 
@@ -1399,12 +1437,12 @@ where
     /// cursor position, without consulting child widgets.
     fn grid_interaction(
         &self,
-        action: &Action,
+        current_interaction: &Interaction,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
     ) -> Option<mouse::Interaction> {
-        match action {
-            Action::Moving { origin, .. } => {
+        match current_interaction {
+            Interaction::Moving { origin, .. } => {
                 if cursor.position().is_some_and(|pos| {
                     pos.distance(*origin) > DRAG_DEADBAND_DISTANCE
                 }) {
@@ -1412,15 +1450,16 @@ where
                 }
                 return Some(mouse::Interaction::Grab);
             }
-            Action::Resizing { .. } => {
+            Interaction::Resizing { .. } => {
                 return Some(mouse::Interaction::ResizingDiagonallyDown);
             }
-            Action::Idle => {}
+            Interaction::Idle => {}
         }
 
         let bounds = layout.bounds();
 
-        if self.on_resize.is_some()
+        if self.on_action.is_some()
+            && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
             && self
                 .find_resize_target(layout, cursor_position, bounds)
@@ -1435,7 +1474,7 @@ where
     /// Handles a click on an item, potentially starting a drag.
     fn click_item(
         &self,
-        action: &mut Action,
+        interaction: &mut Interaction,
         layout: Layout<'_>,
         cursor_position: Point,
         shell: &mut Shell<'_, Message>,
@@ -1451,14 +1490,15 @@ where
             .find(|((_, _), layout)| layout.bounds().contains(cursor_position));
 
         if let Some(((id, content), item_layout)) = clicked {
-            if let Some(on_click) = &self.on_click {
-                shell.publish(on_click(id));
+            if let Some(on_action) = &self.on_action {
+                shell.publish(on_action(Action::Click(id)));
             }
 
-            if self.on_move.is_some()
+            if self.on_action.is_some()
+                && !self.locked
+                && content.is_draggable()
                 && content.can_be_dragged_at(item_layout, cursor_position)
                 && let Some(item) = self.engine.get(id)
-                && !item.locked
             {
                 let item_pos = item_layout.bounds().position();
                 let grab_offset = Vector::new(
@@ -1466,7 +1506,7 @@ where
                     cursor_position.y - item_pos.y,
                 );
 
-                *action = Action::Moving {
+                *interaction = Interaction::Moving {
                     id,
                     origin: cursor_position,
                     grab_offset,
