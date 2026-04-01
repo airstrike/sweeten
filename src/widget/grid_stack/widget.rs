@@ -22,7 +22,7 @@ use crate::core::{
 };
 
 use super::content::Content;
-use super::engine::GridEngine;
+use super::engine::Internal;
 use super::item_id::ItemId;
 use super::state;
 
@@ -168,7 +168,7 @@ pub struct GridStack<
     Theme: Catalog,
     Renderer: core::Renderer,
 {
-    engine: &'a GridEngine,
+    internal: &'a Internal,
     items: Vec<ItemId>,
     contents: Vec<Content<'a, Message, Theme, Renderer>>,
     width: Length,
@@ -203,7 +203,7 @@ where
             state.iter().map(|(id, data)| view(id, data)).collect();
 
         Self {
-            engine: state.engine(),
+            internal: &state.internal,
             items,
             contents,
             width: Length::Fill,
@@ -291,7 +291,7 @@ where
 
     /// Computes the cell dimensions from the given total width.
     fn cell_dimensions(&self, total_width: f32) -> (f32, f32) {
-        let cols = f32::from(self.engine.columns());
+        let cols = f32::from(self.internal.columns());
         let cell_w = (total_width - (cols - 1.0) * self.spacing) / cols;
         let cell_h = match self.cell_height {
             CellHeight::Auto => cell_w,
@@ -302,7 +302,7 @@ where
 
     /// Computes the total grid height from the engine state and cell dimensions.
     fn grid_height(&self, cell_h: f32) -> f32 {
-        let rows = f32::from(self.engine.get_row());
+        let rows = f32::from(self.internal.get_row());
         if rows == 0.0 {
             0.0
         } else {
@@ -773,7 +773,7 @@ where
                             cursor_position,
                             bounds,
                         )
-                        && let Some(item) = self.engine.get(resize_id)
+                        && let Some(item) = self.internal.get(resize_id)
                     {
                         *interaction = Interaction::Resizing {
                             id: resize_id,
@@ -1363,7 +1363,7 @@ where
         cell_w: f32,
         cell_h: f32,
     ) -> Vec<(ItemId, (f32, f32, f32, f32))> {
-        self.engine
+        self.internal
             .items()
             .map(|item| {
                 let x = f32::from(item.x);
@@ -1498,7 +1498,7 @@ where
                 && !self.locked
                 && content.is_draggable()
                 && content.can_be_dragged_at(item_layout, cursor_position)
-                && let Some(item) = self.engine.get(id)
+                && let Some(item) = self.internal.get(id)
             {
                 let item_pos = item_layout.bounds().position();
                 let grab_offset = Vector::new(

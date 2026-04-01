@@ -69,19 +69,22 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
         || a.x >= b.right())
 }
 
-/// The core grid layout engine.
+/// The internal layout state of a [`GridStack`].
 ///
 /// Manages a flat list of [`GridItem`]s on a grid with a fixed number of
 /// columns. Provides algorithms for adding, removing, moving, and resizing
 /// items, with automatic collision resolution and optional vertical
 /// compaction (gravity).
 ///
+/// This is analogous to [`pane_grid::state::Internal`] — it holds the
+/// layout data while [`State`] pairs it with user data.
+///
 /// # Example
 ///
 /// ```
-/// use sweeten::widget::grid_stack::engine::GridEngine;
+/// use sweeten::widget::grid_stack::engine::Internal;
 ///
-/// let mut engine = GridEngine::new(12);
+/// let mut engine = Internal::new(12);
 ///
 /// // Add two items
 /// let a = engine.add_item(0, 0, 4, 2);
@@ -94,8 +97,12 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
 /// let items: Vec<_> = engine.items().collect();
 /// assert!(items.iter().any(|i| i.id == b && i.y >= 2));
 /// ```
+///
+/// [`GridStack`]: super::GridStack
+/// [`State`]: super::State
+/// [`pane_grid::state::Internal`]: https://docs.iced.rs/iced/widget/pane_grid/state/struct.Internal.html
 #[derive(Debug, Clone)]
-pub struct GridEngine {
+pub struct Internal {
     /// Number of columns in the grid.
     columns: u16,
     /// Maximum number of rows (None = unlimited).
@@ -103,7 +110,7 @@ pub struct GridEngine {
     /// Float mode: if false, items compact upward (gravity).
     float: bool,
     /// Batch mode: when true, gravity compaction is deferred until
-    /// [`end_batch`](GridEngine::end_batch) is called.
+    /// [`end_batch`](Internal::end_batch) is called.
     batch_mode: bool,
     /// All items in the grid.
     items: Vec<GridItem>,
@@ -111,7 +118,7 @@ pub struct GridEngine {
     next_id: usize,
 }
 
-impl GridEngine {
+impl Internal {
     /// Creates a new grid engine with the given number of columns.
     ///
     /// The grid starts empty with gravity mode enabled (float = false).
@@ -886,7 +893,7 @@ mod tests {
 
     #[test]
     fn add_single_item() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let id = engine.add_item(0, 0, 4, 2);
         assert_eq!(engine.items().count(), 1);
         let item = engine.get(id).unwrap();
@@ -898,7 +905,7 @@ mod tests {
 
     #[test]
     fn add_multiple_non_overlapping() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
         let c = engine.add_item(8, 0, 4, 2);
@@ -915,7 +922,7 @@ mod tests {
 
     #[test]
     fn add_auto_position() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.add_item(0, 0, 6, 2);
         engine.add_item(6, 0, 6, 2);
 
@@ -928,7 +935,7 @@ mod tests {
 
     #[test]
     fn add_auto_position_fits_in_gap() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.add_item(0, 0, 4, 2);
         engine.add_item(8, 0, 4, 2);
 
@@ -941,7 +948,7 @@ mod tests {
 
     #[test]
     fn remove_item_basic() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
 
@@ -955,7 +962,7 @@ mod tests {
 
     #[test]
     fn remove_nonexistent_item() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.add_item(0, 0, 4, 2);
         let result = engine.remove_item(ItemId(999));
         assert!(result.is_none());
@@ -963,7 +970,7 @@ mod tests {
 
     #[test]
     fn remove_triggers_compaction() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let _a = engine.add_item(0, 0, 12, 2);
         let b = engine.add_item(0, 2, 12, 2);
 
@@ -979,7 +986,7 @@ mod tests {
 
     #[test]
     fn collision_displaces_item_down() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Place b first, then add a on top of it -> b should be displaced
         let b = engine.add_item(0, 0, 4, 2);
         let a = engine.add_item(0, 0, 4, 2);
@@ -993,7 +1000,7 @@ mod tests {
 
     #[test]
     fn collision_cascade() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true); // Disable gravity to see raw collision results
 
         // Place three items vertically
@@ -1019,7 +1026,7 @@ mod tests {
 
     #[test]
     fn collision_held_item_not_displaced() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 0, 4, 2);
@@ -1037,7 +1044,7 @@ mod tests {
 
     #[test]
     fn collision_with_partial_overlap() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 0, 6, 3);
@@ -1068,7 +1075,7 @@ mod tests {
 
     #[test]
     fn pack_nodes_compacts_upward() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true); // Add in float mode
 
         engine.add_item(0, 5, 4, 2); // far down
@@ -1084,7 +1091,7 @@ mod tests {
 
     #[test]
     fn pack_nodes_respects_collisions() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 0, 12, 3);
@@ -1102,7 +1109,7 @@ mod tests {
 
     #[test]
     fn pack_nodes_held_items_stay() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 5, 12, 2);
@@ -1116,7 +1123,7 @@ mod tests {
 
     #[test]
     fn gravity_after_add() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // With gravity on (default), adding an item at y=10 should compact it to y=0
         let a = engine.add_item(0, 10, 4, 2);
         let item_a = engine.get(a).unwrap();
@@ -1125,7 +1132,7 @@ mod tests {
 
     #[test]
     fn pack_nodes_stacks_correctly() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         // Two full-width items at different heights
@@ -1146,7 +1153,7 @@ mod tests {
 
     #[test]
     fn move_item_basic() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
 
         let moved = engine.move_item(a, 4, 0);
@@ -1158,7 +1165,7 @@ mod tests {
 
     #[test]
     fn move_item_resolves_collisions() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
 
@@ -1177,7 +1184,7 @@ mod tests {
 
     #[test]
     fn move_item_clamped_to_grid() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
 
         // Try to move beyond right edge
@@ -1190,7 +1197,7 @@ mod tests {
 
     #[test]
     fn move_held_displaces_around_held_items() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
 
@@ -1206,7 +1213,7 @@ mod tests {
 
     #[test]
     fn move_item_same_position_returns_false() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
 
         let moved = engine.move_item(a, 0, 0);
@@ -1219,7 +1226,7 @@ mod tests {
 
     #[test]
     fn resize_item_basic() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
 
         let resized = engine.resize_item(a, 6, 3);
@@ -1231,7 +1238,7 @@ mod tests {
 
     #[test]
     fn resize_item_resolves_collisions() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
 
@@ -1248,7 +1255,7 @@ mod tests {
 
     #[test]
     fn resize_clamped_to_grid_boundary() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(6, 0, 4, 2);
 
         // Resize wider than remaining space
@@ -1262,7 +1269,7 @@ mod tests {
 
     #[test]
     fn resize_held_displaces_around_held_items() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         let b = engine.add_item(4, 0, 4, 2);
 
@@ -1286,7 +1293,7 @@ mod tests {
 
     #[test]
     fn constraint_min_width() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         engine.set_item_constraints(a, Some(3), None, None, None);
 
@@ -1299,7 +1306,7 @@ mod tests {
 
     #[test]
     fn constraint_max_width() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         engine.set_item_constraints(a, None, Some(6), None, None);
 
@@ -1311,7 +1318,7 @@ mod tests {
 
     #[test]
     fn constraint_min_height() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 4);
         engine.set_item_constraints(a, None, None, Some(3), None);
 
@@ -1322,7 +1329,7 @@ mod tests {
 
     #[test]
     fn constraint_max_height() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 4, 2);
         engine.set_item_constraints(a, None, None, None, Some(5));
 
@@ -1333,7 +1340,7 @@ mod tests {
 
     #[test]
     fn constraint_grid_boundary_clamp_width() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Add item wider than grid
         let a = engine.add_item(0, 0, 20, 2);
         let item = engine.get(a).unwrap();
@@ -1343,7 +1350,7 @@ mod tests {
 
     #[test]
     fn constraint_max_rows() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_max_rows(Some(5));
 
         let a = engine.add_item(0, 10, 4, 2);
@@ -1354,7 +1361,7 @@ mod tests {
 
     #[test]
     fn constraint_position_shift_on_overflow() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Item at x=10 with w=4 overflows (10+4 > 12)
         // In non-resize mode, it should shift left: x = 12 - 4 = 8
         let a = engine.add_item(10, 0, 4, 2);
@@ -1369,7 +1376,7 @@ mod tests {
 
     #[test]
     fn pixel_regions_single_item() {
-        let mut engine = GridEngine::new(4);
+        let mut engine = Internal::new(4);
         engine.set_float(true);
         let a = engine.add_item(0, 0, 2, 1);
 
@@ -1386,7 +1393,7 @@ mod tests {
 
     #[test]
     fn pixel_regions_with_spacing() {
-        let mut engine = GridEngine::new(4);
+        let mut engine = Internal::new(4);
         engine.set_float(true);
         let _a = engine.add_item(0, 0, 1, 1);
         let b = engine.add_item(1, 0, 1, 1);
@@ -1410,14 +1417,14 @@ mod tests {
 
     #[test]
     fn pixel_regions_empty_grid() {
-        let engine = GridEngine::new(12);
+        let engine = Internal::new(12);
         let regions = engine.item_regions((1000.0, 800.0), 5.0);
         assert!(regions.is_empty());
     }
 
     #[test]
     fn pixel_regions_multicolumn_item() {
-        let mut engine = GridEngine::new(4);
+        let mut engine = Internal::new(4);
         engine.set_float(true);
         let a = engine.add_item(1, 0, 2, 3);
 
@@ -1437,7 +1444,7 @@ mod tests {
 
     #[test]
     fn complex_dashboard_layout() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         // Simulate a dashboard:
         // - Header: full width, height 1
@@ -1471,7 +1478,7 @@ mod tests {
 
     #[test]
     fn complex_add_remove_move_resize() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         let a = engine.add_item(0, 0, 6, 2);
         let b = engine.add_item(6, 0, 6, 2);
@@ -1504,7 +1511,7 @@ mod tests {
 
     #[test]
     fn stress_many_items_no_overlap() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         // Add 20 items, some overlapping
         for i in 0..20u16 {
@@ -1539,7 +1546,7 @@ mod tests {
 
     #[test]
     fn empty_grid_operations() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         assert_eq!(engine.get_row(), 0);
         assert_eq!(engine.items().count(), 0);
         assert!(engine.item_regions((800.0, 600.0), 5.0).is_empty());
@@ -1550,7 +1557,7 @@ mod tests {
 
     #[test]
     fn single_item_grid() {
-        let mut engine = GridEngine::new(1);
+        let mut engine = Internal::new(1);
         let a = engine.add_item(0, 0, 1, 1);
         assert_eq!(engine.get(a).unwrap().x, 0);
         assert_eq!(engine.get(a).unwrap().w, 1);
@@ -1559,7 +1566,7 @@ mod tests {
 
     #[test]
     fn item_at_grid_boundary() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(8, 0, 4, 2);
         let item = engine.get(a).unwrap();
         assert_eq!(item.x, 8);
@@ -1569,7 +1576,7 @@ mod tests {
 
     #[test]
     fn full_grid_auto_position_fails_with_max_rows() {
-        let mut engine = GridEngine::new(2);
+        let mut engine = Internal::new(2);
         engine.set_max_rows(Some(2));
 
         // Fill the grid
@@ -1585,7 +1592,7 @@ mod tests {
 
     #[test]
     fn get_row_tracks_max_height() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         engine.add_item(0, 0, 4, 2);
@@ -1599,7 +1606,7 @@ mod tests {
     fn deterministic_output() {
         // Same operations should always produce same result
         let run = || {
-            let mut engine = GridEngine::new(12);
+            let mut engine = Internal::new(12);
             let a = engine.add_item(0, 0, 6, 2);
             let b = engine.add_item(3, 0, 6, 2);
             let c = engine.add_item(0, 1, 4, 3);
@@ -1624,7 +1631,7 @@ mod tests {
 
     #[test]
     fn float_mode_no_gravity() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 5, 4, 2);
@@ -1634,7 +1641,7 @@ mod tests {
 
     #[test]
     fn gravity_mode_compacts_on_add() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Gravity is on by default
 
         let a = engine.add_item(0, 5, 4, 2);
@@ -1644,19 +1651,19 @@ mod tests {
 
     #[test]
     fn move_item_nonexistent_returns_false() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         assert!(!engine.move_item(ItemId(42), 0, 0));
     }
 
     #[test]
     fn resize_item_nonexistent_returns_false() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         assert!(!engine.resize_item(ItemId(42), 4, 4));
     }
 
     #[test]
     fn min_dimensions_enforced_on_add() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Item with w=0 should be clamped to w=1
         let a = engine.add_item(0, 0, 0, 0);
         let item = engine.get(a).unwrap();
@@ -1666,7 +1673,7 @@ mod tests {
 
     #[test]
     fn side_by_side_items_not_displaced() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let a = engine.add_item(0, 0, 6, 2);
         let b = engine.add_item(6, 0, 6, 2);
 
@@ -1679,7 +1686,7 @@ mod tests {
 
     #[test]
     fn move_held_preserves_held_position() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         // Gravity on (default). Add two non-overlapping items.
         let pinned = engine.add_item(0, 0, 12, 2); // y=0
         let free = engine.add_item(0, 2, 12, 2); // y=2, below pinned
@@ -1696,7 +1703,7 @@ mod tests {
 
     #[test]
     fn move_held_compacts_around_held() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let pinned = engine.add_item(0, 0, 12, 3); // y=0, h=3
         let free = engine.add_item(0, 3, 12, 2); // y=3, below pinned
 
@@ -1719,7 +1726,7 @@ mod tests {
 
     #[test]
     fn batch_mode_defers_packing() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         let _a = engine.add_item(0, 0, 12, 2); // rows 0..2
         let b = engine.add_item(0, 2, 12, 2); // rows 2..4
 
@@ -1740,7 +1747,7 @@ mod tests {
 
     #[test]
     fn batch_mode_resize_no_float_up() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         // Three items stacked:
         //   a: (0,0) 6x2
@@ -1777,7 +1784,7 @@ mod tests {
 
     #[test]
     fn batch_mode_move_no_float_up() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         // a at (0,0) 6x2, b at (6,0) 6x2, c at (0,2) 6x2
         let a = engine.add_item(0, 0, 6, 2);
@@ -1802,7 +1809,7 @@ mod tests {
 
     #[test]
     fn batch_mode_with_float_no_compaction() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
         engine.set_float(true);
 
         let a = engine.add_item(0, 5, 6, 2);
@@ -1816,7 +1823,7 @@ mod tests {
 
     #[test]
     fn batch_mode_pack_nodes_is_noop() {
-        let mut engine = GridEngine::new(12);
+        let mut engine = Internal::new(12);
 
         let a = engine.add_item(0, 0, 12, 2);
         let b = engine.add_item(0, 2, 12, 2);

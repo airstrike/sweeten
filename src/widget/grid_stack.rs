@@ -13,9 +13,9 @@
 //!
 //! # Architecture
 //!
-//! - [`engine`] — The core layout engine (pure math, no iced dependency)
+//! - [`engine`] — The [`Internal`] layout engine (pure math, no iced dependency)
 //! - [`item_id`] — The [`ItemId`] newtype for identifying grid items
-//! - [`state`] — User-facing [`State`] that pairs the engine with user data
+//! - [`state`] — User-facing [`State`] that pairs [`Internal`] with user data
 //! - [`content`] — [`Content`] wrapper for item body + optional [`TitleBar`]
 //! - [`title_bar`] — [`TitleBar`] for drag-handle and controls
 //! - [`widget`](self::widget) — The [`GridStack`] widget implementation
@@ -48,7 +48,7 @@ pub mod title_bar;
 mod widget;
 
 pub use content::Content;
-pub use engine::GridEngine;
+pub use engine::{GridItem, Internal};
 pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;

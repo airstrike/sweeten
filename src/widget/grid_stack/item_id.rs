@@ -2,13 +2,13 @@
 
 use std::fmt;
 
-/// The unique identifier of an item in a [`GridEngine`].
+/// The unique identifier of an item in a [`GridStack`].
 ///
 /// This is a simple newtype wrapper around `usize`, similar to
 /// [`iced`'s `Pane`](https://docs.iced.rs/iced/widget/pane_grid/struct.Pane.html).
 /// IDs are assigned monotonically by the engine and are never reused.
 ///
-/// [`GridEngine`]: super::GridEngine
+/// [`GridStack`]: super::GridStack
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemId(pub(crate) usize);
 
