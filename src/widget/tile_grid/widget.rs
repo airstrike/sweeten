@@ -1,6 +1,6 @@
-//! The [`GridStack`] widget implementation.
+//! The [`TileGrid`] widget implementation.
 //!
-//! This module contains the main [`GridStack`] widget, event types, and the
+//! This module contains the main [`TileGrid`] widget, event types, and the
 //! [`Catalog`] trait for theming.
 
 use std::collections::HashMap;
@@ -54,9 +54,9 @@ pub enum DragPhase {
     Ended,
 }
 
-/// An action produced by a [`GridStack`] widget.
+/// An action produced by a [`TileGrid`] widget.
 ///
-/// The widget emits these through its [`on_action`](GridStack::on_action)
+/// The widget emits these through its [`on_action`](TileGrid::on_action)
 /// callback. The application should call
 /// [`State::perform`](super::State::perform) to apply the action to the
 /// grid state, optionally inspecting the action first (e.g. to track
@@ -137,7 +137,7 @@ impl Action {
 /// Users can drag items by their title bars to move them, or drag the bottom-right
 /// edges to resize them.
 ///
-/// Unlike [`PaneGrid`], which uses recursive binary splits, `GridStack` uses
+/// Unlike [`PaneGrid`], which uses recursive binary splits, `TileGrid` uses
 /// explicit integer coordinates. This allows arbitrary layouts including
 /// L-shaped arrangements and items of varying sizes.
 ///
@@ -148,9 +148,9 @@ impl Action {
 /// # Example
 ///
 /// ```ignore
-/// use sweeten::widget::grid_stack::{self, GridStack, Content, TitleBar};
+/// use sweeten::widget::tile_grid::{self, TileGrid, Content, TitleBar};
 ///
-/// let grid = GridStack::new(&state, |id, item| {
+/// let grid = TileGrid::new(&state, |id, item| {
 ///     Content::new(text(&item.label))
 ///         .title_bar(TitleBar::new(text("Title")).padding(5))
 /// })
@@ -159,7 +159,7 @@ impl Action {
 /// ```
 ///
 /// [`PaneGrid`]: https://docs.iced.rs/iced/widget/pane_grid/struct.PaneGrid.html
-pub struct GridStack<
+pub struct TileGrid<
     'a,
     Message,
     Theme = crate::Theme,
@@ -181,17 +181,17 @@ pub struct GridStack<
     last_mouse_interaction: Option<mouse::Interaction>,
 }
 
-impl<'a, Message, Theme, Renderer> GridStack<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> TileGrid<'a, Message, Theme, Renderer>
 where
     Theme: Catalog,
     Renderer: core::Renderer,
 {
-    /// Creates a [`GridStack`] with the given [`State`] and view function.
+    /// Creates a [`TileGrid`] with the given [`State`] and view function.
     ///
     /// The view function is called once for each item in the grid, receiving
     /// the item's [`ItemId`] and a reference to its user data.
     ///
-    /// Prefer the [`grid_stack`](super::super::grid_stack) helper function.
+    /// Prefer the [`tile_grid`](super::super::tile_grid) helper function.
     ///
     /// [`State`]: super::State
     pub(crate) fn new<T>(
@@ -217,13 +217,13 @@ where
         }
     }
 
-    /// Sets the width of the [`GridStack`].
+    /// Sets the width of the [`TileGrid`].
     pub fn width(mut self, width: impl Into<Length>) -> Self {
         self.width = width.into();
         self
     }
 
-    /// Sets the height of the [`GridStack`].
+    /// Sets the height of the [`TileGrid`].
     pub fn height(mut self, height: impl Into<Length>) -> Self {
         self.height = height.into();
         self
@@ -279,7 +279,7 @@ where
         self
     }
 
-    /// Sets the style of the [`GridStack`].
+    /// Sets the style of the [`TileGrid`].
     #[must_use]
     pub fn style(mut self, style: impl Fn(&Theme) -> Style + 'a) -> Self
     where
@@ -546,7 +546,7 @@ impl ItemAnimations {
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for GridStack<'_, Message, Theme, Renderer>
+    for TileGrid<'_, Message, Theme, Renderer>
 where
     Theme: Catalog,
     Renderer: core::Renderer,
@@ -1351,7 +1351,7 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> GridStack<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> TileGrid<'a, Message, Theme, Renderer>
 where
     Theme: Catalog,
     Renderer: core::Renderer,
@@ -1521,19 +1521,19 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<GridStack<'a, Message, Theme, Renderer>>
+impl<'a, Message, Theme, Renderer> From<TileGrid<'a, Message, Theme, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
     Theme: Catalog + 'a,
     Renderer: core::Renderer + 'a,
 {
-    fn from(grid_stack: GridStack<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(grid_stack)
+    fn from(tile_grid: TileGrid<'a, Message, Theme, Renderer>) -> Self {
+        Element::new(tile_grid)
     }
 }
 
-/// The appearance of a [`GridStack`].
+/// The appearance of a [`TileGrid`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the grid area.
@@ -1567,7 +1567,7 @@ pub struct ResizeGrip {
     pub dot_size: f32,
 }
 
-/// The theme catalog for a [`GridStack`].
+/// The theme catalog for a [`TileGrid`].
 pub trait Catalog: container::Catalog {
     /// The item class of this [`Catalog`].
     type Class<'a>;
@@ -1579,7 +1579,7 @@ pub trait Catalog: container::Catalog {
     fn style(&self, class: &<Self as Catalog>::Class<'_>) -> Style;
 }
 
-/// A styling function for a [`GridStack`].
+/// A styling function for a [`TileGrid`].
 pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Style + 'a>;
 
 impl Catalog for Theme {
@@ -1674,7 +1674,7 @@ fn clip_ghost_for_animating_items(
     bounds
 }
 
-/// The default style of a [`GridStack`].
+/// The default style of a [`TileGrid`].
 pub fn default_style(_theme: &Theme) -> Style {
     Style {
         background: None,

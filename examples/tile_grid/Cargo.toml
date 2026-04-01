@@ -1,11 +1,11 @@
 [package]
-name = "grid_stack"
+name = "tile_grid"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [[bin]]
-name = "grid_stack"
+name = "tile_grid"
 
 [dependencies]
 sweeten = { path = "../.." }

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "examples/grid_stack"]
+members = [".", "examples/tile_grid"]
 
 [workspace.dependencies]
 iced = { version = "0.15.0-dev", features = ["advanced", "tokio"] }

@@ -1,4 +1,4 @@
-//! Title bar for grid stack items.
+//! Title bar for tile grid items.
 //!
 //! A [`TitleBar`] sits at the top of a [`Content`] and provides a draggable
 //! area plus optional controls (close button, pin toggle, etc.).
@@ -18,7 +18,7 @@ use crate::core::{
     Vector,
 };
 
-/// The title bar of an item in a [`GridStack`].
+/// The title bar of an item in a [`TileGrid`].
 ///
 /// The title bar is placed at the top of a [`Content`] and serves as the
 /// drag handle for moving items. Controls (buttons, toggles, etc.) can be
@@ -27,7 +27,7 @@ use crate::core::{
 /// The *pick area* — the region where dragging is initiated — covers the
 /// entire title bar **except** the controls and the title content element.
 ///
-/// [`GridStack`]: super::GridStack
+/// [`TileGrid`]: super::TileGrid
 /// [`Content`]: super::Content
 pub struct TitleBar<
     'a,

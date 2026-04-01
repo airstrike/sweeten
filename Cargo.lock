@@ -1164,16 +1164,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "grid_stack"
-version = "0.1.0"
-dependencies = [
- "fount",
- "iced",
- "iced_lucide",
- "sweeten",
-]
-
-[[package]]
 name = "guillotiere"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3452,6 +3442,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tile_grid"
+version = "0.1.0"
+dependencies = [
+ "fount",
+ "iced",
+ "iced_lucide",
+ "sweeten",
 ]
 
 [[package]]

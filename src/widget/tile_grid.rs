@@ -18,12 +18,12 @@
 //! - [`state`] — User-facing [`State`] that pairs [`Internal`] with user data
 //! - [`content`] — [`Content`] wrapper for item body + optional [`TitleBar`]
 //! - [`title_bar`] — [`TitleBar`] for drag-handle and controls
-//! - [`widget`](self::widget) — The [`GridStack`] widget implementation
+//! - [`widget`](self::widget) — The [`TileGrid`] widget implementation
 //!
 //! # Example
 //!
 //! ```ignore
-//! use sweeten::widget::grid_stack::{self, GridStack, Content, TitleBar, State};
+//! use sweeten::widget::tile_grid::{self, TileGrid, Content, TitleBar, State};
 //! use iced::widget::text;
 //!
 //! let mut state: State<&str> = State::new(12);
@@ -32,7 +32,7 @@
 //! let main = state.add(3, 1, 9, 4, "main");
 //!
 //! // In view:
-//! let grid = GridStack::new(&state, |id, label| {
+//! let grid = TileGrid::new(&state, |id, label| {
 //!     grid_content(text(*label))
 //!         .title_bar(title_bar(text("Title")).padding(5))
 //! })
@@ -53,8 +53,8 @@ pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;
 pub use widget::{
-    Action, Catalog, CellHeight, DragPhase, GridStack, Highlight, ResizeGrip,
-    Style, StyleFn,
+    Action, Catalog, CellHeight, DragPhase, Highlight, ResizeGrip, Style,
+    StyleFn, TileGrid,
 };
 
 use iced_widget::container;

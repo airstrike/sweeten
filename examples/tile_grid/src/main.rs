@@ -1,4 +1,4 @@
-//! Demonstrates the GridStack widget for grid-based layouts.
+//! Demonstrates the TileGrid widget for grid-based layouts.
 //!
 //! This example shows:
 //! - Creating a grid with several items
@@ -11,7 +11,7 @@
 //! - Resizing items by dragging the bottom-right corner/edges
 //! - Loading a Google Font (Geist) via fount
 //!
-//! Run with: `cargo run -p grid_stack`
+//! Run with: `cargo run -p tile_grid`
 
 #[allow(dead_code)]
 mod icon;
@@ -24,7 +24,7 @@ use iced::{
     Center, Color, Element, Fill, Font, Size, Subscription, Task, Theme, window,
 };
 
-use sweeten::widget::grid_stack::{self, grid_content, title_bar};
+use sweeten::widget::tile_grid::{self, grid_content, title_bar};
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -33,7 +33,7 @@ fn main() -> iced::Result {
         .theme(Theme::Light)
         .font(icon::FONT)
         .default_font(Font::with_family("Geist"))
-        .title("sweeten - GridStack")
+        .title("sweeten - TileGrid")
         .run()
 }
 
@@ -43,9 +43,9 @@ enum App {
 }
 
 struct Example {
-    state: grid_stack::State<Item>,
+    state: tile_grid::State<Item>,
     items_created: usize,
-    focus: Option<grid_stack::ItemId>,
+    focus: Option<tile_grid::ItemId>,
     locked_all: bool,
 }
 
@@ -58,10 +58,10 @@ struct Item {
 #[derive(Debug, Clone, Copy)]
 enum Message {
     FontLoaded,
-    GridAction(grid_stack::Action),
+    GridAction(tile_grid::Action),
     AddItem,
-    TogglePin(grid_stack::ItemId),
-    Close(grid_stack::ItemId),
+    TogglePin(tile_grid::ItemId),
+    Close(tile_grid::ItemId),
     CloseFocused,
     ToggleLockAll,
 }
@@ -106,7 +106,7 @@ impl App {
 
     fn view(&self) -> Element<'_, Message> {
         match self {
-            App::Loading => container(text("GridStack").size(32).font(Font {
+            App::Loading => container(text("TileGrid").size(32).font(Font {
                 weight: iced::font::Weight::Bold,
                 ..Font::DEFAULT
             }))
@@ -126,7 +126,7 @@ impl App {
 
 impl Example {
     fn new() -> Self {
-        let mut state: grid_stack::State<Item> = grid_stack::State::new(12);
+        let mut state: tile_grid::State<Item> = tile_grid::State::new(12);
         let mut items_created = 0;
 
         let positions = [
@@ -231,7 +231,7 @@ impl Example {
         let total_items = self.state.len();
         let state = &self.state;
 
-        let grid = sweeten::grid_stack(state, |id, item| {
+        let grid = sweeten::tile_grid(state, |id, item| {
             let is_focused = focus == Some(id);
 
             let title = text!("Item {}", item.id)
@@ -340,9 +340,9 @@ const LABEL_COLOR: Color = Color::from_rgb(
 
 /// Focus the item before `id`, or the last item if none precede it.
 fn prev_or_last_item<T>(
-    state: &grid_stack::State<T>,
-    id: grid_stack::ItemId,
-) -> Option<grid_stack::ItemId> {
+    state: &tile_grid::State<T>,
+    id: tile_grid::ItemId,
+) -> Option<tile_grid::ItemId> {
     let ids: Vec<_> = state.iter().map(|(item_id, _)| item_id).collect();
     ids.iter()
         .rev()
@@ -377,7 +377,7 @@ fn view_content<'a>(
 }
 
 fn view_controls(
-    id: grid_stack::ItemId,
+    id: tile_grid::ItemId,
     total_items: usize,
     is_pinned: bool,
 ) -> Element<'static, Message> {

@@ -1,4 +1,4 @@
-//! Core layout engine for the grid stack.
+//! Core layout engine for the tile grid.
 //!
 //! This module contains the pure layout math for a GridStack-like layout
 //! system. It has no dependency on iced -- it works entirely with integer
@@ -69,7 +69,7 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
         || a.x >= b.right())
 }
 
-/// The internal layout state of a [`GridStack`].
+/// The internal layout state of a [`TileGrid`].
 ///
 /// Manages a flat list of [`GridItem`]s on a grid with a fixed number of
 /// columns. Provides algorithms for adding, removing, moving, and resizing
@@ -82,7 +82,7 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
 /// # Example
 ///
 /// ```
-/// use sweeten::widget::grid_stack::engine::Internal;
+/// use sweeten::widget::tile_grid::engine::Internal;
 ///
 /// let mut engine = Internal::new(12);
 ///
@@ -98,7 +98,7 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
 /// assert!(items.iter().any(|i| i.id == b && i.y >= 2));
 /// ```
 ///
-/// [`GridStack`]: super::GridStack
+/// [`TileGrid`]: super::TileGrid
 /// [`State`]: super::State
 /// [`pane_grid::state::Internal`]: https://docs.iced.rs/iced/widget/pane_grid/state/struct.Internal.html
 #[derive(Debug, Clone)]

@@ -6,10 +6,10 @@ use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
 use crate::widget::column::{self, Column};
-use crate::widget::grid_stack::{self, GridStack};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
+use crate::widget::tile_grid::{self, TileGrid};
 
 use std::borrow::Borrow;
 
@@ -138,22 +138,22 @@ where
     MouseArea::new(widget)
 }
 
-/// Creates a new [`GridStack`] with the given state and view function.
+/// Creates a new [`TileGrid`] with the given state and view function.
 ///
 /// The view function is called once for each item, receiving the item's
-/// [`ItemId`](crate::widget::grid_stack::ItemId) and a reference to its user data.
+/// [`ItemId`](crate::widget::tile_grid::ItemId) and a reference to its user data.
 ///
-/// [`GridStack`]: crate::widget::grid_stack::GridStack
-pub fn grid_stack<'a, T, Message, Theme, Renderer>(
-    state: &'a grid_stack::State<T>,
+/// [`TileGrid`]: crate::widget::tile_grid::TileGrid
+pub fn tile_grid<'a, T, Message, Theme, Renderer>(
+    state: &'a tile_grid::State<T>,
     view: impl Fn(
-        grid_stack::ItemId,
+        tile_grid::ItemId,
         &'a T,
-    ) -> grid_stack::Content<'a, Message, Theme, Renderer>,
-) -> GridStack<'a, Message, Theme, Renderer>
+    ) -> tile_grid::Content<'a, Message, Theme, Renderer>,
+) -> TileGrid<'a, Message, Theme, Renderer>
 where
-    Theme: grid_stack::Catalog,
+    Theme: tile_grid::Catalog,
     Renderer: core::Renderer,
 {
-    GridStack::new(state, view)
+    TileGrid::new(state, view)
 }

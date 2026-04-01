@@ -1,4 +1,4 @@
-//! Content wrapper for grid stack items.
+//! Content wrapper for tile grid items.
 //!
 //! [`Content`] wraps the body [`Element`] of a grid item with an optional
 //! [`TitleBar`] and container styling. It handles layout (title bar on top,
@@ -18,7 +18,7 @@ use crate::core::{
 
 use super::TitleBar;
 
-/// The content of an item in a [`GridStack`].
+/// The content of an item in a [`TileGrid`].
 ///
 /// Wraps a body element with an optional [`TitleBar`] and container styling.
 /// The title bar (if present) is drawn at the top of the allocated space,
@@ -27,14 +27,14 @@ use super::TitleBar;
 /// # Example
 ///
 /// ```ignore
-/// use sweeten::widget::grid_stack::{Content, TitleBar};
+/// use sweeten::widget::tile_grid::{Content, TitleBar};
 /// use iced::widget::text;
 ///
 /// let content = Content::new(text("Hello!"))
 ///     .title_bar(TitleBar::new(text("My Item")).padding(5));
 /// ```
 ///
-/// [`GridStack`]: super::GridStack
+/// [`TileGrid`]: super::TileGrid
 pub struct Content<
     'a,
     Message,

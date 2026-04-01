@@ -1,4 +1,4 @@
-//! User-facing state for the grid stack.
+//! User-facing state for the tile grid.
 //!
 //! [`State`] wraps an [`Internal`] layout engine and associates user data
 //! of type `T` with each grid item. It provides a convenient API for
@@ -19,7 +19,7 @@ use super::widget::{Action, DragPhase};
 /// # Example
 ///
 /// ```
-/// use sweeten::widget::grid_stack::State;
+/// use sweeten::widget::tile_grid::State;
 ///
 /// let mut state: State<String> = State::new(12);
 ///
