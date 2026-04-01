@@ -71,8 +71,8 @@ impl App {
         (
             App::Loading,
             Task::future(fount::google::load_variants(
-                "Geist".into(),
-                vec!["400".into(), "700".into()],
+                "Geist",
+                &["400", "700"],
             ))
             .then(|result| match result {
                 Ok(bytes_list) => {
