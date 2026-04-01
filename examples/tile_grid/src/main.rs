@@ -77,7 +77,10 @@ impl App {
                             iced::font::load(bytes).map(|_| Message::FontLoaded)
                         }))
                     }
-                    Err(_) => Task::done(Message::FontLoaded),
+                    Err(e) => {
+                        eprintln!("Failed to load font: {e}");
+                        Task::done(Message::FontLoaded)
+                    }
                 }
             }),
         )

@@ -1843,6 +1843,51 @@ mod tests {
         assert_eq!(engine.get(b).unwrap().y, 0);
     }
 
+    #[test]
+    fn repeated_moves_do_not_push_items_infinitely() {
+        // Simulates a drag: the moved item is held during pack_nodes
+        // so gravity doesn't pull it back up and re-trigger collisions.
+        let mut engine = Internal::new(12);
+
+        // Three items in a column
+        let a = engine.add_item(0, 0, 4, 2); // will be dragged
+        let b = engine.add_item(0, 2, 4, 2);
+        let c = engine.add_item(0, 4, 4, 2);
+
+        // Simulate dragging item a to (2, 3) repeatedly (as the widget
+        // would do on every CursorMoved event). Hold a during pack so
+        // gravity doesn't pull it back up.
+        for _ in 0..20 {
+            engine.move_item_held(a, 2, 3, &[a]);
+        }
+
+        let item_a = engine.get(a).unwrap();
+        let item_b = engine.get(b).unwrap();
+        let item_c = engine.get(c).unwrap();
+
+        // a should be exactly where we put it
+        assert_eq!(item_a.x, 2);
+        assert_eq!(item_a.y, 3);
+
+        // b and c should be compacted reasonably — NOT pushed far down.
+        // b can be at y=0 (above a) or y=5 (below a), but not y=40+
+        assert!(
+            item_b.y <= 10,
+            "item b drifted to y={}, expected <= 10",
+            item_b.y
+        );
+        assert!(
+            item_c.y <= 10,
+            "item c drifted to y={}, expected <= 10",
+            item_c.y
+        );
+
+        // No overlaps
+        assert!(!is_intercepted(item_a, item_b));
+        assert!(!is_intercepted(item_a, item_c));
+        assert!(!is_intercepted(item_b, item_c));
+    }
+
     // Helper to create a GridItem for intersection tests
     fn make_item(x: u16, y: u16, w: u16, h: u16) -> GridItem {
         GridItem {

@@ -214,20 +214,16 @@ impl<T> State<T> {
             Action::Move {
                 id, x, y, phase, ..
             } => {
-                let held = self.held_ids(&is_held);
-                match phase {
-                    DragPhase::Started => {
-                        self.internal.begin_batch();
-                        self.internal.move_item_held(id, x, y, &held);
-                    }
-                    DragPhase::Ongoing => {
-                        self.internal.move_item_held(id, x, y, &held);
-                    }
-                    DragPhase::Ended => {
-                        self.internal.move_item_held(id, x, y, &held);
-                        self.internal.end_batch();
-                    }
+                // Hold the moved item during gravity so it stays where
+                // the user placed it (prevents pack_nodes from pulling
+                // it back up, which would re-trigger collisions on the
+                // next frame). On DragPhase::Ended, release it so
+                // gravity settles everything.
+                let mut held = self.held_ids(&is_held);
+                if phase != DragPhase::Ended && !held.contains(&id) {
+                    held.push(id);
                 }
+                self.internal.move_item_held(id, x, y, &held);
             }
             Action::Resize {
                 id, w, h, phase, ..
