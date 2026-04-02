@@ -214,16 +214,22 @@ impl<T> State<T> {
             Action::Move {
                 id, x, y, phase, ..
             } => {
-                // Hold the moved item during gravity so it stays where
-                // the user placed it (prevents pack_nodes from pulling
-                // it back up, which would re-trigger collisions on the
-                // next frame). On DragPhase::Ended, release it so
-                // gravity settles everything.
-                let mut held = self.held_ids(&is_held);
-                if phase != DragPhase::Ended && !held.contains(&id) {
-                    held.push(id);
+                match phase {
+                    DragPhase::Started | DragPhase::Ongoing => {
+                        // No engine mutation. The widget computes a
+                        // visual preview internally by cloning the
+                        // engine, so the committed state stays at
+                        // the pre-drag layout until the user drops.
+                    }
+                    DragPhase::Ended => {
+                        // Apply the move for real. The snapshot gives
+                        // the swap logic the item's pre-drag origin.
+                        let held = self.held_ids(&is_held);
+                        self.internal.save_snapshot();
+                        self.internal.move_item_held(id, x, y, &held);
+                        self.internal.clear_snapshot();
+                    }
                 }
-                self.internal.move_item_held(id, x, y, &held);
             }
             Action::Resize {
                 id, w, h, phase, ..
@@ -254,5 +260,96 @@ impl<T> State<T> {
             .filter(|&(&id, data)| is_held(id, data))
             .map(|(&id, _)| id)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn perform_move_does_not_modify_engine_during_drag() {
+        // The engine state should remain unchanged during a drag
+        // (Started/Ongoing). Only on DragPhase::Ended should the
+        // engine be mutated. The widget handles visual preview
+        // internally by cloning the engine.
+        let mut state: State<()> = State::new(12);
+        let a = state.add(0, 0, 4, 2, ());
+        let _b = state.add(4, 0, 4, 2, ());
+        let _c = state.add(8, 0, 4, 2, ());
+
+        // Snapshot initial positions.
+        let initial: Vec<_> =
+            state.internal.items().map(|i| (i.id, i.x, i.y)).collect();
+
+        // Simulate drag: Started, then two Ongoing ticks.
+        state.perform(
+            Action::Move {
+                id: a,
+                x: 4,
+                y: 0,
+                phase: DragPhase::Started,
+            },
+            |_, _| false,
+        );
+
+        let after_started: Vec<_> =
+            state.internal.items().map(|i| (i.id, i.x, i.y)).collect();
+        assert_eq!(
+            initial, after_started,
+            "engine must not change on DragPhase::Started"
+        );
+
+        state.perform(
+            Action::Move {
+                id: a,
+                x: 4,
+                y: 1,
+                phase: DragPhase::Ongoing,
+            },
+            |_, _| false,
+        );
+
+        let after_ongoing: Vec<_> =
+            state.internal.items().map(|i| (i.id, i.x, i.y)).collect();
+        assert_eq!(
+            initial, after_ongoing,
+            "engine must not change on DragPhase::Ongoing"
+        );
+    }
+
+    #[test]
+    fn perform_move_ended_applies_with_swap() {
+        // On DragPhase::Ended, the engine should apply the move
+        // including swap logic (same-size items swap positions).
+        let mut state: State<()> = State::new(12);
+        let a = state.add(0, 0, 4, 2, ());
+        let b = state.add(4, 0, 4, 2, ());
+        state.add(8, 0, 4, 2, ());
+
+        // Drop a at (4,0) — onto b. Same size → swap.
+        state.perform(
+            Action::Move {
+                id: a,
+                x: 4,
+                y: 0,
+                phase: DragPhase::Ended,
+            },
+            |_, _| false,
+        );
+
+        let item_a = state.get_item(a).unwrap();
+        let item_b = state.get_item(b).unwrap();
+
+        assert_eq!(
+            (item_a.x, item_a.y),
+            (4, 0),
+            "a should be at the drop position"
+        );
+        assert_eq!(
+            (item_b.x, item_b.y),
+            (0, 0),
+            "b should swap to a's original position"
+        );
     }
 }

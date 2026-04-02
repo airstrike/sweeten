@@ -368,6 +368,10 @@ struct Memory {
     order: Vec<ItemId>,
     last_hovered: Option<usize>,
     animations: ItemAnimations,
+    /// Tentative grid target during an active drag. When set, the
+    /// layout method clones the engine and applies this move to
+    /// compute a preview — the committed engine state is untouched.
+    drag_target: Option<(ItemId, u16, u16)>,
 }
 
 /// Per-item position animations for smooth transitions.
@@ -623,11 +627,28 @@ where
 
         let bounds = Size::new(resolved_width, resolved_height);
 
-        // Use custom item_regions computation that respects CellHeight
-        let regions = self.compute_regions(resolved_width, cell_w, cell_h);
-
         // Update animation state with the new positions.
         let memory = tree.state.downcast_mut::<Memory>();
+
+        // Compute item regions. During an active drag, clone the engine
+        // and apply the tentative move so we get a *preview* layout
+        // without modifying the committed engine state.
+        let regions =
+            if let Some((drag_id, target_x, target_y)) = memory.drag_target {
+                let mut preview = self.internal.clone();
+                preview.save_snapshot();
+                preview.begin_batch();
+                preview.move_item_held(drag_id, target_x, target_y, &[drag_id]);
+                Self::compute_regions_for(
+                    &preview,
+                    resolved_width,
+                    cell_w,
+                    cell_h,
+                    self.spacing,
+                )
+            } else {
+                self.compute_regions(resolved_width, cell_w, cell_h)
+            };
         let dragged_id = match &memory.interaction {
             Interaction::Moving { id, .. }
             | Interaction::Resizing { id, .. } => Some(*id),
@@ -732,6 +753,7 @@ where
         let Memory {
             interaction,
             animations,
+            drag_target,
             ..
         } = tree.state.downcast_mut();
 
@@ -868,6 +890,7 @@ where
                     _ => {}
                 }
                 *interaction = Interaction::Idle;
+                *drag_target = None;
                 animations.hide_ghost();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. })
@@ -903,6 +926,10 @@ where
                             let now =
                                 animations.now.unwrap_or_else(Instant::now);
                             animations.show_ghost(*id, now);
+
+                            // Store tentative grid position for the
+                            // preview layout (computed in layout()).
+                            *drag_target = Some((*id, new_x, new_y));
 
                             let phase = if *started {
                                 DragPhase::Ongoing
@@ -1363,7 +1390,24 @@ where
         cell_w: f32,
         cell_h: f32,
     ) -> Vec<(ItemId, (f32, f32, f32, f32))> {
-        self.internal
+        Self::compute_regions_for(
+            self.internal,
+            total_width,
+            cell_w,
+            cell_h,
+            self.spacing,
+        )
+    }
+
+    /// Compute pixel regions for the items in an arbitrary engine.
+    fn compute_regions_for(
+        internal: &Internal,
+        total_width: f32,
+        cell_w: f32,
+        cell_h: f32,
+        spacing: f32,
+    ) -> Vec<(ItemId, (f32, f32, f32, f32))> {
+        internal
             .items()
             .map(|item| {
                 let x = f32::from(item.x);
@@ -1371,10 +1415,10 @@ where
                 let w = f32::from(item.w);
                 let h = f32::from(item.h);
 
-                let px = (x * cell_w + x * self.spacing).round();
-                let py = (y * cell_h + y * self.spacing).round();
-                let pw = (w * cell_w + (w - 1.0) * self.spacing).round();
-                let ph = (h * cell_h + (h - 1.0) * self.spacing).round();
+                let px = (x * cell_w + x * spacing).round();
+                let py = (y * cell_h + y * spacing).round();
+                let pw = (w * cell_w + (w - 1.0) * spacing).round();
+                let ph = (h * cell_h + (h - 1.0) * spacing).round();
 
                 // Clamp width to not exceed total_width
                 let pw = pw.min(total_width - px);

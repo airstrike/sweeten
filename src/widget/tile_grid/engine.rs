@@ -116,6 +116,10 @@ pub struct Internal {
     items: Vec<GridItem>,
     /// Monotonically increasing ID counter.
     next_id: usize,
+    /// Snapshot of items saved at the start of a drag operation.
+    /// Each intermediate drag move restores from this snapshot before
+    /// computing the new layout, preventing accumulated mutations.
+    drag_snapshot: Option<Vec<GridItem>>,
 }
 
 impl Internal {
@@ -136,6 +140,7 @@ impl Internal {
             batch_mode: false,
             items: Vec::new(),
             next_id: 0,
+            drag_snapshot: None,
         }
     }
 
@@ -195,6 +200,46 @@ impl Internal {
     #[must_use]
     pub fn is_batch(&self) -> bool {
         self.batch_mode
+    }
+
+    /// Exits batch mode **without** running gravity compaction.
+    ///
+    /// Use this instead of [`end_batch`](Self::end_batch) when you need
+    /// to turn off batch mode before a move that should run gravity
+    /// internally (e.g. the final drop after a drag).
+    pub fn cancel_batch(&mut self) {
+        self.batch_mode = false;
+    }
+
+    /// Saves the current item positions as a drag snapshot.
+    ///
+    /// Call this at the start of a drag operation. Each subsequent
+    /// intermediate move should call [`restore_snapshot`](Self::restore_snapshot)
+    /// before applying the move, ensuring the layout is always computed
+    /// from the pre-drag state rather than accumulating mutations.
+    pub fn save_snapshot(&mut self) {
+        self.drag_snapshot = Some(self.items.clone());
+    }
+
+    /// Restores item positions from the drag snapshot.
+    ///
+    /// This resets the items list to the state saved by
+    /// [`save_snapshot`](Self::save_snapshot). Other engine state
+    /// (columns, float, batch_mode) is **not** affected.
+    ///
+    /// Does nothing if no snapshot has been saved.
+    pub fn restore_snapshot(&mut self) {
+        if let Some(snapshot) = &self.drag_snapshot {
+            self.items = snapshot.clone();
+        }
+    }
+
+    /// Clears the drag snapshot.
+    ///
+    /// Call this when a drag operation ends (drop) after applying the
+    /// final move.
+    pub fn clear_snapshot(&mut self) {
+        self.drag_snapshot = None;
     }
 
     /// Returns an iterator over all items in the grid.
@@ -339,9 +384,82 @@ impl Internal {
             .position(|item| item.id != skip_id && is_intercepted(item, area))
     }
 
+    /// Attempts to swap a dragged item with a colliding item by moving
+    /// the collider to the dragger's pre-drag origin position.
+    ///
+    /// This implements the GridStack.js "swap-first" strategy: when a
+    /// dragged item of the same size collides with another item, the
+    /// collider slides into the gap the dragger left behind instead of
+    /// being pushed down. This produces more natural drag behaviour.
+    ///
+    /// Returns `true` if the swap succeeded.
+    fn try_drag_swap(&mut self, mover_id: ItemId, held: &[ItemId]) -> bool {
+        // Only attempt during an active drag (snapshot must exist).
+        let Some(snapshot) = &self.drag_snapshot else {
+            return false;
+        };
+
+        // Look up the mover's pre-drag position from the snapshot.
+        let Some(orig) = snapshot.iter().find(|i| i.id == mover_id) else {
+            return false;
+        };
+        let (orig_x, orig_y) = (orig.x, orig.y);
+
+        // Find the mover's current position.
+        let Some(mover_idx) = self.items.iter().position(|i| i.id == mover_id)
+        else {
+            return false;
+        };
+        let mover = self.items[mover_idx].clone();
+
+        // Find the first item that collides with the mover.
+        let Some(collision_idx) = self.find_collision(&mover, mover_id) else {
+            return false;
+        };
+        let collider = self.items[collision_idx].clone();
+
+        // Don't swap with held/pinned items.
+        if held.contains(&collider.id) {
+            return false;
+        }
+
+        // Swap eligibility: items must be the same size.
+        // (GridStack also supports same-width or same-height swaps
+        //  but same-size covers the common case.)
+        if mover.w != collider.w || mover.h != collider.h {
+            return false;
+        }
+
+        // Check that the origin position is free for the collider
+        // (ignoring the mover and collider themselves).
+        let mut test = collider.clone();
+        test.x = orig_x;
+        test.y = orig_y;
+
+        let blocked = self.items.iter().any(|item| {
+            item.id != mover_id
+                && item.id != collider.id
+                && is_intercepted(item, &test)
+        });
+        if blocked {
+            return false;
+        }
+
+        // Execute swap: move collider to mover's pre-drag origin.
+        let col_idx =
+            self.items.iter().position(|i| i.id == collider.id).unwrap();
+        self.items[col_idx].x = orig_x;
+        self.items[col_idx].y = orig_y;
+
+        true
+    }
+
     /// Resolves all collisions caused by the item with the given ID.
     ///
     /// When the given item overlaps with other items:
+    /// - During a drag, a **swap** is attempted first: if the colliding
+    ///   item has the same size, it slides to the dragger's pre-drag
+    ///   position instead of being pushed down.
     /// - Held items cannot be displaced. If the given item overlaps a
     ///   held item, the given item itself is moved below the held item.
     /// - Other items are pushed below the given item.
@@ -351,6 +469,13 @@ impl Internal {
     /// `held` lists item IDs that are treated as immovable obstacles
     /// during this resolution pass (e.g. pinned items).
     fn fix_collisions(&mut self, item_id: ItemId, held: &[ItemId]) {
+        // Phase 1: Try swap (GridStack.js swap-first strategy).
+        // If the swap succeeds it resolves one collision, but the
+        // mover may still overlap other items — fall through to the
+        // cascade loop to handle those.
+        self.try_drag_swap(item_id, held);
+
+        // Phase 2: Cascade displacement.
         let max_iterations = (self.items.len() + 1) * (self.items.len() + 1);
         let mut iterations = 0;
 
@@ -1886,6 +2011,211 @@ mod tests {
         assert!(!is_intercepted(item_a, item_b));
         assert!(!is_intercepted(item_a, item_c));
         assert!(!is_intercepted(item_b, item_c));
+    }
+
+    // =================================================================
+    // 12. Drag Snapshot Tests
+    // =================================================================
+
+    #[test]
+    fn drag_does_not_reorganize_uninvolved_items() {
+        // Issue #1 / #3: During a drag, gravity (pack_nodes) should NOT
+        // run, so items that were not directly displaced by the collision
+        // cascade should stay at their original positions.
+        //
+        // We use different-sized items here so that the swap-first
+        // optimisation does not apply and we exercise the cascade path.
+        //
+        // Setup (8-column grid):
+        //   a at (0,0) 4x2 — will be dragged
+        //   b at (4,0) 4x2 — adjacent, different columns
+        //   c at (0,2) 4x3 — below a, DIFFERENT height so no swap
+        //
+        // Dragging a to (0,2) pushes c below it via collision cascade.
+        // Gravity should NOT pull c to y=0 during the drag preview.
+        let mut engine = Internal::new(8);
+        let a = engine.add_item(0, 0, 4, 2);
+        let _b = engine.add_item(4, 0, 4, 2);
+        let c = engine.add_item(0, 2, 4, 3);
+
+        // Simulate DragPhase::Started — snapshot + batch + held
+        engine.save_snapshot();
+        engine.begin_batch();
+        engine.move_item_held(a, 0, 2, &[a]);
+
+        let item_c = engine.get(c).unwrap();
+        // c was directly displaced and should be pushed just below a
+        // (y = 4). It should NOT have teleported to y=0 via gravity.
+        assert!(
+            item_c.y >= 2,
+            "during drag, items should not teleport above their original \
+             position via gravity; c is at y={}, expected y >= 2",
+            item_c.y
+        );
+    }
+
+    #[test]
+    fn drag_path_does_not_affect_final_layout() {
+        // Issue #3: The final layout after a drag-and-drop should be
+        // determined only by the drop position, not by the intermediate
+        // positions the cursor passed through. Two drag paths that end
+        // at the same position must produce identical layouts.
+        //
+        // Setup (8-column grid):
+        //   a at (0,0) 4x2 — will be dragged
+        //   b at (4,0) 4x2 — adjacent
+        //   c at (0,2) 4x3 — below a (different size → no swap)
+
+        // --- Path A: drag through (0,1) then drop at (0,2) ---
+        let mut path_a = Internal::new(8);
+        let a = path_a.add_item(0, 0, 4, 2);
+        path_a.add_item(4, 0, 4, 2);
+        path_a.add_item(0, 2, 4, 3);
+
+        path_a.save_snapshot();
+        path_a.begin_batch();
+        path_a.move_item_held(a, 0, 1, &[a]); // intermediate
+        path_a.restore_snapshot();
+        path_a.move_item_held(a, 0, 2, &[a]); // intermediate
+        // drop
+        path_a.restore_snapshot();
+        path_a.cancel_batch();
+        path_a.move_item(a, 0, 2);
+        path_a.clear_snapshot();
+
+        // --- Path B: drag directly to (0,2) then drop ---
+        let mut path_b = Internal::new(8);
+        path_b.add_item(0, 0, 4, 2);
+        path_b.add_item(4, 0, 4, 2);
+        path_b.add_item(0, 2, 4, 3);
+
+        path_b.save_snapshot();
+        path_b.begin_batch();
+        path_b.move_item_held(a, 0, 2, &[a]); // only one tick
+        // drop
+        path_b.restore_snapshot();
+        path_b.cancel_batch();
+        path_b.move_item(a, 0, 2);
+        path_b.clear_snapshot();
+
+        // Compare
+        let mut items_a: Vec<_> =
+            path_a.items().map(|i| (i.id, i.x, i.y, i.w, i.h)).collect();
+        items_a.sort_by_key(|i| i.0);
+
+        let mut items_b: Vec<_> =
+            path_b.items().map(|i| (i.id, i.x, i.y, i.w, i.h)).collect();
+        items_b.sort_by_key(|i| i.0);
+
+        assert_eq!(
+            items_a, items_b,
+            "drag path should not affect final layout.\n\
+             Path A (via intermediate): {:?}\n\
+             Path B (direct):           {:?}",
+            items_a, items_b
+        );
+    }
+
+    // =================================================================
+    // 13. Drag Swap Tests
+    // =================================================================
+
+    #[test]
+    fn drag_swaps_same_size_items_instead_of_pushing_down() {
+        // When a dragged item collides with a same-size item, the
+        // collider should slide to the dragger's original position
+        // (swap) instead of being pushed below (cascade).
+        //
+        // Setup (12-column grid, matching the example app):
+        //   a at (0,0) 4x2
+        //   b at (4,0) 4x2
+        //   c at (8,0) 4x2
+        //   d at (0,2) 6x3
+        //   e at (6,2) 6x3
+        //
+        // Drag a from (0,0) to (4,0) — onto b.
+        // Expected: b swaps to (0,0) instead of being pushed to y=2.
+        let mut engine = Internal::new(12);
+        let a = engine.add_item(0, 0, 4, 2);
+        let b = engine.add_item(4, 0, 4, 2);
+        let _c = engine.add_item(8, 0, 4, 2);
+        let d = engine.add_item(0, 2, 6, 3);
+        let e = engine.add_item(6, 2, 6, 3);
+
+        // Simulate drag: Started at (0,0), Ongoing to (4,0)
+        engine.save_snapshot();
+        engine.begin_batch();
+        engine.move_item_held(a, 4, 0, &[a]);
+
+        let item_a = engine.get(a).unwrap();
+        let item_b = engine.get(b).unwrap();
+        let item_d = engine.get(d).unwrap();
+        let item_e = engine.get(e).unwrap();
+
+        // a should be where we dragged it
+        assert_eq!((item_a.x, item_a.y), (4, 0), "a should be at (4,0)");
+
+        // b should have swapped to a's origin, NOT been pushed down
+        assert_eq!(
+            (item_b.x, item_b.y),
+            (0, 0),
+            "b should swap to a's origin (0,0), not be pushed down; \
+             got ({}, {})",
+            item_b.x,
+            item_b.y
+        );
+
+        // d and e should be undisturbed
+        assert_eq!((item_d.x, item_d.y), (0, 2), "d should not move");
+        assert_eq!((item_e.x, item_e.y), (6, 2), "e should not move");
+    }
+
+    #[test]
+    fn swap_still_resolves_remaining_collisions() {
+        // After a swap resolves one collision, the mover may still
+        // overlap other items. fix_collisions must continue checking.
+        //
+        // Setup (12-column grid, matches example app):
+        //   a at (0,0) 4x2
+        //   b at (4,0) 4x2
+        //   c at (8,0) 4x2
+        //   d at (0,2) 6x3
+        //   e at (6,2) 6x3
+        //
+        // Drag a to (2,1). This overlaps BOTH b (cols 4-5) AND d (cols 2-5).
+        // The swap should handle b, then cascade should handle d.
+        // No items should overlap in the result.
+        let mut engine = Internal::new(12);
+        let a = engine.add_item(0, 0, 4, 2);
+        let _b = engine.add_item(4, 0, 4, 2);
+        let _c = engine.add_item(8, 0, 4, 2);
+        let _d = engine.add_item(0, 2, 6, 3);
+        let _e = engine.add_item(6, 2, 6, 3);
+
+        engine.save_snapshot();
+        engine.begin_batch();
+        engine.move_item_held(a, 2, 1, &[a]);
+
+        // No pair of items should overlap.
+        let items: Vec<_> = engine.items().cloned().collect();
+        for i in 0..items.len() {
+            for j in (i + 1)..items.len() {
+                assert!(
+                    !is_intercepted(&items[i], &items[j]),
+                    "items {:?} at ({},{} {}x{}) and {:?} at ({},{} {}x{}) overlap",
+                    items[i].id,
+                    items[i].x,
+                    items[i].y,
+                    items[i].w,
+                    items[i].h,
+                    items[j].id,
+                    items[j].x,
+                    items[j].y,
+                    items[j].w,
+                    items[j].h,
+                );
+            }
+        }
     }
 
     // Helper to create a GridItem for intersection tests
