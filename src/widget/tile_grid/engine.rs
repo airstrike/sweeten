@@ -415,8 +415,10 @@ impl Internal {
         };
         let mover = self.items[mover_idx].clone();
 
-        // Collect ALL items that collide with the mover (excluding held).
-        let collider_ids: Vec<ItemId> = self
+        // Collect ALL items that collide with the mover (excluding held),
+        // sorted by overlap area (largest first) so we swap with the
+        // primary collider — the one the cursor is most "into".
+        let mut collider_ids: Vec<(ItemId, u16)> = self
             .items
             .iter()
             .filter(|item| {
@@ -424,8 +426,18 @@ impl Internal {
                     && !held.contains(&item.id)
                     && is_intercepted(item, &mover)
             })
-            .map(|item| item.id)
+            .map(|item| {
+                let ox = mover.x.max(item.x);
+                let ow = mover.right().min(item.right()).saturating_sub(ox);
+                let oy = mover.y.max(item.y);
+                let oh = mover.bottom().min(item.bottom()).saturating_sub(oy);
+                (item.id, ow * oh)
+            })
             .collect();
+        collider_ids.sort_by(|a, b| b.1.cmp(&a.1)); // largest overlap first
+
+        let collider_ids: Vec<ItemId> =
+            collider_ids.into_iter().map(|(id, _)| id).collect();
 
         if collider_ids.is_empty() {
             return Vec::new();
@@ -478,7 +490,7 @@ impl Internal {
 
         // Vertical: mover's columns, extended up/down through empty rows.
         let mut v_top = orig.y;
-        let mut v_bottom = orig.bottom();
+        let v_bottom = orig.bottom();
 
         while v_top > 0 {
             let test_row = v_top - 1;
@@ -494,20 +506,9 @@ impl Internal {
             v_top = test_row;
         }
 
-        let max_scan = self.get_row().saturating_add(orig.h);
-        while v_bottom < max_scan {
-            let test_row = v_bottom;
-            let blocked = self.items.iter().any(|item| {
-                !skip.contains(&item.id)
-                    && test_row >= item.y
-                    && test_row < item.bottom()
-                    && !(orig.x >= item.right() || orig.right() <= item.x)
-            });
-            if blocked {
-                break;
-            }
-            v_bottom += 1;
-        }
+        // Don't extend downward — placing items below the mover's
+        // row defeats the purpose of swapping (it's just push-down
+        // with extra steps). Only extend upward.
 
         let v_rect = (orig.x, v_top, orig.w, v_bottom - v_top);
 
@@ -543,8 +544,6 @@ impl Internal {
         }
 
         for &(cid, cw, ch) in &colliders {
-            let mut found = false;
-
             // Build candidate positions: try the mover's origin first
             // (the most natural landing spot), then scan the rest of
             // the zone top-to-bottom left-to-right.
@@ -605,17 +604,20 @@ impl Internal {
 
                 if !overlaps_existing && !overlaps_placed {
                     placed.push((cid, px, py, cw, ch));
-                    found = true;
                     break;
                 }
             }
-            let _ = found;
             // If not found, this collider stays in place for cascade.
         }
 
-        // Apply placements and collect placed IDs.
+        // Apply placements and collect placed IDs. Skip the mover
+        // reservation — it was only there to block the snap position
+        // during packing, not to actually move the mover.
         let mut result = Vec::new();
         for &(cid, nx, ny, _, _) in &placed {
+            if cid == mover_id {
+                continue;
+            }
             if let Some(idx) = self.items.iter().position(|i| i.id == cid) {
                 self.items[idx].x = nx;
                 self.items[idx].y = ny;
@@ -2481,20 +2483,20 @@ mod tests {
     }
 
     // =================================================================
-    // 14. Three-item swap permutation tests
+    // 14. Full-row swap permutation tests
     // =================================================================
     //
-    // Three same-size items in a row: a(0,0) b(4,0) c(8,0), all 4x2
-    // on a 12-column grid. Test every pairwise drag (6 permutations).
-    // Each should produce a clean swap with zero overlaps.
+    // Four same-size items filling a row: a(0,0) b(3,0) c(6,0) d(9,0),
+    // all 3x2 on a 12-column grid. No slack — the row is fully packed.
 
-    /// Helper: set up three 4x2 items at (0,0), (4,0), (8,0) on a 12-col grid.
-    fn three_row_setup() -> (Internal, ItemId, ItemId, ItemId) {
+    /// Helper: set up four 3x2 items filling a 12-col row.
+    fn full_row_setup() -> (Internal, [ItemId; 4]) {
         let mut engine = Internal::new(12);
-        let a = engine.add_item(0, 0, 4, 2);
-        let b = engine.add_item(4, 0, 4, 2);
-        let c = engine.add_item(8, 0, 4, 2);
-        (engine, a, b, c)
+        let a = engine.add_item(0, 0, 3, 2);
+        let b = engine.add_item(3, 0, 3, 2);
+        let c = engine.add_item(6, 0, 3, 2);
+        let d = engine.add_item(9, 0, 3, 2);
+        (engine, [a, b, c, d])
     }
 
     /// Helper: simulate a drag preview (snapshot + batch + move).
@@ -2528,105 +2530,33 @@ mod tests {
     }
 
     #[test]
-    fn three_row_a_onto_b() {
-        // Drag a from (0,0) to (4,0) — onto b.
-        // Expected: a→(4,0), b→(0,0). c stays at (8,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, a, 4, 0);
+    fn full_row_all_pairwise_swaps() {
+        // Test every pairwise drag between 4 items filling a row.
+        // Each drag to an exact target should produce a clean swap.
+        let origins = [(0u16, 0u16), (3, 0), (6, 0), (9, 0)];
 
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
+        for mover_idx in 0..4 {
+            for (target_idx, &target) in origins.iter().enumerate() {
+                if mover_idx == target_idx {
+                    continue;
+                }
 
-        assert_eq!((ia.x, ia.y), (4, 0), "a should be at b's old position");
-        assert_eq!((ib.x, ib.y), (0, 0), "b should swap to a's origin");
-        assert_eq!((ic.x, ic.y), (8, 0), "c should not move");
-        assert_no_overlaps(&engine);
-    }
+                let (mut engine, ids) = full_row_setup();
+                drag_preview(&mut engine, ids[mover_idx], target.0, target.1);
 
-    #[test]
-    fn three_row_b_onto_a() {
-        // Drag b from (4,0) to (0,0) — onto a.
-        // Expected: b→(0,0), a→(4,0). c stays at (8,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, b, 0, 0);
-
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
-
-        assert_eq!((ib.x, ib.y), (0, 0), "b should be at a's old position");
-        assert_eq!((ia.x, ia.y), (4, 0), "a should swap to b's origin");
-        assert_eq!((ic.x, ic.y), (8, 0), "c should not move");
-        assert_no_overlaps(&engine);
-    }
-
-    #[test]
-    fn three_row_a_onto_c() {
-        // Drag a from (0,0) to (8,0) — onto c.
-        // Expected: a→(8,0), c→(0,0). b stays at (4,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, a, 8, 0);
-
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
-
-        assert_eq!((ia.x, ia.y), (8, 0), "a should be at c's old position");
-        assert_eq!((ic.x, ic.y), (0, 0), "c should swap to a's origin");
-        assert_eq!((ib.x, ib.y), (4, 0), "b should not move");
-        assert_no_overlaps(&engine);
-    }
-
-    #[test]
-    fn three_row_c_onto_a() {
-        // Drag c from (8,0) to (0,0) — onto a.
-        // Expected: c→(0,0), a→(8,0). b stays at (4,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, c, 0, 0);
-
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
-
-        assert_eq!((ic.x, ic.y), (0, 0), "c should be at a's old position");
-        assert_eq!((ia.x, ia.y), (8, 0), "a should swap to c's origin");
-        assert_eq!((ib.x, ib.y), (4, 0), "b should not move");
-        assert_no_overlaps(&engine);
-    }
-
-    #[test]
-    fn three_row_b_onto_c() {
-        // Drag b from (4,0) to (8,0) — onto c.
-        // Expected: b→(8,0), c→(4,0). a stays at (0,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, b, 8, 0);
-
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
-
-        assert_eq!((ib.x, ib.y), (8, 0), "b should be at c's old position");
-        assert_eq!((ic.x, ic.y), (4, 0), "c should swap to b's origin");
-        assert_eq!((ia.x, ia.y), (0, 0), "a should not move");
-        assert_no_overlaps(&engine);
-    }
-
-    #[test]
-    fn three_row_c_onto_b() {
-        // Drag c from (8,0) to (4,0) — onto b.
-        // Expected: c→(4,0), b→(8,0). a stays at (0,0).
-        let (mut engine, a, b, c) = three_row_setup();
-        drag_preview(&mut engine, c, 4, 0);
-
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
-
-        assert_eq!((ic.x, ic.y), (4, 0), "c should be at b's old position");
-        assert_eq!((ib.x, ib.y), (8, 0), "b should swap to c's origin");
-        assert_eq!((ia.x, ia.y), (0, 0), "a should not move");
-        assert_no_overlaps(&engine);
+                // All 4 items should stay in row 0.
+                for (i, &id) in ids.iter().enumerate() {
+                    let item = engine.get(id).unwrap();
+                    assert_eq!(
+                        item.y, 0,
+                        "mover={mover_idx}→target={target_idx}: \
+                         item {i} pushed to y={}, expected 0",
+                        item.y
+                    );
+                }
+                assert_no_overlaps(&engine);
+            }
+        }
     }
 
     /// Full example app layout: 5 items on a 12-col grid.
@@ -2755,24 +2685,42 @@ mod tests {
     }
 
     #[test]
-    fn three_row_intermediate_position_no_pushdown() {
-        // When the mover is at an intermediate position (e.g. x=3)
-        // it may overlap TWO items. The swap should handle both
-        // without pushing either down.
-        let (mut engine, a, b, c) = three_row_setup();
+    fn full_row_all_intermediate_positions_no_pushdown() {
+        // Drag each of the 4 items to every x position at y=0.
+        // All items should stay in row 0 (swap, never push down)
+        // and there should be no overlaps.
+        for mover_idx in 0..4 {
+            for target_x in 0..=9u16 {
+                let (mut engine, ids) = full_row_setup();
 
-        // Drag c from (8,0) to (3,0) — overlaps both a and b.
-        drag_preview(&mut engine, c, 3, 0);
+                drag_preview(&mut engine, ids[mover_idx], target_x, 0);
 
-        let ia = engine.get(a).unwrap();
-        let ib = engine.get(b).unwrap();
-        let ic = engine.get(c).unwrap();
+                for (i, &id) in ids.iter().enumerate() {
+                    let item = engine.get(id).unwrap();
+                    assert_eq!(
+                        item.y, 0,
+                        "mover={mover_idx} target_x={target_x}: \
+                         item {i} pushed to y={}, expected 0",
+                        item.y
+                    );
+                }
+                assert_no_overlaps(&engine);
+            }
+        }
+    }
 
-        // All items should stay in row 0. No pushdowns.
-        assert_eq!(ia.y, 0, "a should stay in row 0; got y={}", ia.y);
-        assert_eq!(ib.y, 0, "b should stay in row 0; got y={}", ib.y);
-        assert_eq!(ic.y, 0, "c should stay in row 0; got y={}", ic.y);
-        assert_no_overlaps(&engine);
+    #[test]
+    fn full_row_drag_to_row_1_no_overlap() {
+        // Drag each item to y=1. Items should rearrange without
+        // overlapping.
+        for mover_idx in 0..4 {
+            for target_x in 0..=9u16 {
+                let (mut engine, ids) = full_row_setup();
+
+                drag_preview(&mut engine, ids[mover_idx], target_x, 1);
+                assert_no_overlaps(&engine);
+            }
+        }
     }
 
     // Helper to create a GridItem for intersection tests
