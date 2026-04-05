@@ -1,0 +1,10 @@
+module = "icon"
+
+[icons]
+x          = "x"
+pin        = "pin"
+pin_off    = "pin-off"
+grip             = "grip"
+lock             = "lock"
+lock_open        = "lock-open"
+move_diagonal_2  = "move-diagonal-2"

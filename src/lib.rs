@@ -38,6 +38,8 @@
 //!   and [`on_blur`][button_on_blur] messages.
 //! - [`column`] — Distribute content vertically, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
+//! - [`tile_grid`] — A grid-based layout widget inspired by GridStack.js,
+//!   with drag-to-move and drag-to-resize interactions.
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
@@ -62,6 +64,7 @@
 //! [`iced`]: https://github.com/iced-rs/iced
 //! [`button`]: mod@widget::button
 //! [`column`]: mod@widget::column
+//! [`tile_grid`]: mod@widget::tile_grid
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`row`]: mod@widget::row

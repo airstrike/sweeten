@@ -1,0 +1,16 @@
+[package]
+name = "tile_grid"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "tile_grid"
+
+[dependencies]
+sweeten = { path = "../.." }
+iced.workspace = true
+fount = { git = "https://github.com/airstrike/fount" }
+
+[build-dependencies]
+iced_lucide = { git = "https://github.com/airstrike/iced_lucide" }

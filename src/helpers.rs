@@ -9,6 +9,7 @@ use crate::widget::column::{self, Column};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
+use crate::widget::tile_grid::{self, TileGrid};
 
 use std::borrow::Borrow;
 
@@ -135,4 +136,24 @@ where
     Renderer: core::Renderer,
 {
     MouseArea::new(widget)
+}
+
+/// Creates a new [`TileGrid`] with the given state and view function.
+///
+/// The view function is called once for each item, receiving the item's
+/// [`ItemId`](crate::widget::tile_grid::ItemId) and a reference to its user data.
+///
+/// [`TileGrid`]: crate::widget::tile_grid::TileGrid
+pub fn tile_grid<'a, T, Message, Theme, Renderer>(
+    state: &'a tile_grid::State<T>,
+    view: impl Fn(
+        tile_grid::ItemId,
+        &'a T,
+    ) -> tile_grid::Content<'a, Message, Theme, Renderer>,
+) -> TileGrid<'a, Message, Theme, Renderer>
+where
+    Theme: tile_grid::Catalog,
+    Renderer: core::Renderer,
+{
+    TileGrid::new(state, view)
 }

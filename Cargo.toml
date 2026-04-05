@@ -1,3 +1,10 @@
+[workspace]
+members = [".", "examples/tile_grid"]
+
+[workspace.dependencies]
+iced = { version = "0.15.0-dev", features = ["advanced", "tokio"] }
+sweeten = { path = "." }
+
 [package]
 name = "sweeten"
 version = "0.15.0-dev"
