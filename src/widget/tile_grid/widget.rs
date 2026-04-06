@@ -70,9 +70,10 @@ pub enum CellHeight {
 
 /// The phase of a drag or resize interaction.
 ///
-/// [`State::perform`](super::State::perform) uses this to bracket engine
-/// batch operations automatically, so callers do not need to manage
-/// `begin_batch`/`end_batch` manually.
+/// [`State::perform`](super::State::perform) defers engine mutations
+/// during `Started`/`Ongoing` phases — the widget computes a visual
+/// preview by cloning the engine. Only `Ended` commits the final
+/// layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragPhase {
     /// The drag/resize interaction just began (first frame).
@@ -431,6 +432,16 @@ struct DragTarget {
     mode: MoveMode,
 }
 
+/// The resize target during an active resize. When set, the layout
+/// method clones the engine and applies this resize to compute a
+/// preview — the committed engine state is untouched.
+#[derive(Debug, Clone, Copy)]
+struct ResizeTarget {
+    id: ItemId,
+    w: u16,
+    h: u16,
+}
+
 #[derive(Default)]
 struct Memory {
     interaction: Interaction,
@@ -441,6 +452,10 @@ struct Memory {
     /// layout method clones the engine and applies this move to
     /// compute a preview — the committed engine state is untouched.
     drag_target: Option<DragTarget>,
+    /// Tentative resize dimensions during an active resize. When set,
+    /// the layout method clones the engine and applies this resize to
+    /// compute a preview — the committed engine state is untouched.
+    resize_target: Option<ResizeTarget>,
     /// Most recently seen keyboard modifiers. Kept in sync by the
     /// `ModifiersChanged` event; read during drag to decide whether
     /// Shift is forcing Place mode.
@@ -728,6 +743,25 @@ where
                 cell_h,
                 self.spacing,
             )
+        } else if let Some(resize) = memory.resize_target {
+            // No save_snapshot() needed: resize_item_held uses
+            // fix_collisions → try_swap_pack, which early-returns
+            // when there's no snapshot. Swap-pack is only relevant
+            // for moves, not resizes.
+            let mut preview = self.internal.clone();
+            preview.resize_item_held(
+                resize.id,
+                resize.w,
+                resize.h,
+                &self.held_ids,
+            );
+            Self::compute_regions_for(
+                &preview,
+                resolved_width,
+                cell_w,
+                cell_h,
+                self.spacing,
+            )
         } else {
             self.compute_regions(resolved_width, cell_w, cell_h)
         };
@@ -836,6 +870,7 @@ where
             interaction,
             animations,
             drag_target,
+            resize_target,
             modifiers,
             ..
         } = tree.state.downcast_mut();
@@ -1005,6 +1040,7 @@ where
                 }
                 *interaction = Interaction::Idle;
                 *drag_target = None;
+                *resize_target = None;
                 animations.hide_ghost();
             }
             Event::Mouse(mouse::Event::CursorMoved { .. })
@@ -1094,6 +1130,14 @@ where
                                 (*start_w as i32 + grid_dw).max(1) as u16;
                             let new_h =
                                 (*start_h as i32 + grid_dh).max(1) as u16;
+
+                            // Store tentative size for the preview
+                            // layout (computed in layout()).
+                            *resize_target = Some(ResizeTarget {
+                                id: *id,
+                                w: new_w,
+                                h: new_h,
+                            });
 
                             let phase = if *started {
                                 DragPhase::Ongoing
@@ -1350,7 +1394,9 @@ where
                 .zip(layout.children())
             {
                 let item_bounds = item_layout.bounds();
-                if !item_bounds.contains(cursor_position) {
+                if resizing_id.is_none_or(|rid| rid != id)
+                    && !item_bounds.contains(cursor_position)
+                {
                     continue;
                 }
                 if !content.is_resizable() {

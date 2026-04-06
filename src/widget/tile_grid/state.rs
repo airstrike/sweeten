@@ -249,8 +249,9 @@ impl<T> State<T> {
     /// caller should inspect the action *before* calling `perform` if it
     /// needs to react to clicks (e.g. to update a focus tracker).
     ///
-    /// Move and resize actions are applied to the engine, with batch mode
-    /// managed automatically for resize operations.
+    /// Move and resize actions are deferred during `Started`/`Ongoing`
+    /// phases — the widget computes a visual preview by cloning the engine.
+    /// Only `Ended` commits the final layout to the engine.
     ///
     /// # Example
     ///
@@ -297,18 +298,16 @@ impl<T> State<T> {
             Action::Resize {
                 id, w, h, phase, ..
             } => {
-                let held = self.held_ids(&is_held);
                 match phase {
-                    DragPhase::Started => {
-                        self.internal.begin_batch();
-                        self.internal.resize_item_held(id, w, h, &held);
-                    }
-                    DragPhase::Ongoing => {
-                        self.internal.resize_item_held(id, w, h, &held);
+                    DragPhase::Started | DragPhase::Ongoing => {
+                        // No engine mutation. The widget computes a
+                        // visual preview internally by cloning the
+                        // engine, so the committed state stays at
+                        // the pre-resize layout until the user drops.
                     }
                     DragPhase::Ended => {
+                        let held = self.held_ids(&is_held);
                         self.internal.resize_item_held(id, w, h, &held);
-                        self.internal.end_batch();
                     }
                 }
             }
@@ -382,6 +381,80 @@ mod tests {
         assert_eq!(
             initial, after_ongoing,
             "engine must not change on DragPhase::Ongoing"
+        );
+    }
+
+    #[test]
+    fn perform_resize_does_not_modify_engine_during_drag() {
+        // Engine state should remain unchanged during a resize
+        // (Started/Ongoing). Only on DragPhase::Ended should the
+        // engine be mutated.
+        let mut state: State<()> = State::new(12);
+        let a = state.add(0, 0, 4, 2, ());
+        let _b = state.add(4, 0, 4, 2, ());
+
+        // Snapshot initial state (positions + sizes).
+        let initial: Vec<_> = state
+            .internal
+            .items()
+            .map(|i| (i.id, i.x, i.y, i.w, i.h))
+            .collect();
+
+        // Started — no mutation.
+        state.perform(
+            Action::Resize {
+                id: a,
+                w: 8,
+                h: 2,
+                phase: DragPhase::Started,
+            },
+            |_, _| false,
+        );
+        let after_started: Vec<_> = state
+            .internal
+            .items()
+            .map(|i| (i.id, i.x, i.y, i.w, i.h))
+            .collect();
+        assert_eq!(
+            initial, after_started,
+            "engine must not change on resize DragPhase::Started"
+        );
+
+        // Ongoing — no mutation.
+        state.perform(
+            Action::Resize {
+                id: a,
+                w: 10,
+                h: 3,
+                phase: DragPhase::Ongoing,
+            },
+            |_, _| false,
+        );
+        let after_ongoing: Vec<_> = state
+            .internal
+            .items()
+            .map(|i| (i.id, i.x, i.y, i.w, i.h))
+            .collect();
+        assert_eq!(
+            initial, after_ongoing,
+            "engine must not change on resize DragPhase::Ongoing"
+        );
+
+        // Ended — commits the resize.
+        state.perform(
+            Action::Resize {
+                id: a,
+                w: 8,
+                h: 2,
+                phase: DragPhase::Ended,
+            },
+            |_, _| false,
+        );
+        let item_a = state.get_item(a).expect("item a should exist");
+        assert_eq!(
+            (item_a.w, item_a.h),
+            (8, 2),
+            "resize should be committed on DragPhase::Ended"
         );
     }
 
