@@ -40,6 +40,7 @@
 //! .on_action(Message::GridAction);
 //! ```
 
+pub mod configuration;
 pub mod content;
 pub mod engine;
 pub mod item_id;
@@ -47,8 +48,9 @@ pub mod state;
 pub mod title_bar;
 mod widget;
 
+pub use configuration::Configuration;
 pub use content::Content;
-pub use engine::{GridItem, Internal, MoveMode};
+pub use engine::{Internal, MoveMode, Node};
 pub use item_id::ItemId;
 pub use state::State;
 pub use title_bar::TitleBar;

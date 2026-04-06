@@ -283,10 +283,9 @@ impl Example {
                 title_bar = title_bar.always_show_controls();
             }
 
-            let grid_item = state.get_item(id);
-            let (gx, gy, gw, gh) = grid_item
-                .map(|i| (i.x, i.y, i.w, i.h))
-                .unwrap_or((0, 0, 0, 0));
+            let node = state.get_item(id);
+            let (gx, gy, gw, gh) =
+                node.map(|i| (i.x, i.y, i.w, i.h)).unwrap_or((0, 0, 0, 0));
 
             let can_interact = !item.is_pinned && !self.locked_all;
 

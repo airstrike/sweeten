@@ -21,7 +21,7 @@ use super::ItemId;
 ///
 /// An item occupies the rectangle `[x, x+w) x [y, y+h)` in grid space.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GridItem {
+pub struct Node {
     /// Unique identifier assigned by the engine.
     pub id: ItemId,
     /// Column position (0-based from left).
@@ -42,7 +42,7 @@ pub struct GridItem {
     pub max_h: Option<u16>,
 }
 
-impl GridItem {
+impl Node {
     /// Returns the bottom edge of this item (y + h).
     #[must_use]
     fn bottom(&self) -> u16 {
@@ -89,7 +89,7 @@ pub enum MoveMode {
 /// conditions hold. Adjacent rectangles (sharing an edge but not
 /// overlapping area) are **not** considered intercepted.
 #[must_use]
-pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
+pub fn is_intercepted(a: &Node, b: &Node) -> bool {
     !(a.y >= b.bottom()
         || a.bottom() <= b.y
         || a.right() <= b.x
@@ -98,7 +98,7 @@ pub fn is_intercepted(a: &GridItem, b: &GridItem) -> bool {
 
 /// The internal layout state of a [`TileGrid`].
 ///
-/// Manages a flat list of [`GridItem`]s on a grid with a fixed number of
+/// Manages a flat list of [`Node`]s on a grid with a fixed number of
 /// columns. Provides algorithms for adding, removing, moving, and resizing
 /// items, with automatic collision resolution and optional vertical
 /// compaction (gravity).
@@ -140,13 +140,13 @@ pub struct Internal {
     /// [`end_batch`](Internal::end_batch) is called.
     batch_mode: bool,
     /// All items in the grid.
-    items: Vec<GridItem>,
+    items: Vec<Node>,
     /// Monotonically increasing ID counter.
     next_id: usize,
     /// Snapshot of items saved at the start of a drag operation.
     /// Each intermediate drag move restores from this snapshot before
     /// computing the new layout, preventing accumulated mutations.
-    drag_snapshot: Option<Vec<GridItem>>,
+    drag_snapshot: Option<Vec<Node>>,
 }
 
 impl Internal {
@@ -270,13 +270,13 @@ impl Internal {
     }
 
     /// Returns an iterator over all items in the grid.
-    pub fn items(&self) -> impl Iterator<Item = &GridItem> {
+    pub fn items(&self) -> impl Iterator<Item = &Node> {
         self.items.iter()
     }
 
     /// Returns the item with the given ID, if it exists.
     #[must_use]
-    pub fn get(&self, id: ItemId) -> Option<&GridItem> {
+    pub fn get(&self, id: ItemId) -> Option<&Node> {
         self.items.iter().find(|item| item.id == id)
     }
 
@@ -285,7 +285,7 @@ impl Internal {
     /// Returns 0 if the grid is empty.
     #[must_use]
     pub fn get_row(&self) -> u16 {
-        self.items.iter().map(GridItem::bottom).max().unwrap_or(0)
+        self.items.iter().map(Node::bottom).max().unwrap_or(0)
     }
 
     /// Enforces all constraints on an item: min/max dimensions, grid
@@ -294,7 +294,7 @@ impl Internal {
     /// When `resizing` is true and an item extends beyond the grid
     /// boundary, its size is shrunk to fit. When `resizing` is false,
     /// the item is shifted to stay within bounds instead.
-    fn node_bound_fix(&self, item: &mut GridItem, resizing: bool) {
+    fn node_bound_fix(&self, item: &mut Node, resizing: bool) {
         // Apply min/max width constraints
         if let Some(min_w) = item.min_w {
             item.w = item.w.max(min_w);
@@ -370,7 +370,7 @@ impl Internal {
         });
 
         // Create a temporary item for collision testing
-        let mut test = GridItem {
+        let mut test = Node {
             id: ItemId(usize::MAX),
             x: 0,
             y: 0,
@@ -401,11 +401,7 @@ impl Internal {
 
     /// Finds the index of the first item that overlaps with `area`,
     /// excluding the item with ID `skip_id`.
-    fn find_collision(
-        &self,
-        area: &GridItem,
-        skip_id: ItemId,
-    ) -> Option<usize> {
+    fn find_collision(&self, area: &Node, skip_id: ItemId) -> Option<usize> {
         self.items
             .iter()
             .position(|item| item.id != skip_id && is_intercepted(item, area))
@@ -605,7 +601,7 @@ impl Internal {
                     continue;
                 }
 
-                let candidate = GridItem {
+                let candidate = Node {
                     id: cid,
                     x: px,
                     y: py,
@@ -622,7 +618,7 @@ impl Internal {
                 });
                 let overlaps_placed =
                     placed.iter().any(|&(_, px2, py2, pw2, ph2)| {
-                        let p = GridItem {
+                        let p = Node {
                             id: ItemId(usize::MAX),
                             x: px2,
                             y: py2,
@@ -928,7 +924,7 @@ impl Internal {
         let id = ItemId(self.next_id);
         self.next_id += 1;
 
-        let mut item = GridItem {
+        let mut item = Node {
             id,
             x,
             y,
@@ -966,7 +962,7 @@ impl Internal {
     /// Returns the removed item, or `None` if no item with that ID exists.
     /// After removal, if gravity mode is active, remaining items are
     /// compacted.
-    pub fn remove_item(&mut self, id: ItemId) -> Option<GridItem> {
+    pub fn remove_item(&mut self, id: ItemId) -> Option<Node> {
         let idx = self.items.iter().position(|item| item.id == id)?;
         let item = self.items.remove(idx);
 
@@ -2969,9 +2965,9 @@ mod tests {
         }
     }
 
-    // Helper to create a GridItem for intersection tests
-    fn make_item(x: u16, y: u16, w: u16, h: u16) -> GridItem {
-        GridItem {
+    // Helper to create a Node for intersection tests
+    fn make_item(x: u16, y: u16, w: u16, h: u16) -> Node {
+        Node {
             id: ItemId(0),
             x,
             y,

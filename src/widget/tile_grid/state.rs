@@ -7,7 +7,8 @@
 use std::collections::BTreeMap;
 
 use super::ItemId;
-use super::engine::{GridItem, Internal};
+use super::configuration::Configuration;
+use super::engine::{Internal, Node};
 use super::widget::{Action, DragPhase};
 
 /// User-facing state that pairs an [`Internal`] layout engine with user
@@ -57,6 +58,63 @@ impl<T> State<T> {
             internal: Internal::new(columns),
             items: BTreeMap::new(),
         }
+    }
+
+    /// Creates a new [`State`] from the given [`Configuration`].
+    ///
+    /// Items are assigned monotonic [`ItemId`]s in the order they appear
+    /// in the configuration. Collisions are resolved during construction;
+    /// gravity compaction runs once at the end (unless `float` is
+    /// enabled).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use sweeten::widget::tile_grid::{State, Configuration};
+    ///
+    /// let state: State<&str> = State::with_configuration(
+    ///     Configuration::new(12)
+    ///         .with_item(0, 0, 4, 2, "left")
+    ///         .with_item(4, 0, 8, 2, "right"),
+    /// );
+    ///
+    /// assert_eq!(state.len(), 2);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.columns` is 0.
+    #[must_use]
+    pub fn with_configuration(config: impl Into<Configuration<T>>) -> Self {
+        let config = config.into();
+        let mut state = Self::new(config.columns);
+        state.internal.set_max_rows(config.max_rows);
+
+        // Batch mode defers gravity compaction until all items are added,
+        // avoiding O(n) intermediate pack_nodes passes.
+        state.internal.begin_batch();
+        if config.float {
+            state.internal.set_float(true);
+        }
+
+        for item in config.items {
+            let id = state.add(item.x, item.y, item.w, item.h, item.state);
+
+            let has_constraints = item.min_w.is_some()
+                || item.max_w.is_some()
+                || item.min_h.is_some()
+                || item.max_h.is_some();
+
+            if has_constraints {
+                state.internal.set_item_constraints(
+                    id, item.min_w, item.max_w, item.min_h, item.max_h,
+                );
+            }
+        }
+
+        // Single gravity pass (no-op when float is enabled).
+        state.internal.end_batch();
+        state
     }
 
     /// Returns the number of columns in the grid.
@@ -138,7 +196,7 @@ impl<T> State<T> {
 
     /// Returns the grid item (position/size) for the given ID.
     #[must_use]
-    pub fn get_item(&self, id: ItemId) -> Option<&GridItem> {
+    pub fn get_item(&self, id: ItemId) -> Option<&Node> {
         self.internal.get(id)
     }
 
@@ -270,6 +328,7 @@ impl<T> State<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::configuration::Item;
     use super::super::engine::MoveMode;
     use super::*;
 
@@ -360,5 +419,149 @@ mod tests {
             (0, 0),
             "b should swap to a's original position"
         );
+    }
+
+    // ── with_configuration tests ────────────────────────────────
+
+    #[test]
+    fn with_configuration_empty() {
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12).max_rows(5).float(true),
+        );
+        assert!(state.is_empty());
+        assert_eq!(state.columns(), 12);
+        assert_eq!(state.internal.max_rows(), Some(5));
+        assert!(state.float());
+    }
+
+    #[test]
+    fn with_configuration_monotonic_ids() {
+        let state: State<&str> = State::with_configuration(
+            Configuration::new(12)
+                .with_item(0, 0, 4, 2, "a")
+                .with_item(4, 0, 4, 2, "b")
+                .with_item(8, 0, 4, 2, "c"),
+        );
+
+        let ids: Vec<_> = state.iter().map(|(id, _)| id).collect();
+        assert_eq!(ids.len(), 3);
+        // IDs are monotonically increasing in declaration order.
+        assert!(ids[0] < ids[1] && ids[1] < ids[2]);
+    }
+
+    #[test]
+    fn with_configuration_preserves_positions() {
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12)
+                .with_item(0, 0, 4, 2, ())
+                .with_item(4, 0, 4, 2, ())
+                .with_item(8, 0, 4, 2, ()),
+        );
+
+        let mut positions: Vec<_> = state
+            .internal
+            .items()
+            .map(|n| (n.x, n.y, n.w, n.h))
+            .collect();
+        positions.sort();
+        assert_eq!(positions, vec![(0, 0, 4, 2), (4, 0, 4, 2), (8, 0, 4, 2)],);
+    }
+
+    #[test]
+    fn with_configuration_resolves_collisions() {
+        // Two items at the same position — engine should displace one.
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12).with_item(0, 0, 4, 2, ()).with_item(
+                0,
+                0,
+                4,
+                2,
+                (),
+            ),
+        );
+
+        let positions: Vec<_> =
+            state.internal.items().map(|n| (n.x, n.y)).collect();
+
+        assert_ne!(
+            positions[0], positions[1],
+            "overlapping items must be resolved"
+        );
+    }
+
+    #[test]
+    fn with_configuration_gravity_compacts() {
+        // Items floating at y=10 should be compacted to y=0 when
+        // float is off (default).
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12).with_item(0, 10, 4, 2, ()).with_item(
+                4,
+                10,
+                4,
+                2,
+                (),
+            ),
+        );
+
+        for node in state.internal.items() {
+            assert_eq!(node.y, 0, "gravity should compact items to y=0");
+        }
+    }
+
+    #[test]
+    fn with_configuration_float_preserves_y() {
+        // With float enabled, items should stay at their declared y.
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12)
+                .float(true)
+                .with_item(0, 10, 4, 2, ())
+                .with_item(4, 10, 4, 2, ()),
+        );
+
+        for node in state.internal.items() {
+            assert_eq!(node.y, 10, "float mode should preserve declared y");
+        }
+    }
+
+    #[test]
+    fn with_configuration_constraints_applied() {
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12)
+                .push(Item::new(0, 0, 2, 1, ()).min_w(4).min_h(3)),
+        );
+
+        let node = state.internal.items().next().unwrap();
+        assert!(node.w >= 4, "min_w constraint should be applied");
+        assert!(node.h >= 3, "min_h constraint should be applied");
+    }
+
+    #[test]
+    fn with_configuration_max_rows_honored() {
+        // An item extending past max_rows should be clamped.
+        let state: State<()> = State::with_configuration(
+            Configuration::new(12).max_rows(5).float(true).with_item(
+                0,
+                0,
+                4,
+                10,
+                (),
+            ),
+        );
+
+        let node = state.internal.items().next().unwrap();
+        assert!(node.y + node.h <= 5, "item should not extend past max_rows");
+    }
+
+    #[test]
+    fn with_configuration_user_data_accessible() {
+        let state: State<&str> = State::with_configuration(
+            Configuration::new(12)
+                .with_item(0, 0, 6, 2, "hello")
+                .with_item(6, 0, 6, 2, "world"),
+        );
+
+        let mut values: Vec<_> = state.iter().map(|(_, data)| *data).collect();
+        values.sort();
+        assert_eq!(values, vec!["hello", "world"]);
     }
 }
