@@ -46,6 +46,7 @@
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
+//! - [`toggler`] — A toggler switch with smooth animation between states.
 //!
 //! ## Usage
 //!
@@ -66,6 +67,7 @@
 //! [`pick_list`]: mod@widget::pick_list
 //! [`row`]: mod@widget::row
 //! [`text_input`]: mod@widget::text_input
+//! [`toggler`]: mod@widget::toggler
 //! [`Point`]: crate::core::Point
 //! [button_on_focus]: widget::button::Button::on_focus
 //! [button_on_blur]: widget::button::Button::on_blur
@@ -91,3 +93,7 @@ pub use widget::button;
 pub use widget::overlay;
 #[doc(hidden)]
 pub use widget::text_input;
+// Re-export iced_widget::text so toggler (and future widgets) can use
+// `crate::text::draw` / `crate::text::Style` with the same paths as iced.
+#[doc(hidden)]
+pub use iced_widget::text;

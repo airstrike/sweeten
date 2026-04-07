@@ -44,6 +44,7 @@ rustdoc-args = ["--extend-css", "doc-style.css"]
 [lints.rust]
 rust_2018_idioms = { level = "deny", priority = -1 }
 unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("advanced"))'] }
 
 [lints.clippy]
 semicolon_if_nothing_returned = "deny"

@@ -9,6 +9,7 @@ use crate::widget::column::{self, Column};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
+use crate::widget::toggler::{self, Toggler};
 
 use std::borrow::Borrow;
 
@@ -135,4 +136,20 @@ where
     Renderer: core::Renderer,
 {
     MouseArea::new(widget)
+}
+
+/// Creates a new [`Toggler`].
+///
+/// This is a sweetened version of [`iced`'s `toggler`] with a smooth
+/// animation when toggling between states.
+///
+/// [`iced`'s `toggler`]: https://docs.iced.rs/iced/widget/toggler/index.html
+pub fn toggler<'a, Message, Theme, Renderer>(
+    is_toggled: bool,
+) -> Toggler<'a, Message, Theme, Renderer>
+where
+    Theme: toggler::Catalog,
+    Renderer: core::text::Renderer,
+{
+    Toggler::new(is_toggled)
 }
