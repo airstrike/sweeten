@@ -17,8 +17,8 @@
 //! - [`item_id`] — The [`ItemId`] newtype for identifying grid items
 //! - [`state`] — User-facing [`State`] that pairs [`Internal`] with user data
 //! - [`content`] — [`Content`] wrapper for item body + optional [`TitleBar`]
-//! - [`title_bar`] — [`TitleBar`] for drag-handle and controls
-//! - [`widget`](self::widget) — The [`TileGrid`] widget implementation
+//! - [`mod@title_bar`] — [`TitleBar`] for drag-handle and controls
+//! - [`widget`] — The [`TileGrid`] widget implementation
 //!
 //! # Example
 //!

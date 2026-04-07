@@ -16,6 +16,7 @@ pub mod pick_list;
 pub mod row;
 pub mod text_input;
 pub mod tile_grid;
+pub mod toggler;
 
 pub use button::Button;
 pub use column::Column;
@@ -24,6 +25,7 @@ pub use pick_list::PickList;
 pub use row::Row;
 pub use text_input::TextInput;
 pub use tile_grid::TileGrid;
+pub use toggler::Toggler;
 
 // Re-export helper functions (same pattern as iced_widget)
 pub use crate::helpers::*;

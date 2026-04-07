@@ -1,9 +1,9 @@
 use iced::Length::Fill;
-use iced::widget::{button, container, text};
+use iced::widget::{container, text};
 use iced::{Center, Element, Task};
 
 use sweeten::widget::drag::DragEvent;
-use sweeten::widget::{column, row};
+use sweeten::widget::{column, row, toggler};
 
 pub fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -28,7 +28,7 @@ enum Mode {
 #[derive(Debug, Clone)]
 enum Message {
     Reorder(DragEvent),
-    SwitchMode(Mode),
+    ToggleMode(bool),
 }
 
 impl App {
@@ -50,8 +50,8 @@ impl App {
 
     fn update(&mut self, message: Message) {
         match message {
-            Message::SwitchMode(mode) => {
-                self.mode = mode;
+            Message::ToggleMode(is_row) => {
+                self.mode = if is_row { Mode::Row } else { Mode::Column };
             }
             Message::Reorder(event) => match event {
                 DragEvent::Picked { .. } => {
@@ -105,20 +105,10 @@ impl App {
             column![
                 row![
                     text("Drag items around!").width(Fill),
-                    button(text("ROW").size(12))
-                        .on_press(Message::SwitchMode(Mode::Row))
-                        .style(if self.mode == Mode::Row {
-                            button::primary
-                        } else {
-                            button::subtle
-                        }),
-                    button(text("COLUMN").size(12))
-                        .on_press(Message::SwitchMode(Mode::Column))
-                        .style(if self.mode == Mode::Column {
-                            button::primary
-                        } else {
-                            button::subtle
-                        }),
+                    toggler(self.mode == Mode::Row)
+                        .label("Row")
+                        .on_toggle(Message::ToggleMode)
+                        .size(14),
                 ]
                 .spacing(5)
                 .align_y(Center),
