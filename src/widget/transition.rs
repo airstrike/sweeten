@@ -78,19 +78,33 @@ impl Direction {
         }
     }
 
-    /// Returns `(current_offset, previous_offset)` for the given
-    /// content area `size` and animation `progress` in `[0, 1]`.
+    /// Returns `(current_offset, previous_offset)` — the slide
+    /// translations to apply to the incoming and outgoing children at
+    /// the given animation `progress` in `[0, 1]`, given the content
+    /// area `size`.
     ///
-    /// Displacement equals the content area's extent along the motion
-    /// axis so both children fully enter/exit the content area at their
-    /// respective end times.
+    /// Both offsets have magnitude equal to the content area's extent
+    /// along the motion axis, so the current slides all the way in
+    /// from the edge opposite the motion direction, and the previous
+    /// slides all the way out along the motion direction.
+    ///
+    /// Note that these are *visual* offsets — the widget's layout
+    /// puts the current child at its canonical (non-translated)
+    /// position, so events, focus, and hit-testing fire there from
+    /// t=0. `draw` applies `current_offset` via
+    /// [`Renderer::with_translation`], and `update` /
+    /// `mouse_interaction` translate the incoming cursor by
+    /// `-current_offset` so the child's hover/click tests match what
+    /// the user sees.
     fn offsets(self, size: Size, progress: f32) -> (Vector, Vector) {
         let (ux, uy) = self.unit();
-        let dx = size.width;
-        let dy = size.height;
         let inv = 1.0 - progress;
-        let current = Vector::new(-ux * dx * inv, -uy * dy * inv);
-        let previous = Vector::new(ux * dx * progress, uy * dy * progress);
+        let current =
+            Vector::new(-ux * size.width * inv, -uy * size.height * inv);
+        let previous = Vector::new(
+            ux * size.width * progress,
+            uy * size.height * progress,
+        );
         (current, previous)
     }
 }
@@ -100,6 +114,42 @@ impl Direction {
 /// from both the current and (mid-transition) previous values.
 type ViewFn<'a, T, Message, Theme, Renderer> =
     Box<dyn Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a>;
+
+/// Recomputes the current child's visual slide offset from the widget's
+/// absolute bounds, padding, and animation state. Shared by `update`,
+/// `mouse_interaction`, and (implicitly, through direct inlining) `draw`.
+fn current_offset<T>(
+    direction: Direction,
+    padding: Padding,
+    layout: &Layout<'_>,
+    state: &State<T>,
+) -> Vector {
+    if state.previous_value.is_none() || state.previous_layout.is_none() {
+        return Vector::ZERO;
+    }
+    let Some(now) = state.now else {
+        return Vector::ZERO;
+    };
+    let progress = state.progress.interpolate_with(|v| v, now);
+    let outer = layout.bounds();
+    let content_size = Size::new(
+        (outer.width - padding.x()).max(0.0),
+        (outer.height - padding.y()).max(0.0),
+    );
+    direction.offsets(content_size, progress).0
+}
+
+/// Subtracts a slide offset from a cursor's screen position so a child
+/// laid out at its canonical position can hit-test against the visual
+/// (translated) rendering.
+fn translate_cursor(cursor: mouse::Cursor, offset: Vector) -> mouse::Cursor {
+    match cursor {
+        mouse::Cursor::Available(point) => {
+            mouse::Cursor::Available(point - offset)
+        }
+        other => other,
+    }
+}
 
 /// A widget that animates content swaps with a slide transition.
 ///
@@ -126,10 +176,23 @@ pub struct Transition<
     padding: Padding,
     horizontal_alignment: alignment::Horizontal,
     vertical_alignment: alignment::Vertical,
-    /// Lazy slot used by [`Widget::overlay`] to return a borrow with
-    /// lifetime `'a`. Populated on demand and dropped when the widget
-    /// is dropped at the end of the frame.
-    overlay_element: Option<Element<'a, Message, Theme, Renderer>>,
+    /// The live current child, materialized exactly once per frame in
+    /// the first [`Widget`] callback that runs ([`Widget::layout`]) and
+    /// reused in [`Widget::update`], [`Widget::draw`],
+    /// [`Widget::mouse_interaction`], [`Widget::operate`], and
+    /// [`Widget::overlay`]. Sharing the instance is essential for
+    /// child widgets that persist state on the widget struct itself
+    /// rather than in [`tree::State`] — e.g. iced's
+    /// [`button`](iced_widget::button)'s `status` field, or
+    /// [`toggler`](crate::widget::toggler)'s `last_status` — since
+    /// those get set in the child's `update` and read in its `draw`,
+    /// and would be lost if we re-materialized a fresh element in
+    /// between.
+    ///
+    /// The slot is `None` until the first frame callback runs; freshly
+    /// reset every frame when iced rebuilds the widget tree via
+    /// `view()`.
+    current_element: Option<Element<'a, Message, Theme, Renderer>>,
 }
 
 impl<'a, T, Message, Theme, Renderer>
@@ -173,7 +236,7 @@ where
             // centered parent.
             horizontal_alignment: alignment::Horizontal::Center,
             vertical_alignment: alignment::Vertical::Center,
-            overlay_element: None,
+            current_element: None,
         }
     }
 
@@ -411,20 +474,42 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let state = tree.state.downcast_mut::<State<T>>();
+
+        // Materialize the current child exactly once per frame, stored
+        // on `self.current_element`. Every `&self`/`&mut self` callback
+        // within this frame will then reach the *same* Element
+        // instance, so child widgets that persist state on the widget
+        // struct (e.g. `button.status`, `toggler.last_status`) stay
+        // live between their own `update` and `draw`.
+        if self.current_element.is_none() {
+            self.current_element = Some((self.view)(&state.current_value));
+        }
+
         let h_align = Alignment::from(self.horizontal_alignment);
         let v_align = Alignment::from(self.vertical_alignment);
 
+        // Split-borrow `self` into the two fields we need inside the
+        // closure: the stored element (mut, for its `layout` call) and
+        // the view fn (immut, for the previous fallback path). These
+        // are disjoint fields so Rust's 2021 disjoint capture allows
+        // both borrows to coexist.
+        let view = &self.view;
+        let current_element = self
+            .current_element
+            .as_mut()
+            .expect("current_element just set above");
+
         // Defer to [`layout::positioned`] for the standard
-        // width/height/max/padding/alignment plumbing (mirroring
-        // [`iced_widget::container`]'s Widget::layout). The only
-        // wrinkle: `positioned` uses the returned content node's size
-        // to drive padding.fit + resolve, and we want those to see the
-        // *max* of the current and the in-flight previous child — so
-        // the closure returns a wrapper node sized to `content_size`
-        // with the current child aligned inside it. The outer
-        // positioning pass then aligns that wrapper inside the resolved
-        // area; two levels of alignment with the same (h, v) collapses
-        // to aligning the current directly within the resolved area.
+        // width/height/max/padding/alignment plumbing (same pattern as
+        // [`iced_widget::container`]'s Widget::layout). The wrinkle:
+        // `positioned` uses the content node's size to drive
+        // padding.fit + resolve, and we want those to see the *max* of
+        // the current and the in-flight previous child — so the
+        // closure returns a wrapper node sized to `content_size` with
+        // the current child aligned inside it. The outer positioning
+        // pass then aligns that wrapper inside the resolved area; two
+        // levels of alignment with the same `(h, v)` collapses to
+        // aligning the current directly within the resolved area.
         layout::positioned(
             &limits.max_width(self.max_width).max_height(self.max_height),
             self.width,
@@ -433,17 +518,22 @@ where
             |inner_limits| {
                 let inner_limits = inner_limits.loose();
 
-                // Lay out the current child exactly once on entry.
-                // Subsequent layout passes reuse the frozen node.
-                if state.current_layout.is_none() {
-                    let mut current_element = (self.view)(&state.current_value);
-                    let node = current_element.as_widget_mut().layout(
-                        &mut state.current_tree,
-                        renderer,
-                        &inner_limits,
-                    );
-                    state.current_layout = Some(node);
-                }
+                // Always re-run layout on the current child. This is
+                // what triggers e.g. `text::layout()` → `paragraph
+                // .update()`, which is how iced's text widget
+                // reshapes its cached Paragraph when the content
+                // string changes. If we froze this, a button whose
+                // label is `format!("... {clicks} clicks")` would
+                // stay pinned to the first frame's label even though
+                // the app state has advanced. Only the *previous*
+                // child's layout is frozen (it's a snapshot of the
+                // old content that we animate out).
+                let node = current_element.as_widget_mut().layout(
+                    &mut state.current_tree,
+                    renderer,
+                    &inner_limits,
+                );
+                state.current_layout = Some(node);
 
                 // Fallback: if a swap happened before any layout pass
                 // had ever run on the prior current (so `current_layout`
@@ -454,7 +544,7 @@ where
                     && state.previous_layout.is_none()
                     && let Some(prev_value) = state.previous_value.clone()
                 {
-                    let mut prev_element = (self.view)(&prev_value);
+                    let mut prev_element = view(&prev_value);
                     let node = prev_element.as_widget_mut().layout(
                         &mut state.previous_tree,
                         renderer,
@@ -530,25 +620,42 @@ where
             }
         }
 
-        // Forward the event to the current child only. The outgoing child
-        // is decorative; routing events into a sliding-out widget is a
-        // footgun. Note that we use the un-translated layout — events fire
-        // as if the current child were already at its final position. For a
-        // 200ms animation this is imperceptible.
+        // Compute the current child's visual translation now (before
+        // re-borrowing state), so we can translate the incoming
+        // cursor and make the child's hit-testing match what's
+        // painted in `draw`. `current_layout` below is at the child's
+        // canonical position — events fire there; translating the
+        // cursor by `-current_offset` lines up with the visual.
+        let current_offset =
+            current_offset(self.direction, self.padding, &layout, state);
+
+        // Forward the event to the live current child — the SAME
+        // instance that `layout` materialized on `self.current_element`
+        // earlier this frame. Reusing the instance is what lets the
+        // child's `self.status` / `self.last_status` / etc. survive
+        // from its `update` to its `draw`.
         //
-        // Our layout tree is Outer → Wrapper → Current, so we have to
-        // step through the wrapper to reach the current child's layout.
-        let mut current_element = (self.view)(&state.current_value);
+        // If `layout` somehow didn't run yet this frame (iced should
+        // always call it first, but be defensive), fall back to a
+        // fresh materialization so we don't drop the event.
+        if self.current_element.is_none() {
+            self.current_element = Some((self.view)(&state.current_value));
+        }
+        let current_element = self
+            .current_element
+            .as_mut()
+            .expect("just materialized above");
         if let Some(current_layout) = layout
             .children()
             .next()
             .and_then(|wrapper| wrapper.children().next())
         {
+            let adjusted_cursor = translate_cursor(cursor, current_offset);
             current_element.as_widget_mut().update(
                 &mut state.current_tree,
                 event,
                 current_layout,
-                cursor,
+                adjusted_cursor,
                 renderer,
                 shell,
                 viewport,
@@ -565,7 +672,9 @@ where
         renderer: &Renderer,
     ) -> mouse::Interaction {
         let state = tree.state.downcast_ref::<State<T>>();
-        let current_element = (self.view)(&state.current_value);
+        let Some(current_element) = self.current_element.as_ref() else {
+            return mouse::Interaction::None;
+        };
         let Some(current_layout) = layout
             .children()
             .next()
@@ -573,10 +682,13 @@ where
         else {
             return mouse::Interaction::None;
         };
+        let current_offset =
+            current_offset(self.direction, self.padding, &layout, state);
+        let adjusted_cursor = translate_cursor(cursor, current_offset);
         current_element.as_widget().mouse_interaction(
             &state.current_tree,
             current_layout,
-            cursor,
+            adjusted_cursor,
             viewport,
             renderer,
         )
@@ -590,7 +702,13 @@ where
         operation: &mut dyn Operation,
     ) {
         let state = tree.state.downcast_mut::<State<T>>();
-        let mut current_element = (self.view)(&state.current_value);
+        if self.current_element.is_none() {
+            self.current_element = Some((self.view)(&state.current_value));
+        }
+        let current_element = self
+            .current_element
+            .as_mut()
+            .expect("just materialized above");
         let Some(current_layout) = layout
             .children()
             .next()
@@ -641,15 +759,19 @@ where
 
         let progress = match state.now {
             Some(now) => state.progress.interpolate_with(|v| v, now),
-            // No frame has happened yet — render the current child at its
-            // final position with no offset.
             None => 1.0,
         };
 
         let has_previous =
             state.previous_value.is_some() && state.previous_layout.is_some();
 
-        let (current_offset, previous_offset) = if has_previous {
+        // Both children slide. The current's *layout position* is
+        // canonical — that's where events/focus fire, and that's what
+        // `current_layout` below reports. This visual offset is
+        // applied via `with_translation` in `draw` and matched by a
+        // cursor translation in `update` / `mouse_interaction` so
+        // hover and clicks track the visual position.
+        let (cur_offset, prev_offset) = if has_previous {
             self.direction.offsets(content_area.size(), progress)
         } else {
             (Vector::ZERO, Vector::ZERO)
@@ -658,19 +780,24 @@ where
         // Clip to the content area so sliding children don't bleed into
         // the padding region or adjacent siblings.
         renderer.with_layer(content_area, |renderer| {
-            // Draw the outgoing child first so the incoming child paints
-            // on top of it at the seam.
+            // Draw the outgoing previous first so the incoming current
+            // paints on top of it. Current is the live/interactive one
+            // and typically the taller visual anyway.
             if has_previous
                 && let Some(prev_value) = state.previous_value.as_ref()
                 && let Some(prev_node) = state.previous_layout.as_ref()
             {
+                // The previous is re-materialized per draw (no need to
+                // persist — it's a decorative overlay that doesn't
+                // receive events, so self-state like `button.status`
+                // doesn't matter for its rendering and it falls back
+                // to the widget's neutral/default appearance).
                 let prev_element = (self.view)(prev_value);
                 // Position the frozen previous aligned within the full
                 // content area (not within the wrapper). For same
                 // alignment, this matches the current child's canonical
-                // absolute position exactly — so the two children share
-                // the same starting/ending reference, and they both
-                // travel the full content-area extent.
+                // absolute position, so they start from the same
+                // reference point before the previous slides away.
                 let mut prev_positioned = prev_node.clone();
                 prev_positioned.align_mut(
                     Alignment::from(self.horizontal_alignment),
@@ -681,7 +808,7 @@ where
                     Vector::new(content_area.x, content_area.y),
                     &prev_positioned,
                 );
-                renderer.with_translation(previous_offset, |renderer| {
+                renderer.with_translation(prev_offset, |renderer| {
                     prev_element.as_widget().draw(
                         &state.previous_tree,
                         renderer,
@@ -694,18 +821,19 @@ where
                 });
             }
 
-            let current_element = (self.view)(&state.current_value);
-            renderer.with_translation(current_offset, |renderer| {
-                current_element.as_widget().draw(
-                    &state.current_tree,
-                    renderer,
-                    theme,
-                    defaults,
-                    current_layout,
-                    cursor,
-                    viewport,
-                );
-            });
+            if let Some(current_element) = self.current_element.as_ref() {
+                renderer.with_translation(cur_offset, |renderer| {
+                    current_element.as_widget().draw(
+                        &state.current_tree,
+                        renderer,
+                        theme,
+                        defaults,
+                        current_layout,
+                        cursor,
+                        viewport,
+                    );
+                });
+            }
         });
     }
 
@@ -718,11 +846,13 @@ where
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_mut::<State<T>>();
-        // Materialize and stash the current element on `self` so the
-        // returned overlay reference outlives this call (it borrows from
-        // `self.overlay_element`, which lives `'b`).
-        self.overlay_element = Some((self.view)(&state.current_value));
-        let element = self.overlay_element.as_mut()?;
+        // Same shared instance as `update`/`draw` use. If for any
+        // reason `layout` hasn't run yet this frame, fall back to a
+        // fresh materialization so overlay still works.
+        if self.current_element.is_none() {
+            self.current_element = Some((self.view)(&state.current_value));
+        }
+        let element = self.current_element.as_mut()?;
         let current_layout = layout
             .children()
             .next()

@@ -9,10 +9,10 @@
 //! [`Transition`]: sweeten::widget::transition::Transition
 //! [`Element`]: iced::Element
 
-use iced::widget::{button, center, column, container, markdown, row, text};
-use iced::{Center, Element, Fill, Theme};
+use iced::widget::{center, column, container, markdown, row, text};
+use iced::{Center, Element, Fill, Task, Theme};
 
-use sweeten::widget::{transition, transition::Direction};
+use sweeten::widget::{button, transition, transition::Direction};
 
 fn main() -> iced::Result {
     iced::application(App::default, App::update, App::view)
@@ -53,12 +53,12 @@ enum Message {
     Next,
     Previous,
     DirectionChanged(Direction),
-    SlideButtonClicked,
+    Dismiss,
     LinkClicked,
 }
 
 impl App {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Next => {
                 self.index = (self.index + 1) % SLIDE_COUNT;
@@ -69,11 +69,14 @@ impl App {
             Message::DirectionChanged(direction) => {
                 self.direction = direction;
             }
-            Message::SlideButtonClicked => {
+            Message::Dismiss => {
                 self.slide_clicks += 1;
+                return Task::done(Message::Next);
             }
             Message::LinkClicked => {}
         }
+
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -83,8 +86,9 @@ impl App {
             0 => text("The quick brown fox jumps over the lazy dog.")
                 .size(22)
                 .into(),
-            1 => button(text(format!("Click me! ({clicks} clicks)")))
-                .on_press(Message::SlideButtonClicked)
+            1 => button(text(format!("Dismiss me! ({clicks} times)")))
+                .on_press(Message::Dismiss)
+                .style(button::danger)
                 .padding(12)
                 .into(),
             2 => row![
