@@ -27,6 +27,9 @@
 //!     button("Press me!").on_press(Message::ButtonPressed).into()
 //! }
 //! ```
+use std::time::Duration;
+
+use crate::core::animation::Easing;
 use crate::core::border::{self, Border};
 use crate::core::keyboard;
 use crate::core::keyboard::key;
@@ -35,6 +38,7 @@ use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::theme::palette;
+use crate::core::time::Instant;
 use crate::core::touch;
 use crate::core::widget;
 use crate::core::widget::Operation;
@@ -42,8 +46,8 @@ use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Background, Color, Element, Event, Layout, Length, Padding, Rectangle,
-    Shadow, Shell, Size, Theme, Vector, Widget,
+    Animation, Background, Color, Element, Event, Layout, Length, Padding,
+    Rectangle, Shadow, Shell, Size, Theme, Vector, Widget,
 };
 
 /// A generic widget that produces a message when pressed.
@@ -246,11 +250,39 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone)]
 struct State {
     is_focused: bool,
     was_focused: bool,
     is_pressed: bool,
+    /// Animated "is hovered" state. Transitions smoothly between
+    /// [`Status::Active`] and [`Status::Hovered`] styles over the
+    /// animation's duration using shadcn's standard cubic-bezier
+    /// `(0.4, 0, 0.2, 1)` easing (Material's "standard" curve).
+    hover: Animation<bool>,
+    /// The most recent [`Instant`] seen from a
+    /// [`window::Event::RedrawRequested`] event — latched in
+    /// [`Widget::update`] and consumed in [`Widget::draw`] to evaluate
+    /// the animation at the same time the frame was scheduled for.
+    now: Option<Instant>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            is_focused: false,
+            was_focused: false,
+            is_pressed: false,
+            hover: Animation::new(false)
+                .easing(Easing::Custom(|t| {
+                    // cubic-bezier(0.4, 0, 0.2, 1) — shadcn's
+                    // `transition-all` standard curve.
+                    cubic_bezier(0.4, 0.0, 0.2, 1.0, t)
+                }))
+                .duration(Duration::from_millis(150)),
+            now: None,
+        }
+    }
 }
 
 impl operation::Focusable for State {
@@ -449,7 +481,7 @@ where
             _ => {}
         }
 
-        let state = tree.state.downcast_ref::<State>();
+        let state = tree.state.downcast_mut::<State>();
         let is_hovered = cursor.is_over(layout.bounds());
 
         let current_status = if self.on_press.is_none() {
@@ -464,8 +496,21 @@ where
             Status::Active
         };
 
-        if let Event::Window(window::Event::RedrawRequested(_now)) = event {
+        // Drive the hover animation. We only animate on
+        // `RedrawRequested` so the animation's frame-local time and
+        // the frame we're rendering stay in sync; other events just
+        // toggle bookkeeping.
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            state.now = Some(*now);
             self.status = Some(current_status);
+
+            let should_hover = is_hovered && self.on_press.is_some();
+            if should_hover != state.hover.value() {
+                state.hover.go_mut(should_hover, *now);
+            }
+            if state.hover.is_animating(*now) {
+                shell.request_redraw();
+            }
         } else if self.status.is_some_and(|status| status != current_status) {
             shell.request_redraw();
         }
@@ -483,8 +528,74 @@ where
     ) {
         let bounds = layout.bounds();
         let content_layout = layout.children().next().unwrap();
-        let style =
-            theme.style(&self.class, self.status.unwrap_or(Status::Disabled));
+        let state = tree.state.downcast_ref::<State>();
+        let status = self.status.unwrap_or(Status::Disabled);
+
+        // While the hover animation is in flight, interpolate between
+        // the `Active` and `Hovered` styles instead of snapping to
+        // whichever `Status` is current. This gives a smooth color
+        // fade on hover enter/leave, matching shadcn's
+        // `transition-all`.
+        //
+        // Known trade-off: if the button is `Pressed` or `Focused`
+        // mid-animation, we still show the interpolated Active↔Hovered
+        // color for the rest of the 150ms window rather than the
+        // press/focus style. Resolves cleanly once the animation
+        // settles and the next frame uses the static status style.
+        let style = match state.now {
+            Some(now) if state.hover.is_animating(now) => {
+                let active = theme.style(&self.class, Status::Active);
+                let hovered = theme.style(&self.class, Status::Hovered);
+
+                // Interpolate background as a single [`Color`] channel.
+                // When the active style has no background (ghost /
+                // outline variants), fall back to the hovered color
+                // with `alpha = 0.0` so the fade is pure alpha across
+                // the same color instead of jumping channels.
+                let bg_color = |style: &Style| {
+                    style.background.and_then(|bg| match bg {
+                        Background::Color(c) => Some(c),
+                        _ => None,
+                    })
+                };
+                let hovered_bg =
+                    bg_color(&hovered).unwrap_or(Color::TRANSPARENT);
+                let active_bg = bg_color(&active).unwrap_or(Color {
+                    a: 0.0,
+                    ..hovered_bg
+                });
+
+                let background = Background::Color(
+                    state.hover.interpolate(active_bg, hovered_bg, now),
+                );
+                let text_color = state.hover.interpolate(
+                    active.text_color,
+                    hovered.text_color,
+                    now,
+                );
+
+                // Border / shadow snap to the animation's target rather
+                // than interpolating — border width/radius transitions
+                // tend to look worse than they sound.
+                let toward_hovered = state.hover.value();
+                Style {
+                    background: Some(background),
+                    text_color,
+                    border: if toward_hovered {
+                        hovered.border
+                    } else {
+                        active.border
+                    },
+                    shadow: if toward_hovered {
+                        hovered.shadow
+                    } else {
+                        active.shadow
+                    },
+                    snap: active.snap,
+                }
+            }
+            _ => theme.style(&self.class, status),
+        };
 
         if style.background.is_some()
             || style.border.width > 0.0
@@ -1010,4 +1121,44 @@ fn disabled(style: Style) -> Style {
         text_color: style.text_color.scale_alpha(0.5),
         ..style
     }
+}
+
+/// Evaluates a cubic-bezier curve at parameter `x`.
+///
+/// The curve has control points `P0 = (0, 0)`, `P1 = (x1, y1)`,
+/// `P2 = (x2, y2)`, `P3 = (1, 1)`. Given an `x` in `[0, 1]`, we solve
+/// for the parameter `t` such that `B_x(t) = x` using a few iterations
+/// of Newton's method, then evaluate `B_y(t)` at that `t`.
+///
+/// Used by the hover animation's [`Easing::Custom`] to match shadcn's
+/// standard `cubic-bezier(0.4, 0, 0.2, 1)` curve (Material's "standard"
+/// easing). Ported verbatim from the `icedxdy` button widget.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
+
+    let mut t = x;
+    for _ in 0..8 {
+        let t2 = t * t;
+        let t3 = t2 * t;
+        let bx = 3.0 * (1.0 - t) * (1.0 - t) * t * x1
+            + 3.0 * (1.0 - t) * t2 * x2
+            + t3;
+        let dbx = 3.0 * (1.0 - t) * (1.0 - t) * x1
+            + 6.0 * (1.0 - t) * t * (x2 - x1)
+            + 3.0 * t2 * (1.0 - x2);
+        if dbx.abs() < 1e-6 {
+            break;
+        }
+        t -= (bx - x) / dbx;
+        t = t.clamp(0.0, 1.0);
+    }
+
+    let t2 = t * t;
+    let t3 = t2 * t;
+    3.0 * (1.0 - t) * (1.0 - t) * t * y1 + 3.0 * (1.0 - t) * t2 * y2 + t3
 }

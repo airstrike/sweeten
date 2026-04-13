@@ -9,10 +9,10 @@
 //! [`Transition`]: sweeten::widget::transition::Transition
 //! [`Element`]: iced::Element
 
-use iced::widget::{center, column, container, markdown, row, text};
+use iced::widget::{center, column, container, markdown, row, sensor, text};
 use iced::{Center, Element, Fill, Task, Theme};
 
-use sweeten::widget::{button, transition, transition::Direction};
+use sweeten::widget::{button, text_input, transition, transition::Direction};
 
 fn main() -> iced::Result {
     iced::application(App::default, App::update, App::view)
@@ -27,6 +27,7 @@ struct App {
     index: usize,
     direction: Direction,
     slide_clicks: u32,
+    input: String,
     markdown: markdown::Content,
     theme: Theme,
 }
@@ -37,6 +38,7 @@ impl Default for App {
             index: 0,
             direction: Direction::Up,
             slide_clicks: 0,
+            input: "Amazingly few discotheques provide jukeboxes.".to_string(),
             markdown: markdown::Content::parse(
                 "# Three reasons to click\n\
                    - **Why not?**\n\
@@ -52,6 +54,9 @@ impl Default for App {
 enum Message {
     Next,
     Previous,
+
+    FocusInput,
+    InputChanged(String),
     DirectionChanged(Direction),
     Dismiss,
     LinkClicked,
@@ -65,6 +70,12 @@ impl App {
             }
             Message::Previous => {
                 self.index = (self.index + SLIDE_COUNT - 1) % SLIDE_COUNT;
+            }
+            Message::FocusInput => {
+                return sweeten::widget::operation::focus("input");
+            }
+            Message::InputChanged(input) => {
+                self.input = input;
             }
             Message::DirectionChanged(direction) => {
                 self.direction = direction;
@@ -104,9 +115,18 @@ impl App {
             3 => {
                 markdown::view_with(self.markdown.items(), &self.theme, &Viewer)
             }
-            _ => text("Amazingly few discotheques provide jukeboxes.")
-                .size(22)
-                .into(),
+            _ => sensor(
+                text_input(
+                    "Type anything—but preferably a pangram.",
+                    &self.input,
+                )
+                .id("input")
+                .on_input(Message::InputChanged)
+                .on_submit(Message::Next)
+                .size(22),
+            )
+            .on_show(|_| Message::FocusInput)
+            .into(),
         })
         .direction(self.direction)
         .width(Fill)

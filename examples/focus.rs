@@ -121,7 +121,7 @@ impl Input {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FocusedElement {
+enum Focused {
     Field(Field),
     SubmitButton,
 }
@@ -130,7 +130,7 @@ enum FocusedElement {
 struct App {
     username: Input,
     password: Input,
-    focused: Option<FocusedElement>,
+    focused: Option<Focused>,
 }
 
 #[derive(Debug, Clone)]
@@ -171,18 +171,18 @@ impl App {
                 }
             },
             Message::InputFocused(field) => {
-                self.focused = Some(FocusedElement::Field(field));
+                self.focused = Some(Focused::Field(field));
             }
             Message::InputBlurred(field) => {
-                if self.focused == Some(FocusedElement::Field(field)) {
+                if self.focused == Some(Focused::Field(field)) {
                     self.focused = None;
                 }
             }
             Message::ButtonFocused => {
-                self.focused = Some(FocusedElement::SubmitButton);
+                self.focused = Some(Focused::SubmitButton);
             }
             Message::ButtonBlurred => {
-                if self.focused == Some(FocusedElement::SubmitButton) {
+                if self.focused == Some(Focused::SubmitButton) {
                     self.focused = None;
                 }
             }
@@ -217,7 +217,7 @@ impl App {
         let create_field_view = |input: &Input| {
             let field = input.field();
             let value = input.value();
-            let is_focused = self.focused == Some(FocusedElement::Field(field));
+            let is_focused = self.focused == Some(Focused::Field(field));
 
             let input_widget = text_input(field.placeholder(), value)
                 .id(field.id())
