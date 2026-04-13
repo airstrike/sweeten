@@ -227,13 +227,12 @@ where
             max_width: f32::INFINITY,
             max_height: f32::INFINITY,
             padding: Padding::ZERO,
-            // Default to centered alignment. This differs from iced's
-            // [`Container`] (which defaults to top-left) because the
-            // common use case for a [`Transition`] is a banner-style
-            // centered slot, and because a centered alignment cancels
-            // the juke that would otherwise appear when the widget's
-            // reported size shrinks after the animation completes in a
-            // centered parent.
+            // Default to center rather than top-left (iced
+            // `Container`'s default). When the animation completes
+            // and the widget shrinks back to the current child's
+            // size, a centering parent will re-center it; any
+            // alignment mismatch between parent and `Transition`
+            // shows up at that moment as a visual snap.
             horizontal_alignment: alignment::Horizontal::Center,
             vertical_alignment: alignment::Vertical::Center,
             current_element: None,
@@ -355,20 +354,17 @@ struct State<T> {
     previous_value: Option<T>,
     current_tree: Tree,
     previous_tree: Tree,
-    /// Frozen [`layout::Node`] for the current child. Computed exactly
-    /// once when the child enters (i.e., on the first [`Widget::layout`]
-    /// after a swap or after initialization) and never recomputed —
-    /// recomputing would re-wrap text and shift positions mid-slide.
+    /// Refreshed each [`Widget::layout`] call; moved into
+    /// `previous_layout` on swap.
     current_layout: Option<layout::Node>,
-    /// Frozen [`layout::Node`] for the outgoing child during a slide.
-    /// Promoted from `current_layout` in [`Widget::diff`] at the moment
-    /// of the swap. Cleared when the animation completes.
+    /// Frozen at swap time and held for the animation's duration.
+    /// Reflowing it would jitter the geometry that [`Widget::draw`]
+    /// is translating.
     previous_layout: Option<layout::Node>,
     progress: Animation<f32>,
-    /// Set in [`Widget::diff`] when a swap is detected; consumed in
-    /// [`Widget::update`] on the next [`window::Event::RedrawRequested`]
-    /// (which is the first place we have an [`Instant`] to arm the
-    /// animation with).
+    /// Arming [`progress`] requires an [`Instant`], which only
+    /// [`window::Event::RedrawRequested`] carries. Set in
+    /// [`Widget::diff`], consumed in [`Widget::update`].
     pending_start: bool,
     now: Option<Instant>,
 }
@@ -409,9 +405,9 @@ where
     }
 
     fn children(&self) -> Vec<Tree> {
-        // We manage child trees manually inside `State<T>`, not via the
-        // standard `tree.children` machinery. This avoids structural
-        // mismatches when the previous child appears or disappears.
+        // Child trees live on `State<T>` directly. The slot-based
+        // machinery doesn't handle a changing child count across
+        // swaps without tearing down tree state each time.
         Vec::new()
     }
 
@@ -419,13 +415,10 @@ where
         let state = tree.state.downcast_mut::<State<T>>();
 
         if state.current_value != self.value {
-            // Snap-and-restart: any in-flight previous is dropped, the
-            // currently-showing value becomes the new previous, and the new
-            // value becomes current. The outgoing child's frozen layout is
-            // promoted directly from `current_layout` — we never recompute
-            // it for the rest of the slide. Animation is reset and will be
-            // armed on the next `RedrawRequested` (which carries an
-            // `Instant`).
+            // Snap-and-restart: any in-flight previous is dropped,
+            // the current becomes the new previous (its layout
+            // promoted directly from `current_layout`), and the new
+            // value becomes current.
             let old_value =
                 std::mem::replace(&mut state.current_value, self.value.clone());
             let old_tree =
@@ -434,8 +427,6 @@ where
             state.previous_value = Some(old_value);
             state.previous_tree = old_tree;
             state.previous_layout = state.current_layout.take();
-            // current_layout is now None — the new current will be laid
-            // out exactly once on the next call to `Widget::layout`.
 
             let element = (self.view)(&state.current_value);
             state.current_tree = Tree::new(element.as_widget());
@@ -446,14 +437,10 @@ where
                 .easing(self.easing);
             state.pending_start = true;
         } else {
-            // No swap; reconcile current child against a fresh element so
-            // any unrelated changes (e.g., a captured field updating) still
-            // propagate to the child's tree state.
             let element = (self.view)(&state.current_value);
             state.current_tree.diff(element.as_widget());
         }
 
-        // Reconcile the outgoing child too while it's still on screen.
         if let Some(prev) = state.previous_value.as_ref() {
             let prev_element = (self.view)(prev);
             state.previous_tree.diff(prev_element.as_widget());
@@ -475,12 +462,12 @@ where
     ) -> layout::Node {
         let state = tree.state.downcast_mut::<State<T>>();
 
-        // Materialize the current child exactly once per frame, stored
-        // on `self.current_element`. Every `&self`/`&mut self` callback
-        // within this frame will then reach the *same* Element
-        // instance, so child widgets that persist state on the widget
-        // struct (e.g. `button.status`, `toggler.last_status`) stay
-        // live between their own `update` and `draw`.
+        // Stash the materialized current child on `self` so every
+        // subsequent callback reaches the same instance. Required
+        // for child widgets that persist state on `self` rather
+        // than in `tree::State` — e.g. iced's `button.status` and
+        // `toggler.last_status`, set in the child's `update` and
+        // read in its `draw`.
         if self.current_element.is_none() {
             self.current_element = Some((self.view)(&state.current_value));
         }
@@ -488,28 +475,27 @@ where
         let h_align = Alignment::from(self.horizontal_alignment);
         let v_align = Alignment::from(self.vertical_alignment);
 
-        // Split-borrow `self` into the two fields we need inside the
-        // closure: the stored element (mut, for its `layout` call) and
-        // the view fn (immut, for the previous fallback path). These
-        // are disjoint fields so Rust's 2021 disjoint capture allows
-        // both borrows to coexist.
+        // Split-borrow `self` into two disjoint fields the closure
+        // below needs: `current_element` (mut) and `view` (shared,
+        // for the previous-layout fallback). A single `&mut self`
+        // capture would conflict.
         let view = &self.view;
         let current_element = self
             .current_element
             .as_mut()
             .expect("current_element just set above");
 
-        // Defer to [`layout::positioned`] for the standard
-        // width/height/max/padding/alignment plumbing (same pattern as
-        // [`iced_widget::container`]'s Widget::layout). The wrinkle:
-        // `positioned` uses the content node's size to drive
-        // padding.fit + resolve, and we want those to see the *max* of
-        // the current and the in-flight previous child — so the
-        // closure returns a wrapper node sized to `content_size` with
-        // the current child aligned inside it. The outer positioning
-        // pass then aligns that wrapper inside the resolved area; two
-        // levels of alignment with the same `(h, v)` collapses to
-        // aligning the current directly within the resolved area.
+        // Defer to [`layout::positioned`] (same pattern as
+        // [`iced_widget::container`]'s `Widget::layout`) for the
+        // width/height/max/padding/alignment plumbing. The wrinkle:
+        // `positioned` drives `padding.fit`/`resolve` from the
+        // content node's size, and we want those to see the *max*
+        // of current and any in-flight previous. The closure
+        // returns a wrapper node sized to `content_size` with the
+        // current aligned inside it; `positioned` then aligns that
+        // wrapper inside the resolved area. Two levels of alignment
+        // with the same `(h, v)` collapse to aligning the current
+        // directly within the resolved area.
         layout::positioned(
             &limits.max_width(self.max_width).max_height(self.max_height),
             self.width,
@@ -518,16 +504,13 @@ where
             |inner_limits| {
                 let inner_limits = inner_limits.loose();
 
-                // Always re-run layout on the current child. This is
-                // what triggers e.g. `text::layout()` → `paragraph
-                // .update()`, which is how iced's text widget
-                // reshapes its cached Paragraph when the content
-                // string changes. If we froze this, a button whose
-                // label is `format!("... {clicks} clicks")` would
-                // stay pinned to the first frame's label even though
-                // the app state has advanced. Only the *previous*
-                // child's layout is frozen (it's a snapshot of the
-                // old content that we animate out).
+                // Re-run layout on the current child every call.
+                // This is what triggers iced's child widgets to
+                // refresh their own tree-state caches — notably
+                // `text`'s `paragraph.update()`, which reshapes the
+                // cached paragraph when the content string changes.
+                // Only the *previous* child's layout is frozen; it's
+                // a snapshot we're animating out, not reactive.
                 let node = current_element.as_widget_mut().layout(
                     &mut state.current_tree,
                     renderer,
@@ -535,11 +518,9 @@ where
                 );
                 state.current_layout = Some(node);
 
-                // Fallback: if a swap happened before any layout pass
-                // had ever run on the prior current (so `current_layout`
-                // was still `None` when `diff` tried to promote it),
-                // lay the previous out now. After the first layout call
-                // this branch never fires again.
+                // Fallback: swap happened before any layout call had
+                // run on the prior current, so `diff` had nothing to
+                // promote into `previous_layout`.
                 if state.previous_value.is_some()
                     && state.previous_layout.is_none()
                     && let Some(prev_value) = state.previous_value.clone()
@@ -559,8 +540,9 @@ where
                     .expect("current_layout was just set above");
                 let current_size = current_node.size();
 
-                // Content size = max of both children along each axis.
-                // In steady state this collapses to current_size.
+                // Per-axis max of both children, so the content area
+                // has room for both during a slide. Collapses to the
+                // current's size in steady state.
                 let content_size = match state.previous_layout.as_ref() {
                     Some(prev) => {
                         let prev_size = prev.size();
@@ -572,8 +554,6 @@ where
                     None => current_size,
                 };
 
-                // Wrap the current child in a `content_size`-sized
-                // parent, with the current aligned inside.
                 let mut current_inside = current_node.clone();
                 current_inside.align_mut(h_align, v_align, content_size);
                 layout::Node::with_children(content_size, vec![current_inside])
@@ -594,8 +574,6 @@ where
     ) {
         let state = tree.state.downcast_mut::<State<T>>();
 
-        // Animation bookkeeping. Done first so the rest of the call sees
-        // up-to-date `now` / animation state.
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
             state.now = Some(*now);
 
@@ -608,36 +586,28 @@ where
             if state.progress.is_animating(*now) {
                 shell.request_redraw();
             } else if state.previous_value.is_some() && !state.pending_start {
-                // Animation just finished — release the outgoing child.
-                // Our reported size shrinks from `max(prev, cur)` back to
-                // `current`'s size; the layout that ran in `build()` for
-                // this frame used the larger size and is now stale.
-                // Invalidating tells iced to re-run layout in the same
-                // update cycle (via `revalidate_layout`) so the draw call
-                // sees the smaller bounds.
+                // Animation just finished; release the outgoing
+                // child. The widget's reported size will shrink from
+                // `max(prev, cur)` back to the current's size, but
+                // the layout that ran earlier in this update cycle
+                // used the larger size. `invalidate_layout` asks
+                // iced to re-run layout before `draw` (via
+                // `revalidate_layout`) so `draw` sees the smaller
+                // bounds.
                 state.drop_previous();
                 shell.invalidate_layout();
             }
         }
 
-        // Compute the current child's visual translation now (before
-        // re-borrowing state), so we can translate the incoming
-        // cursor and make the child's hit-testing match what's
-        // painted in `draw`. `current_layout` below is at the child's
-        // canonical position — events fire there; translating the
-        // cursor by `-current_offset` lines up with the visual.
+        // `current_layout` is at the child's un-translated canonical
+        // position, where events fire from. Subtracting
+        // `current_offset` from the cursor makes hit-testing line up
+        // with the visual position `draw` paints at.
         let current_offset =
             current_offset(self.direction, self.padding, &layout, state);
 
-        // Forward the event to the live current child — the SAME
-        // instance that `layout` materialized on `self.current_element`
-        // earlier this frame. Reusing the instance is what lets the
-        // child's `self.status` / `self.last_status` / etc. survive
-        // from its `update` to its `draw`.
-        //
-        // If `layout` somehow didn't run yet this frame (iced should
-        // always call it first, but be defensive), fall back to a
-        // fresh materialization so we don't drop the event.
+        // Defensive: `layout` runs before `update` in the normal
+        // path, but handle the inverted order so events never drop.
         if self.current_element.is_none() {
             self.current_element = Some((self.view)(&state.current_value));
         }
@@ -735,13 +705,11 @@ where
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<T>>();
-        // Content area = outer bounds minus padding. Unlike the
-        // wrapper's bounds (which is `max(prev, cur)` and can be much
-        // smaller than the widget itself under Fill sizing), this
-        // captures the *full region* within which the slide runs. It
-        // drives both the slide displacement — so that a 1-line text in
-        // a 1000-tall widget travels 1000pt rather than 22pt — and the
-        // clip rect, so sliding children fill the whole widget.
+        // The wrapper's bounds are `max(prev, cur)`, which can be
+        // much smaller than the widget itself under Fill sizing.
+        // `content_area` is the widget bounds minus padding — the
+        // full region the slide runs across — and drives both the
+        // slide displacement and the clip rect.
         let outer_bounds = layout.bounds();
         let content_area = Rectangle {
             x: outer_bounds.x + self.padding.left,
@@ -765,39 +733,31 @@ where
         let has_previous =
             state.previous_value.is_some() && state.previous_layout.is_some();
 
-        // Both children slide. The current's *layout position* is
-        // canonical — that's where events/focus fire, and that's what
-        // `current_layout` below reports. This visual offset is
-        // applied via `with_translation` in `draw` and matched by a
-        // cursor translation in `update` / `mouse_interaction` so
-        // hover and clicks track the visual position.
         let (cur_offset, prev_offset) = if has_previous {
             self.direction.offsets(content_area.size(), progress)
         } else {
             (Vector::ZERO, Vector::ZERO)
         };
 
-        // Clip to the content area so sliding children don't bleed into
-        // the padding region or adjacent siblings.
         renderer.with_layer(content_area, |renderer| {
-            // Draw the outgoing previous first so the incoming current
-            // paints on top of it. Current is the live/interactive one
-            // and typically the taller visual anyway.
+            // Outgoing drawn first, incoming on top — where they
+            // overlap mid-slide, the incoming wins z-order so it
+            // reads as arriving rather than being covered by a slice
+            // of the exiting content.
             if has_previous
                 && let Some(prev_value) = state.previous_value.as_ref()
                 && let Some(prev_node) = state.previous_layout.as_ref()
             {
-                // The previous is re-materialized per draw (no need to
-                // persist — it's a decorative overlay that doesn't
-                // receive events, so self-state like `button.status`
-                // doesn't matter for its rendering and it falls back
-                // to the widget's neutral/default appearance).
+                // Previous is re-materialized per draw rather than
+                // stashed on `self`: it's decorative, doesn't receive
+                // events, and renders in its widget's neutral
+                // appearance — we don't carry widget-self state
+                // across a swap boundary.
                 let prev_element = (self.view)(prev_value);
-                // Position the frozen previous aligned within the full
-                // content area (not within the wrapper). For same
-                // alignment, this matches the current child's canonical
-                // absolute position, so they start from the same
-                // reference point before the previous slides away.
+                // Aligned within the content area, not the wrapper.
+                // For matching alignment on both children, this
+                // places the previous's canonical position exactly
+                // on the current's — a shared anchor to slide from.
                 let mut prev_positioned = prev_node.clone();
                 prev_positioned.align_mut(
                     Alignment::from(self.horizontal_alignment),
@@ -846,9 +806,6 @@ where
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_mut::<State<T>>();
-        // Same shared instance as `update`/`draw` use. If for any
-        // reason `layout` hasn't run yet this frame, fall back to a
-        // fresh materialization so overlay still works.
         if self.current_element.is_none() {
             self.current_element = Some((self.view)(&state.current_value));
         }

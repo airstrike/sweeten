@@ -496,10 +496,10 @@ where
             Status::Active
         };
 
-        // Drive the hover animation. We only animate on
-        // `RedrawRequested` so the animation's frame-local time and
-        // the frame we're rendering stay in sync; other events just
-        // toggle bookkeeping.
+        // Arm the hover animation only inside `RedrawRequested`:
+        // the `Instant` passed to `go_mut` has to be the same one
+        // `draw` later reads off `state.now`, or the interpolation
+        // jitters.
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
             state.now = Some(*now);
             self.status = Some(current_status);
@@ -531,27 +531,19 @@ where
         let state = tree.state.downcast_ref::<State>();
         let status = self.status.unwrap_or(Status::Disabled);
 
-        // While the hover animation is in flight, interpolate between
-        // the `Active` and `Hovered` styles instead of snapping to
-        // whichever `Status` is current. This gives a smooth color
-        // fade on hover enter/leave, matching shadcn's
-        // `transition-all`.
-        //
-        // Known trade-off: if the button is `Pressed` or `Focused`
-        // mid-animation, we still show the interpolated Active↔Hovered
-        // color for the rest of the 150ms window rather than the
-        // press/focus style. Resolves cleanly once the animation
-        // settles and the next frame uses the static status style.
+        // Trade-off: if the button becomes `Pressed` or `Focused`
+        // while the hover animation is still running, it keeps
+        // showing the interpolated Active↔Hovered color until the
+        // animation settles, not the press/focus style.
         let style = match state.now {
             Some(now) if state.hover.is_animating(now) => {
                 let active = theme.style(&self.class, Status::Active);
                 let hovered = theme.style(&self.class, Status::Hovered);
 
-                // Interpolate background as a single [`Color`] channel.
-                // When the active style has no background (ghost /
-                // outline variants), fall back to the hovered color
-                // with `alpha = 0.0` so the fade is pure alpha across
-                // the same color instead of jumping channels.
+                // Ghost/outline variants have no active background;
+                // fall back to the hovered color with `alpha = 0.0`
+                // so the fade is pure alpha across one color rather
+                // than jumping channels.
                 let bg_color = |style: &Style| {
                     style.background.and_then(|bg| match bg {
                         Background::Color(c) => Some(c),
@@ -574,9 +566,9 @@ where
                     now,
                 );
 
-                // Border / shadow snap to the animation's target rather
-                // than interpolating — border width/radius transitions
-                // tend to look worse than they sound.
+                // Border and shadow snap to the target. Interpolating
+                // width or radius through sub-pixel values shimmers;
+                // a snap inside the 150ms window is imperceptible.
                 let toward_hovered = state.hover.value();
                 Style {
                     background: Some(background),
