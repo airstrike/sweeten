@@ -31,6 +31,7 @@
 
 use std::time::Duration;
 
+use crate::core::alignment;
 use crate::core::animation::Easing;
 use crate::core::layout::{self, Layout};
 use crate::core::mouse;
@@ -41,8 +42,8 @@ use crate::core::widget::Operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Alignment, Animation, Element, Event, Length, Point, Rectangle, Shell,
-    Size, Vector, Widget,
+    Alignment, Animation, Element, Event, Length, Padding, Pixels, Rectangle,
+    Shell, Size, Vector, Widget,
 };
 
 /// The direction of the slide motion when content swaps.
@@ -77,8 +78,12 @@ impl Direction {
         }
     }
 
-    /// Returns `(current_offset, previous_offset)` for the given widget
-    /// `size` and animation `progress` in `[0, 1]`.
+    /// Returns `(current_offset, previous_offset)` for the given
+    /// content area `size` and animation `progress` in `[0, 1]`.
+    ///
+    /// Displacement equals the content area's extent along the motion
+    /// axis so both children fully enter/exit the content area at their
+    /// respective end times.
     fn offsets(self, size: Size, progress: f32) -> (Vector, Vector) {
         let (ux, uy) = self.unit();
         let dx = size.width;
@@ -116,6 +121,11 @@ pub struct Transition<
     easing: Easing,
     width: Length,
     height: Length,
+    max_width: f32,
+    max_height: f32,
+    padding: Padding,
+    horizontal_alignment: alignment::Horizontal,
+    vertical_alignment: alignment::Vertical,
     /// Lazy slot used by [`Widget::overlay`] to return a borrow with
     /// lifetime `'a`. Populated on demand and dropped when the widget
     /// is dropped at the end of the frame.
@@ -151,6 +161,18 @@ where
             easing: Easing::EaseOut,
             width: Length::Shrink,
             height: Length::Shrink,
+            max_width: f32::INFINITY,
+            max_height: f32::INFINITY,
+            padding: Padding::ZERO,
+            // Default to centered alignment. This differs from iced's
+            // [`Container`] (which defaults to top-left) because the
+            // common use case for a [`Transition`] is a banner-style
+            // centered slot, and because a centered alignment cancels
+            // the juke that would otherwise appear when the widget's
+            // reported size shrinks after the animation completes in a
+            // centered parent.
+            horizontal_alignment: alignment::Horizontal::Center,
+            vertical_alignment: alignment::Vertical::Center,
             overlay_element: None,
         }
     }
@@ -188,6 +210,79 @@ where
     pub fn height(mut self, height: impl Into<Length>) -> Self {
         self.height = height.into();
         self
+    }
+
+    /// Sets the maximum width of the [`Transition`].
+    #[must_use]
+    pub fn max_width(mut self, max_width: impl Into<Pixels>) -> Self {
+        self.max_width = max_width.into().0;
+        self
+    }
+
+    /// Sets the maximum height of the [`Transition`].
+    #[must_use]
+    pub fn max_height(mut self, max_height: impl Into<Pixels>) -> Self {
+        self.max_height = max_height.into().0;
+        self
+    }
+
+    /// Sets the [`Padding`] of the [`Transition`].
+    #[must_use]
+    pub fn padding<P: Into<Padding>>(mut self, padding: P) -> Self {
+        self.padding = padding.into();
+        self
+    }
+
+    /// Sets the content alignment for the horizontal axis.
+    ///
+    /// This determines where both the current and the outgoing children
+    /// sit along the cross/main axis within the [`Transition`]'s content
+    /// area. For a [`Transition`] inside a centered parent, leave this
+    /// at the default [`alignment::Horizontal::Center`] to avoid a juke
+    /// when the widget snaps back to the current child's size at the end
+    /// of the animation.
+    #[must_use]
+    pub fn align_x(
+        mut self,
+        alignment: impl Into<alignment::Horizontal>,
+    ) -> Self {
+        self.horizontal_alignment = alignment.into();
+        self
+    }
+
+    /// Sets the content alignment for the vertical axis.
+    ///
+    /// See [`align_x`](Self::align_x) for the rationale around choosing
+    /// an alignment that matches the parent's.
+    #[must_use]
+    pub fn align_y(
+        mut self,
+        alignment: impl Into<alignment::Vertical>,
+    ) -> Self {
+        self.vertical_alignment = alignment.into();
+        self
+    }
+
+    /// Sets the width of the [`Transition`] and centers its contents
+    /// horizontally.
+    #[must_use]
+    pub fn center_x(self, width: impl Into<Length>) -> Self {
+        self.width(width).align_x(alignment::Horizontal::Center)
+    }
+
+    /// Sets the height of the [`Transition`] and centers its contents
+    /// vertically.
+    #[must_use]
+    pub fn center_y(self, height: impl Into<Length>) -> Self {
+        self.height(height).align_y(alignment::Vertical::Center)
+    }
+
+    /// Sets the width and height of the [`Transition`] and centers its
+    /// contents on both axes.
+    #[must_use]
+    pub fn center(self, length: impl Into<Length>) -> Self {
+        let length = length.into();
+        self.center_x(length).center_y(length)
     }
 }
 
@@ -316,85 +411,85 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let state = tree.state.downcast_mut::<State<T>>();
-        let limits = limits.width(self.width).height(self.height);
+        let h_align = Alignment::from(self.horizontal_alignment);
+        let v_align = Alignment::from(self.vertical_alignment);
 
-        // Lay out the current child exactly once on entry. After this it
-        // stays frozen until the next swap (or forever, if no swap ever
-        // happens). Subsequent layout passes reuse the frozen node.
-        if state.current_layout.is_none() {
-            let mut current_element = (self.view)(&state.current_value);
-            let current_node = current_element.as_widget_mut().layout(
-                &mut state.current_tree,
-                renderer,
-                &limits,
-            );
-            state.current_layout = Some(current_node);
-        }
+        // Defer to [`layout::positioned`] for the standard
+        // width/height/max/padding/alignment plumbing (mirroring
+        // [`iced_widget::container`]'s Widget::layout). The only
+        // wrinkle: `positioned` uses the returned content node's size
+        // to drive padding.fit + resolve, and we want those to see the
+        // *max* of the current and the in-flight previous child — so
+        // the closure returns a wrapper node sized to `content_size`
+        // with the current child aligned inside it. The outer
+        // positioning pass then aligns that wrapper inside the resolved
+        // area; two levels of alignment with the same (h, v) collapses
+        // to aligning the current directly within the resolved area.
+        layout::positioned(
+            &limits.max_width(self.max_width).max_height(self.max_height),
+            self.width,
+            self.height,
+            self.padding,
+            |inner_limits| {
+                let inner_limits = inner_limits.loose();
 
-        // Fallback: if a swap happened before any layout pass had ever
-        // run on the prior current (so `current_layout` was still `None`
-        // when `diff` tried to promote it), lay the previous out now.
-        // After the first layout call this branch never fires again.
-        if state.previous_value.is_some()
-            && state.previous_layout.is_none()
-            && let Some(prev_value) = state.previous_value.clone()
-        {
-            let mut prev_element = (self.view)(&prev_value);
-            let prev_node = prev_element.as_widget_mut().layout(
-                &mut state.previous_tree,
-                renderer,
-                &limits,
-            );
-            state.previous_layout = Some(prev_node);
-        }
+                // Lay out the current child exactly once on entry.
+                // Subsequent layout passes reuse the frozen node.
+                if state.current_layout.is_none() {
+                    let mut current_element = (self.view)(&state.current_value);
+                    let node = current_element.as_widget_mut().layout(
+                        &mut state.current_tree,
+                        renderer,
+                        &inner_limits,
+                    );
+                    state.current_layout = Some(node);
+                }
 
-        let current_node = state
-            .current_layout
-            .as_ref()
-            .expect("current_layout was just set above");
-        let current_size = current_node.size();
+                // Fallback: if a swap happened before any layout pass
+                // had ever run on the prior current (so `current_layout`
+                // was still `None` when `diff` tried to promote it),
+                // lay the previous out now. After the first layout call
+                // this branch never fires again.
+                if state.previous_value.is_some()
+                    && state.previous_layout.is_none()
+                    && let Some(prev_value) = state.previous_value.clone()
+                {
+                    let mut prev_element = (self.view)(&prev_value);
+                    let node = prev_element.as_widget_mut().layout(
+                        &mut state.previous_tree,
+                        renderer,
+                        &inner_limits,
+                    );
+                    state.previous_layout = Some(node);
+                }
 
-        // Widget size has to fit BOTH children during the slide, otherwise
-        // the `with_layer` clip in `draw` trims the outgoing child to the
-        // smaller bounds. After the animation completes and we drop the
-        // previous, the widget snaps back to the current child's size.
-        let widget_size = match state.previous_layout.as_ref() {
-            Some(prev_node) => {
-                let prev_size = prev_node.size();
-                Size::new(
-                    current_size.width.max(prev_size.width),
-                    current_size.height.max(prev_size.height),
-                )
-            }
-            None => current_size,
-        };
+                let current_node = state
+                    .current_layout
+                    .as_ref()
+                    .expect("current_layout was just set above");
+                let current_size = current_node.size();
 
-        // Position the current child within the widget bounds.
-        //
-        // - Steady state (no previous, widget == current's size): top-left
-        //   of widget bounds. The parent's container places the widget,
-        //   our top-left lands wherever the parent puts us.
-        //
-        // - Mid-animation (widget == max(prev, cur)): center the current
-        //   within the larger widget bounds. Combined with a centering
-        //   parent, this places the current at the same absolute position
-        //   it'll occupy after the animation completes and the widget
-        //   snaps back to its own size — so there's no visible "juke" to
-        //   the final cross-axis (or main-axis) position when previous is
-        //   dropped. Without this, the current sits at top-left of the
-        //   max bounds during the slide and jumps to center on the last
-        //   frame.
-        let mut current_child = current_node.clone();
-        if state.previous_layout.is_some() {
-            current_child.move_to_mut(Point::ORIGIN);
-            current_child.align_mut(
-                Alignment::Center,
-                Alignment::Center,
-                widget_size,
-            );
-        }
+                // Content size = max of both children along each axis.
+                // In steady state this collapses to current_size.
+                let content_size = match state.previous_layout.as_ref() {
+                    Some(prev) => {
+                        let prev_size = prev.size();
+                        Size::new(
+                            current_size.width.max(prev_size.width),
+                            current_size.height.max(prev_size.height),
+                        )
+                    }
+                    None => current_size,
+                };
 
-        layout::Node::with_children(widget_size, vec![current_child])
+                // Wrap the current child in a `content_size`-sized
+                // parent, with the current aligned inside.
+                let mut current_inside = current_node.clone();
+                current_inside.align_mut(h_align, v_align, content_size);
+                layout::Node::with_children(content_size, vec![current_inside])
+            },
+            |content, size| content.align(h_align, v_align, size),
+        )
     }
 
     fn update(
@@ -440,8 +535,15 @@ where
         // footgun. Note that we use the un-translated layout — events fire
         // as if the current child were already at its final position. For a
         // 200ms animation this is imperceptible.
+        //
+        // Our layout tree is Outer → Wrapper → Current, so we have to
+        // step through the wrapper to reach the current child's layout.
         let mut current_element = (self.view)(&state.current_value);
-        if let Some(current_layout) = layout.children().next() {
+        if let Some(current_layout) = layout
+            .children()
+            .next()
+            .and_then(|wrapper| wrapper.children().next())
+        {
             current_element.as_widget_mut().update(
                 &mut state.current_tree,
                 event,
@@ -464,7 +566,11 @@ where
     ) -> mouse::Interaction {
         let state = tree.state.downcast_ref::<State<T>>();
         let current_element = (self.view)(&state.current_value);
-        let Some(current_layout) = layout.children().next() else {
+        let Some(current_layout) = layout
+            .children()
+            .next()
+            .and_then(|wrapper| wrapper.children().next())
+        else {
             return mouse::Interaction::None;
         };
         current_element.as_widget().mouse_interaction(
@@ -485,7 +591,11 @@ where
     ) {
         let state = tree.state.downcast_mut::<State<T>>();
         let mut current_element = (self.view)(&state.current_value);
-        let Some(current_layout) = layout.children().next() else {
+        let Some(current_layout) = layout
+            .children()
+            .next()
+            .and_then(|wrapper| wrapper.children().next())
+        else {
             return;
         };
         current_element.as_widget_mut().operate(
@@ -507,8 +617,25 @@ where
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<T>>();
-        let bounds = layout.bounds();
-        let Some(current_layout) = layout.children().next() else {
+        // Content area = outer bounds minus padding. Unlike the
+        // wrapper's bounds (which is `max(prev, cur)` and can be much
+        // smaller than the widget itself under Fill sizing), this
+        // captures the *full region* within which the slide runs. It
+        // drives both the slide displacement — so that a 1-line text in
+        // a 1000-tall widget travels 1000pt rather than 22pt — and the
+        // clip rect, so sliding children fill the whole widget.
+        let outer_bounds = layout.bounds();
+        let content_area = Rectangle {
+            x: outer_bounds.x + self.padding.left,
+            y: outer_bounds.y + self.padding.top,
+            width: (outer_bounds.width - self.padding.x()).max(0.0),
+            height: (outer_bounds.height - self.padding.y()).max(0.0),
+        };
+        // Outer → Wrapper → Current navigation.
+        let Some(wrapper_layout) = layout.children().next() else {
+            return;
+        };
+        let Some(current_layout) = wrapper_layout.children().next() else {
             return;
         };
 
@@ -523,30 +650,37 @@ where
             state.previous_value.is_some() && state.previous_layout.is_some();
 
         let (current_offset, previous_offset) = if has_previous {
-            self.direction.offsets(bounds.size(), progress)
+            self.direction.offsets(content_area.size(), progress)
         } else {
             (Vector::ZERO, Vector::ZERO)
         };
 
-        renderer.with_layer(bounds, |renderer| {
-            // Draw the outgoing child first so the incoming child paints on
-            // top of it at the seam.
+        // Clip to the content area so sliding children don't bleed into
+        // the padding region or adjacent siblings.
+        renderer.with_layer(content_area, |renderer| {
+            // Draw the outgoing child first so the incoming child paints
+            // on top of it at the seam.
             if has_previous
                 && let Some(prev_value) = state.previous_value.as_ref()
                 && let Some(prev_node) = state.previous_layout.as_ref()
             {
                 let prev_element = (self.view)(prev_value);
-                // Position the frozen previous layout centered within the
-                // widget's max bounds — same idea as the current child in
-                // `layout()`. This keeps the previous at the same absolute
-                // position it had pre-swap (assuming a centering parent),
-                // so there's no juke at the moment of the swap either.
-                let prev_size = prev_node.size();
-                let prev_origin = Vector::new(
-                    bounds.x + (bounds.width - prev_size.width) / 2.0,
-                    bounds.y + (bounds.height - prev_size.height) / 2.0,
+                // Position the frozen previous aligned within the full
+                // content area (not within the wrapper). For same
+                // alignment, this matches the current child's canonical
+                // absolute position exactly — so the two children share
+                // the same starting/ending reference, and they both
+                // travel the full content-area extent.
+                let mut prev_positioned = prev_node.clone();
+                prev_positioned.align_mut(
+                    Alignment::from(self.horizontal_alignment),
+                    Alignment::from(self.vertical_alignment),
+                    content_area.size(),
                 );
-                let prev_layout = Layout::with_offset(prev_origin, prev_node);
+                let prev_layout = Layout::with_offset(
+                    Vector::new(content_area.x, content_area.y),
+                    &prev_positioned,
+                );
                 renderer.with_translation(previous_offset, |renderer| {
                     prev_element.as_widget().draw(
                         &state.previous_tree,
@@ -589,7 +723,10 @@ where
         // `self.overlay_element`, which lives `'b`).
         self.overlay_element = Some((self.view)(&state.current_value));
         let element = self.overlay_element.as_mut()?;
-        let current_layout = layout.children().next()?;
+        let current_layout = layout
+            .children()
+            .next()
+            .and_then(|wrapper| wrapper.children().next())?;
         element.as_widget_mut().overlay(
             &mut state.current_tree,
             current_layout,

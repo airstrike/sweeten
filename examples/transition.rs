@@ -73,13 +73,13 @@ impl App {
 
         let banner =
             transition(phrase, |s: &String| text(s.clone()).size(22).into())
+                .height(60)
                 .direction(self.direction)
+                .align_x(Center)
+                .align_y(Center)
                 .width(Fill);
 
-        let banner_slot = center(banner)
-            .padding(2)
-            .height(60)
-            .style(container::bordered_box);
+        let banner_slot = container(banner).style(container::bordered_box);
 
         let directions = row([
             Direction::Up,
