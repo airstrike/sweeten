@@ -11,6 +11,7 @@ use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
 use crate::widget::tile_grid::{self, TileGrid};
 use crate::widget::toggler::{self, Toggler};
+use crate::widget::transition::Transition;
 
 use std::borrow::Borrow;
 
@@ -173,4 +174,22 @@ where
     Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
+}
+
+/// Creates a new [`Transition`] showing the given `value`, with `view` as the
+/// recipe for materializing an [`Element`] from any value of type `T`.
+///
+/// Whenever `value` changes between frames (as detected by [`PartialEq`]),
+/// the widget animates a slide transition between the previous and new
+/// content. The closure must produce an [`Element`] of lifetime `'a` — it
+/// cannot borrow from its `&T` argument directly.
+pub fn transition<'a, T, Message, Theme, Renderer>(
+    value: T,
+    view: impl Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a,
+) -> Transition<'a, T, Message, Theme, Renderer>
+where
+    T: Clone + PartialEq + 'static,
+    Renderer: core::Renderer,
+{
+    Transition::new(value, view)
 }

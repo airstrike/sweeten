@@ -90,6 +90,23 @@ column(items.iter().map(|s| s.as_str().into()))
     .into()
 ```
 
+### `Transition`
+
+A single-slot container that animates a slide transition whenever its child
+value changes — like Compose's `AnimatedContent` or Android's `ViewSwitcher`.
+The new content slides into view from a configurable [`Direction`] while the
+previous content slides out the opposite edge.
+
+```rust
+use sweeten::widget::transition::{self, Direction};
+
+transition::transition(self.message.clone(), |s: &String| {
+    text(s.clone()).size(22).into()
+})
+.direction(Direction::Up)
+.into()
+```
+
 ## Examples
 
 For complete examples, see [`examples/`](examples/) or run an example like this:

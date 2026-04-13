@@ -49,6 +49,8 @@
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
 //! - [`toggler`] — A toggler switch with smooth animation between states.
+//! - [`transition`] — A single-slot container that animates a slide
+//!   transition whenever its child value changes.
 //!
 //! ## Usage
 //!
@@ -71,6 +73,7 @@
 //! [`row`]: mod@widget::row
 //! [`text_input`]: mod@widget::text_input
 //! [`toggler`]: mod@widget::toggler
+//! [`transition`]: mod@widget::transition
 //! [`Point`]: crate::core::Point
 //! [button_on_focus]: widget::button::Button::on_focus
 //! [button_on_blur]: widget::button::Button::on_blur
