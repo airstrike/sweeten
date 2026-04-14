@@ -356,6 +356,8 @@ where
             ..placeholder_text
         });
 
+        state.reveal_cursor(text_bounds.width, value);
+
         if let Some(icon) = &self.icon {
             let mut content = [0; 4];
 
@@ -444,8 +446,8 @@ where
         };
 
         let text = state.value.raw();
-        let (cursor_x, scroll_offset) =
-            measure_cursor_and_scroll_offset(text, text_bounds, caret_index);
+        let caret_x = cursor_x(text, caret_index);
+        let scroll_offset = state.scroll_offset;
 
         let alignment_offset = alignment_offset(
             text_bounds.width,
@@ -453,7 +455,7 @@ where
             self.alignment,
         );
 
-        let x = (text_bounds.x + cursor_x).floor() - scroll_offset
+        let x = (text_bounds.x + caret_x).floor() - scroll_offset
             + alignment_offset;
 
         InputMethod::Enabled {
@@ -528,19 +530,21 @@ where
 
         let text = value.to_string();
 
-        let (cursor, offset, is_selecting) = if let Some(focus) = state
+        let offset = if state.is_focused() {
+            state.scroll_offset
+        } else {
+            0.0
+        };
+
+        let (cursor, is_selecting) = if let Some(focus) = state
             .is_focused
             .as_ref()
             .filter(|focus| focus.is_window_focused)
         {
             match state.cursor.state(value) {
                 cursor::State::Index(position) => {
-                    let (text_value_width, offset) =
-                        measure_cursor_and_scroll_offset(
-                            state.value.raw(),
-                            text_bounds,
-                            position,
-                        );
+                    let text_value_width =
+                        cursor_x(state.value.raw(), position);
 
                     let is_cursor_visible = !is_disabled
                         && ((focus.now - focus.updated_at).as_millis()
@@ -572,25 +576,14 @@ where
                         None
                     };
 
-                    (cursor, offset, false)
+                    (cursor, false)
                 }
                 cursor::State::Selection { start, end } => {
                     let left = start.min(end);
                     let right = end.max(start);
 
-                    let (left_position, left_offset) =
-                        measure_cursor_and_scroll_offset(
-                            state.value.raw(),
-                            text_bounds,
-                            left,
-                        );
-
-                    let (right_position, right_offset) =
-                        measure_cursor_and_scroll_offset(
-                            state.value.raw(),
-                            text_bounds,
-                            right,
-                        );
+                    let left_position = cursor_x(state.value.raw(), left);
+                    let right_position = cursor_x(state.value.raw(), right);
 
                     let width = right_position - left_position;
 
@@ -607,17 +600,12 @@ where
                             },
                             style.selection,
                         )),
-                        if end == right {
-                            right_offset
-                        } else {
-                            left_offset
-                        },
                         true,
                     )
                 }
             }
         } else {
-            (None, 0.0, false)
+            (None, false)
         };
 
         let draw = |renderer: &mut Renderer, viewport| {
@@ -739,7 +727,8 @@ where
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        let update_cache = |state, value| {
+        let update_cache = |state: &mut State<Renderer::Paragraph>,
+                            value: &Value| {
             replace_paragraph(
                 renderer,
                 state,
@@ -749,6 +738,9 @@ where
                 self.size,
                 self.line_height,
             );
+
+            let text_bounds = layout.children().next().unwrap().bounds();
+            state.reveal_cursor(text_bounds.width, value);
         };
 
         // Detect focus changes from operations (e.g., Tab key)
@@ -880,6 +872,9 @@ where
                         }
                     }
 
+                    state
+                        .reveal_cursor(text_layout.bounds().width, &self.value);
+
                     state.last_click = Some(click);
 
                     if cursor_before != state.cursor {
@@ -950,6 +945,9 @@ where
                             }
                         }
                     }
+
+                    state
+                        .reveal_cursor(text_layout.bounds().width, &self.value);
 
                     if let Some(focus) = &mut state.is_focused {
                         focus.updated_at = Instant::now();
@@ -1067,6 +1065,13 @@ where
 
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
+
+                                let text_bounds =
+                                    layout.children().next().unwrap().bounds();
+                                state.reveal_cursor(
+                                    text_bounds.width,
+                                    &self.value,
+                                );
 
                                 shell.request_redraw();
                             }
@@ -1193,6 +1198,13 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
+                                let text_bounds =
+                                    layout.children().next().unwrap().bounds();
+                                state.reveal_cursor(
+                                    text_bounds.width,
+                                    &self.value,
+                                );
+
                                 shell.request_redraw();
                             }
 
@@ -1212,6 +1224,13 @@ where
 
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
+
+                                let text_bounds =
+                                    layout.children().next().unwrap().bounds();
+                                state.reveal_cursor(
+                                    text_bounds.width,
+                                    &self.value,
+                                );
 
                                 shell.request_redraw();
                             }
@@ -1251,6 +1270,13 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
+                                let text_bounds =
+                                    layout.children().next().unwrap().bounds();
+                                state.reveal_cursor(
+                                    text_bounds.width,
+                                    &self.value,
+                                );
+
                                 shell.request_redraw();
                             }
 
@@ -1288,6 +1314,13 @@ where
 
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
+
+                                let text_bounds =
+                                    layout.children().next().unwrap().bounds();
+                                state.reveal_cursor(
+                                    text_bounds.width,
+                                    &self.value,
+                                );
 
                                 shell.request_redraw();
                             }
@@ -1569,7 +1602,7 @@ pub struct State<P: text::Paragraph> {
     last_click: Option<mouse::Click>,
     cursor: Cursor,
     keyboard_modifiers: keyboard::Modifiers,
-    // TODO: Add stateful horizontal scrolling offset
+    scroll_offset: f32,
 }
 
 fn state<Renderer: text::Renderer>(
@@ -1655,6 +1688,40 @@ impl<P: text::Paragraph> State<P> {
     pub fn select_range(&mut self, start: usize, end: usize) {
         self.cursor.select_range(start, end);
     }
+
+    fn reveal_cursor(&mut self, text_bounds_width: f32, value: &Value) {
+        if !self.is_focused() {
+            self.scroll_offset = 0.0;
+            return;
+        }
+
+        let paragraph = self.value.raw();
+        let min_width = paragraph.min_width();
+
+        if min_width <= text_bounds_width {
+            self.scroll_offset = 0.0;
+            return;
+        }
+
+        let focus_position = match self.cursor.state(value) {
+            cursor::State::Index(i) => i,
+            cursor::State::Selection { end, .. } => end,
+        };
+
+        let cursor_x = cursor_x(paragraph, focus_position);
+        let visible_right = self.scroll_offset + text_bounds_width;
+
+        if cursor_x + CURSOR_RIGHT_PADDING > visible_right {
+            self.scroll_offset =
+                cursor_x + CURSOR_RIGHT_PADDING - text_bounds_width;
+        } else if cursor_x < self.scroll_offset {
+            self.scroll_offset = cursor_x;
+        }
+
+        let max_offset =
+            (min_width + CURSOR_RIGHT_PADDING - text_bounds_width).max(0.0);
+        self.scroll_offset = self.scroll_offset.clamp(0.0, max_offset);
+    }
 }
 
 impl<P: text::Paragraph> operation::Focusable for State<P> {
@@ -1702,43 +1769,25 @@ impl<P: text::Paragraph> operation::TextInput for State<P> {
 }
 
 fn offset<P: text::Paragraph>(
-    text_bounds: Rectangle,
-    value: &Value,
+    _text_bounds: Rectangle,
+    _value: &Value,
     state: &State<P>,
 ) -> f32 {
     if state.is_focused() {
-        let cursor = state.cursor();
-
-        let focus_position = match cursor.state(value) {
-            cursor::State::Index(i) => i,
-            cursor::State::Selection { end, .. } => end,
-        };
-
-        let (_, offset) = measure_cursor_and_scroll_offset(
-            state.value.raw(),
-            text_bounds,
-            focus_position,
-        );
-
-        offset
+        state.scroll_offset
     } else {
         0.0
     }
 }
 
-fn measure_cursor_and_scroll_offset(
-    paragraph: &impl text::Paragraph,
-    text_bounds: Rectangle,
-    cursor_index: usize,
-) -> (f32, f32) {
-    let grapheme_position = paragraph
+fn cursor_x(paragraph: &impl text::Paragraph, cursor_index: usize) -> f32 {
+    paragraph
         .grapheme_position(0, cursor_index)
-        .unwrap_or(Point::ORIGIN);
-
-    let offset = ((grapheme_position.x + 5.0) - text_bounds.width).max(0.0);
-
-    (grapheme_position.x, offset)
+        .unwrap_or(Point::ORIGIN)
+        .x
 }
+
+const CURSOR_RIGHT_PADDING: f32 = 5.0;
 
 /// Computes the position of the text cursor at the given X coordinate of
 /// a [`TextInput`].
