@@ -46,6 +46,8 @@
 //!   disabling items.
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
+//! - [`table`] — A grid-like visual representation of data distributed in
+//!   columns and rows.
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
 //! - [`toggler`] — A toggler switch with smooth animation between states.
@@ -71,6 +73,7 @@
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`row`]: mod@widget::row
+//! [`table`]: mod@widget::table
 //! [`text_input`]: mod@widget::text_input
 //! [`toggler`]: mod@widget::toggler
 //! [`transition`]: mod@widget::transition

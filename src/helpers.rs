@@ -8,6 +8,7 @@ use crate::widget::button::{self, Button};
 use crate::widget::column::{self, Column};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
+use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
 use crate::widget::tile_grid::{self, TileGrid};
 use crate::widget::toggler::{self, Toggler};
@@ -158,6 +159,25 @@ where
     Renderer: core::Renderer,
 {
     TileGrid::new(state, view)
+}
+
+/// Creates a new [`Table`] with the given columns and rows.
+///
+/// Columns can be created using [`table::column`], while rows can be any
+/// iterator over some data type `T`.
+pub fn table<'a, 'b, T, Message, Theme, Renderer>(
+    columns: impl IntoIterator<
+        Item = table::Column<'a, 'b, T, Message, Theme, Renderer>,
+    >,
+    rows: impl IntoIterator<Item = T>,
+) -> Table<'a, Message, Theme, Renderer>
+where
+    T: Clone,
+    Message: 'a,
+    Theme: table::Catalog,
+    Renderer: core::Renderer,
+{
+    Table::new(columns, rows)
 }
 
 /// Creates a new [`Toggler`].
