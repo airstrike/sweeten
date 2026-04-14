@@ -14,7 +14,7 @@ use crate::core::renderer;
 use crate::core::widget;
 use crate::core::{
     Alignment, Background, Element, Layout, Length, Pixels, Rectangle, Size,
-    Widget,
+    Vector, Widget,
 };
 
 /// Creates a new [`Table`] with the given columns and rows.
@@ -73,6 +73,8 @@ where
     separator_x: f32,
     separator_y: f32,
     border: f32,
+    has_header: bool,
+    sticky_header: bool,
     class: Theme::Class<'a>,
 }
 
@@ -139,7 +141,9 @@ where
         // the table starts with data at row 0. Otherwise, render the
         // header row and fill any `None` slots with a zero-sized Space so
         // the grid stays rectangular.
-        if headers.iter().any(Option::is_some) {
+        let has_header = headers.iter().any(Option::is_some);
+
+        if has_header {
             for header in headers {
                 cells.push(
                     header.unwrap_or_else(|| iced_widget::Space::new().into()),
@@ -168,6 +172,8 @@ where
             separator_x: 1.0,
             separator_y: 1.0,
             border: 0.0,
+            has_header,
+            sticky_header: false,
             class: Theme::default(),
         }
     }
@@ -223,6 +229,22 @@ where
     /// space). Setting it to `0.0` — the default — disables the outline.
     pub fn border(mut self, border: impl Into<Pixels>) -> Self {
         self.border = border.into().0;
+        self
+    }
+
+    /// Makes the header row stay pinned to the top of the visible area
+    /// as the [`Table`] is scrolled inside a parent scrollable.
+    ///
+    /// When enabled and the table has a header row, the header is drawn
+    /// translated so it tracks `viewport.y`, with a background fill
+    /// ([`Style::sticky_background`]) so scrolling data rows don't show
+    /// through. The sticky translation is capped so the header never
+    /// floats outside the table's vertical bounds — once the table is
+    /// scrolled out the bottom, the header scrolls out with it.
+    ///
+    /// Has no effect on tables built entirely from headerless columns.
+    pub fn sticky_header(mut self, sticky: bool) -> Self {
+        self.sticky_header = sticky;
         self
     }
 }
@@ -609,16 +631,53 @@ where
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        for ((cell, state), layout) in
-            self.cells.iter().zip(&tree.children).zip(layout.children())
-        {
-            cell.as_widget()
-                .draw(state, renderer, theme, style, layout, cursor, viewport);
-        }
-
         let bounds = layout.bounds();
         let metrics = tree.state.downcast_ref::<Metrics>();
-        let style = theme.style(&self.class);
+        let table_style = theme.style(&self.class);
+        let num_columns = self.columns.len();
+
+        // How far past the table's top the user has scrolled, in the
+        // table's own content coordinates. Inside an iced `scrollable`,
+        // `viewport.y` is already adjusted into content space, so this
+        // delta is the scroll amount. We cap it at the distance between
+        // the header's natural position and the bottom of the table so
+        // the sticky header can't float past the last row.
+        let shift = if self.sticky_header
+            && self.has_header
+            && !metrics.rows.is_empty()
+        {
+            let raw = (viewport.y - bounds.y).max(0.0);
+            let header_height = metrics.rows[0];
+            let max =
+                (bounds.height - header_height - 2.0 * self.padding_y).max(0.0);
+            raw.min(max)
+        } else {
+            0.0
+        };
+        let sticky_active = shift > 0.0;
+
+        for (i, ((cell, state), cell_layout)) in self
+            .cells
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .enumerate()
+        {
+            // If the sticky overlay is going to redraw the header row,
+            // skip it here so it isn't drawn twice.
+            if sticky_active && i < num_columns {
+                continue;
+            }
+            cell.as_widget().draw(
+                state,
+                renderer,
+                theme,
+                style,
+                cell_layout,
+                cursor,
+                viewport,
+            );
+        }
 
         if self.separator_x > 0.0 {
             let mut x = self.padding_x;
@@ -639,7 +698,7 @@ where
                         snap: true,
                         ..renderer::Quad::default()
                     },
-                    style.separator_x,
+                    table_style.separator_x,
                 );
 
                 x += self.separator_x + self.padding_x;
@@ -664,11 +723,187 @@ where
                         snap: true,
                         ..renderer::Quad::default()
                     },
-                    style.separator_y,
+                    table_style.separator_y,
                 );
 
                 y += self.separator_y + self.padding_y;
             }
+        }
+
+        if sticky_active {
+            let header_height = metrics.rows[0];
+            let strip_height = header_height + 2.0 * self.padding_y;
+            let strip_y = bounds.y + shift;
+
+            let strip_rect = Rectangle {
+                x: bounds.x,
+                y: strip_y,
+                // Include the separator below the strip inside the clip.
+                height: strip_height + self.separator_y,
+                width: bounds.width,
+            };
+
+            // `with_layer` pushes a fresh layer, which is rendered after
+            // the main content layer — without this, iced batches all
+            // quads below all text within a layer, so our background
+            // fill would end up behind the data-row text it's meant to
+            // occlude. The clip to `strip_rect` also prevents any
+            // overflow from the translated header from bleeding into
+            // the rest of the table.
+            renderer.with_layer(strip_rect, |renderer| {
+                // Opaque background so data rows scrolling past don't
+                // show through the translated header cells.
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: bounds.x,
+                            y: strip_y,
+                            width: bounds.width,
+                            height: strip_height,
+                        },
+                        snap: true,
+                        ..renderer::Quad::default()
+                    },
+                    table_style.sticky_background,
+                );
+
+                // Vertical separators drawn again inside the sticky
+                // strip, since the background fill above just covered
+                // the ones belonging to the main draw pass.
+                if self.separator_x > 0.0 {
+                    let mut x = self.padding_x;
+
+                    for width in &metrics.columns
+                        [..metrics.columns.len().saturating_sub(1)]
+                    {
+                        x += width + self.padding_x;
+
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x: bounds.x + x,
+                                    y: strip_y,
+                                    width: self.separator_x,
+                                    height: strip_height,
+                                },
+                                snap: true,
+                                ..renderer::Quad::default()
+                            },
+                            table_style.separator_x,
+                        );
+
+                        x += self.separator_x + self.padding_x;
+                    }
+                }
+
+                // Header cells, translated by `shift` so they land at
+                // the top of the visible viewport (or against the
+                // bottom cap). We also shift the `viewport` we pass
+                // down by `-shift` so that children (e.g. `text`) which
+                // use it as a clip rectangle (see `core::widget::text`)
+                // compute their clip relative to the translated draw
+                // position — otherwise text ascenders land above the
+                // clip top and get cut off.
+                let sticky_viewport = Rectangle {
+                    y: viewport.y - shift,
+                    ..*viewport
+                };
+                renderer.with_translation(
+                    Vector::new(0.0, shift),
+                    |renderer| {
+                        for (i, ((cell, state), cell_layout)) in self
+                            .cells
+                            .iter()
+                            .zip(&tree.children)
+                            .zip(layout.children())
+                            .enumerate()
+                        {
+                            if i >= num_columns {
+                                break;
+                            }
+                            cell.as_widget().draw(
+                                state,
+                                renderer,
+                                theme,
+                                style,
+                                cell_layout,
+                                cursor,
+                                &sticky_viewport,
+                            );
+                        }
+                    },
+                );
+
+                // Horizontal separator directly below the sticky strip.
+                if self.separator_y > 0.0 {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x,
+                                y: strip_y + strip_height,
+                                width: bounds.width,
+                                height: self.separator_y,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        table_style.separator_y,
+                    );
+                }
+
+                // Border segments pinned with the sticky strip. The
+                // main border pass draws at `bounds.y` / `bounds.x`
+                // etc., so the top edge scrolls out of view and the
+                // left/right edges get painted over by the background
+                // fill inside the strip. Redraw the missing pieces
+                // here so the visible table frame stays continuous.
+                if self.border > 0.0 {
+                    let frame_height = strip_height + self.separator_y;
+
+                    // Top edge pinned at the top of the strip.
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x,
+                                y: strip_y,
+                                width: bounds.width,
+                                height: self.border,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        table_style.border,
+                    );
+                    // Left segment through the strip.
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x,
+                                y: strip_y,
+                                width: self.border,
+                                height: frame_height,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        table_style.border,
+                    );
+                    // Right segment through the strip.
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x + bounds.width - self.border,
+                                y: strip_y,
+                                width: self.border,
+                                height: frame_height,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        table_style.border,
+                    );
+                }
+            });
         }
 
         if self.border > 0.0 {
@@ -684,7 +919,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.border,
+                table_style.border,
             );
             // Bottom edge
             renderer.fill_quad(
@@ -698,7 +933,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.border,
+                table_style.border,
             );
             // Left edge
             renderer.fill_quad(
@@ -712,7 +947,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.border,
+                table_style.border,
             );
             // Right edge
             renderer.fill_quad(
@@ -726,7 +961,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.border,
+                table_style.border,
             );
         }
     }
@@ -859,6 +1094,10 @@ pub struct Style {
     pub separator_y: Background,
     /// The background color of the outline drawn around the entire table.
     pub border: Background,
+    /// The background fill drawn behind the sticky header row, so that
+    /// scrolling data rows don't show through. Only used when
+    /// [`Table::sticky_header`] is enabled.
+    pub sticky_background: Background,
 }
 
 /// The theme catalog of a [`Table`].
@@ -903,5 +1142,6 @@ pub fn default(theme: &crate::Theme) -> Style {
         separator_x: separator,
         separator_y: separator,
         border: separator,
+        sticky_background: palette.background.base.color.into(),
     }
 }

@@ -29,6 +29,7 @@ struct App {
     separator: (f32, f32),
     border: f32,
     show_header: bool,
+    sticky_header: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ enum Message {
     SeparatorChanged(f32, f32),
     BorderChanged(f32),
     ShowHeaderToggled(bool),
+    StickyHeaderToggled(bool),
 }
 
 impl App {
@@ -47,6 +49,7 @@ impl App {
             separator: (1.0, 1.0),
             border: 0.0,
             show_header: true,
+            sticky_header: true,
         }
     }
 
@@ -56,6 +59,9 @@ impl App {
             Message::SeparatorChanged(x, y) => self.separator = (x, y),
             Message::BorderChanged(width) => self.border = width,
             Message::ShowHeaderToggled(show) => self.show_header = show,
+            Message::StickyHeaderToggled(sticky) => {
+                self.sticky_header = sticky;
+            }
         }
     }
 
@@ -114,6 +120,7 @@ impl App {
                 .separator_x(self.separator.0)
                 .separator_y(self.separator.1)
                 .border(self.border)
+                .sticky_header(self.sticky_header)
         };
 
         let controls = {
@@ -156,6 +163,9 @@ impl App {
                 checkbox(self.show_header)
                     .label("Show header")
                     .on_toggle(Message::ShowHeaderToggled),
+                checkbox(self.sticky_header)
+                    .label("Sticky header")
+                    .on_toggle(Message::StickyHeaderToggled),
                 labeled_slider(
                     "Padding",
                     0.0..=30.0,
