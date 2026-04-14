@@ -363,6 +363,55 @@ where
 
                 row_factor = row_factor.max(size.height.fill_factor());
 
+                // Still measure the cell at its intrinsic size so it
+                // contributes to `metrics.rows[row]` AND
+                // `metrics.columns[column]`. Without this, a row or
+                // column made entirely of width-fluid cells (e.g. a
+                // table of `container(text).width(Fill).height(Fill)`
+                // cells that want their background fill to extend from
+                // separator to separator) leaves the corresponding
+                // metric at 0. Pass 2 refuses to update row heights for
+                // fill-height cells, and a Shrink column of Fill cells
+                // reads `metrics.columns[column]` as its pass-2 max
+                // width — so without this floor the cell compresses to
+                // zero width. Shrink-shrink limits flip the compression
+                // flag (see `iced_core::layout::Limits::resolve`) which
+                // makes Fill-width/height widgets fall through to their
+                // intrinsic size instead of the limits max, giving us
+                // true natural dimensions without fighting the fill
+                // width/height that pass 3 will later apply.
+                let natural_limits = layout::Limits::new(
+                    Size::ZERO,
+                    Size::new(
+                        (available.width - x).max(0.0),
+                        (available.height - y).max(0.0),
+                    ),
+                )
+                .width(Length::Shrink)
+                .height(Length::Shrink);
+                let natural = cell.as_widget_mut().layout(
+                    state,
+                    renderer,
+                    &natural_limits,
+                );
+                let natural_size = natural.size();
+                metrics.rows[row] = metrics.rows[row].max(natural_size.height);
+                // Only write the column metric when the column itself is
+                // non-fluid (width_factor == 0). Fluid columns have their
+                // widths resolved by pass 2's fluid-space allocation
+                // (`width_unit * factor`), and overwriting that with the
+                // intrinsic width would risk pushing fluid columns past
+                // the table's bounds when the text is wider than the
+                // allocated share. For non-fluid (Shrink/Fixed) columns
+                // whose cells report `size.width.is_fill() == true`,
+                // pass 2 reads `metrics.columns[column]` as the cell's
+                // max width — so without this write the column would
+                // collapse to zero.
+                if width_factor == 0 {
+                    metrics.columns[column] =
+                        metrics.columns[column].max(natural_size.width);
+                }
+
                 continue;
             }
 
