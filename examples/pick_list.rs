@@ -44,10 +44,11 @@ impl App {
 
     fn view(&self) -> Element<'_, Message> {
         let pick = pick_list(
-            &Language::ALL[..],
             self.selected_language,
-            Message::Pick,
+            &Language::ALL[..],
+            Language::to_string,
         )
+        .on_select(Message::Pick)
         .disabled(|languages: &[Language]| {
             languages
                 .iter()

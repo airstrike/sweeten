@@ -16,8 +16,6 @@ use crate::core::{
 use crate::core::{Element, Shell, Widget};
 use crate::scrollable::{self, Scrollable};
 
-// --- sweeten: disabled items support ---
-
 /// A list of selectable options.
 pub struct Menu<
     'a,
@@ -33,15 +31,16 @@ pub struct Menu<
 {
     state: &'a mut State,
     options: &'a [T],
-    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
+    to_string: &'a dyn Fn(&T) -> String,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
+    disabled: Option<Vec<bool>>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
     width: f32,
     padding: Padding,
     text_size: Option<Pixels>,
-    text_line_height: text::LineHeight,
-    text_shaping: text::Shaping,
+    line_height: text::LineHeight,
+    shaping: text::Shaping,
     ellipsis: text::Ellipsis,
     font: Option<Renderer::Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
@@ -50,7 +49,7 @@ pub struct Menu<
 impl<'a, 'b, T, Message, Theme, Renderer>
     Menu<'a, 'b, T, Message, Theme, Renderer>
 where
-    T: ToString + Clone,
+    T: Clone,
     Message: 'a,
     Theme: Catalog + 'a,
     Renderer: text::Renderer + 'a,
@@ -58,10 +57,12 @@ where
 {
     /// Creates a new [`Menu`] with the given [`State`], a list of options,
     /// the message to produced when an option is selected, and its [`Style`].
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state: &'a mut State,
         options: &'a [T],
         hovered_option: &'a mut Option<usize>,
+        to_string: &'a dyn Fn(&T) -> String,
         on_selected: impl FnMut(T) -> Message + 'a,
         disabled: Option<Vec<bool>>,
         on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
@@ -70,15 +71,16 @@ where
         Menu {
             state,
             options,
-            disabled,
             hovered_option,
+            to_string,
             on_selected: Box::new(on_selected),
+            disabled,
             on_option_hovered,
             width: 0.0,
             padding: Padding::ZERO,
             text_size: None,
-            text_line_height: text::LineHeight::default(),
-            text_shaping: text::Shaping::default(),
+            line_height: text::LineHeight::default(),
+            shaping: text::Shaping::default(),
             ellipsis: text::Ellipsis::default(),
             font: None,
             class,
@@ -104,17 +106,17 @@ where
     }
 
     /// Sets the text [`text::LineHeight`] of the [`Menu`].
-    pub fn text_line_height(
+    pub fn line_height(
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.text_line_height = line_height.into();
+        self.line_height = line_height.into();
         self
     }
 
     /// Sets the [`text::Shaping`] strategy of the [`Menu`].
-    pub fn text_shaping(mut self, shaping: text::Shaping) -> Self {
-        self.text_shaping = shaping;
+    pub fn shaping(mut self, shaping: text::Shaping) -> Self {
+        self.shaping = shaping;
         self
     }
 
@@ -212,35 +214,37 @@ where
         menu_height: Length,
     ) -> Self
     where
-        T: Clone + ToString,
+        T: Clone,
     {
         let Menu {
             state,
             options,
-            disabled,
             hovered_option,
+            to_string,
             on_selected,
+            disabled,
             on_option_hovered,
             width,
             padding,
             font,
             text_size,
-            text_line_height,
-            text_shaping,
+            line_height,
+            shaping,
             ellipsis,
             class,
         } = menu;
 
         let list = Scrollable::new(List {
             options,
-            disabled,
             hovered_option,
+            to_string,
             on_selected,
+            disabled,
             on_option_hovered,
             font,
             text_size,
-            text_line_height,
-            text_shaping,
+            line_height,
+            shaping,
             ellipsis,
             padding,
             class,
@@ -358,14 +362,15 @@ where
     Renderer: text::Renderer,
 {
     options: &'a [T],
-    disabled: Option<Vec<bool>>,
     hovered_option: &'a mut Option<usize>,
+    to_string: &'a dyn Fn(&T) -> String,
     on_selected: Box<dyn FnMut(T) -> Message + 'a>,
+    disabled: Option<Vec<bool>>,
     on_option_hovered: Option<&'a dyn Fn(T) -> Message>,
     padding: Padding,
     text_size: Option<Pixels>,
-    text_line_height: text::LineHeight,
-    text_shaping: text::Shaping,
+    line_height: text::LineHeight,
+    shaping: text::Shaping,
     ellipsis: text::Ellipsis,
     font: Option<Renderer::Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
@@ -392,7 +397,7 @@ struct ListState {
 impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for List<'_, '_, T, Message, Theme, Renderer>
 where
-    T: Clone + ToString,
+    T: Clone,
     Theme: Catalog,
     Renderer: text::Renderer,
 {
@@ -422,7 +427,7 @@ where
         let text_size =
             self.text_size.unwrap_or_else(|| renderer.default_size());
 
-        let text_line_height = self.text_line_height.to_absolute(text_size);
+        let text_line_height = self.line_height.to_absolute(text_size);
 
         let size = {
             let intrinsic = Size::new(
@@ -467,7 +472,7 @@ where
                         .unwrap_or_else(|| renderer.default_size());
 
                     let option_height =
-                        f32::from(self.text_line_height.to_absolute(text_size))
+                        f32::from(self.line_height.to_absolute(text_size))
                             + self.padding.y();
 
                     let new_hovered_option =
@@ -500,7 +505,7 @@ where
                         .unwrap_or_else(|| renderer.default_size());
 
                     let option_height =
-                        f32::from(self.text_line_height.to_absolute(text_size))
+                        f32::from(self.line_height.to_absolute(text_size))
                             + self.padding.y();
 
                     let index = (cursor_position.y / option_height) as usize;
@@ -542,7 +547,7 @@ where
                 self.text_size.unwrap_or_else(|| renderer.default_size());
 
             let option_height =
-                f32::from(self.text_line_height.to_absolute(text_size))
+                f32::from(self.line_height.to_absolute(text_size))
                     + self.padding.y();
 
             let hovered_option = (cursor_position.y / option_height) as usize;
@@ -570,9 +575,8 @@ where
 
         let text_size =
             self.text_size.unwrap_or_else(|| renderer.default_size());
-        let option_height =
-            f32::from(self.text_line_height.to_absolute(text_size))
-                + self.padding.y();
+        let option_height = f32::from(self.line_height.to_absolute(text_size))
+            + self.padding.y();
 
         let offset = viewport.y - bounds.y;
         let start = (offset / option_height) as usize;
@@ -622,17 +626,17 @@ where
 
             renderer.fill_text(
                 Text {
-                    content: option.to_string(),
+                    content: (self.to_string)(option),
                     bounds: Size::new(
                         bounds.width - self.padding.x(),
                         bounds.height,
                     ),
                     size: text_size,
-                    line_height: self.text_line_height,
+                    line_height: self.line_height,
                     font: self.font.unwrap_or_else(|| renderer.default_font()),
                     align_x: text::Alignment::Default,
                     align_y: alignment::Vertical::Center,
-                    shaping: self.text_shaping,
+                    shaping: self.shaping,
                     wrapping: text::Wrapping::None,
                     ellipsis: self.ellipsis,
                     letter_spacing: Default::default(),
@@ -659,7 +663,7 @@ impl<'a, 'b, T, Message, Theme, Renderer>
     From<List<'a, 'b, T, Message, Theme, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
-    T: ToString + Clone,
+    T: Clone,
     Message: 'a,
     Theme: 'a + Catalog,
     Renderer: 'a + text::Renderer,
