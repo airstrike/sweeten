@@ -491,12 +491,52 @@ where
         let mut children = layout.children();
         let toggler_layout = children.next().unwrap();
 
-        let style = theme.style(
-            &self.class,
-            self.last_status.unwrap_or(Status::Disabled {
-                is_toggled: self.is_toggled,
-            }),
-        );
+        let current_status = self.last_status.unwrap_or(Status::Disabled {
+            is_toggled: self.is_toggled,
+        });
+
+        // While the toggle is animating, interpolate the fill colors between
+        // the off- and on-state styles so the background/foreground fade in
+        // sync with the handle slide, not snap instantly when `is_toggled`
+        // flips.
+        let style = match state.now {
+            Some(now) if state.animation.is_animating(now) => {
+                let off = theme
+                    .style(&self.class, current_status.with_toggled(false));
+                let on =
+                    theme.style(&self.class, current_status.with_toggled(true));
+
+                // Only `Background::Color` is interpolable here; fall back to
+                // transparent for gradients so the draw code stays simple.
+                let bg_color = |bg: Background| match bg {
+                    Background::Color(c) => c,
+                    _ => Color::TRANSPARENT,
+                };
+
+                let background =
+                    Background::Color(state.animation.interpolate(
+                        bg_color(off.background),
+                        bg_color(on.background),
+                        now,
+                    ));
+                let foreground =
+                    Background::Color(state.animation.interpolate(
+                        bg_color(off.foreground),
+                        bg_color(on.foreground),
+                        now,
+                    ));
+
+                // Snap non-color fields to the animation's current target —
+                // interpolating border widths/radius/padding shimmers.
+                let target = if state.animation.value() { on } else { off };
+                Style {
+                    background,
+                    foreground,
+                    ..target
+                }
+            }
+            _ => theme.style(&self.class, current_status),
+        };
 
         if self.label.is_some() {
             let label_layout = children.next().unwrap();
@@ -612,6 +652,17 @@ pub enum Status {
         /// Indicates whether the [`Toggler`] is toggled.
         is_toggled: bool,
     },
+}
+
+impl Status {
+    /// Returns this [`Status`] with its `is_toggled` field replaced.
+    fn with_toggled(self, is_toggled: bool) -> Self {
+        match self {
+            Status::Active { .. } => Status::Active { is_toggled },
+            Status::Hovered { .. } => Status::Hovered { is_toggled },
+            Status::Disabled { .. } => Status::Disabled { is_toggled },
+        }
+    }
 }
 
 /// The appearance of a toggler.
