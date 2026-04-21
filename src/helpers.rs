@@ -6,6 +6,7 @@ use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
 use crate::widget::column::{self, Column};
+use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
@@ -152,4 +153,19 @@ where
     Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
+}
+
+/// Creates a new [`FitText`] from the given content.
+///
+/// [`FitText`] scales its font size to fit the bounds it is laid out into,
+/// up to a configurable ceiling. See the [`fit_text`](crate::widget::fit_text)
+/// module docs for the semantics.
+pub fn fit_text<'a, Theme, Renderer>(
+    content: impl core::text::IntoFragment<'a>,
+) -> FitText<'a, Theme, Renderer>
+where
+    Theme: fit_text::Catalog,
+    Renderer: core::text::Renderer,
+{
+    FitText::new(content)
 }
