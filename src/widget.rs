@@ -9,6 +9,7 @@
 pub mod button;
 pub mod column;
 pub mod drag;
+pub mod fit_text;
 pub mod mouse_area;
 pub mod operation;
 pub mod overlay;
@@ -22,6 +23,7 @@ pub mod transition;
 
 pub use button::Button;
 pub use column::Column;
+pub use fit_text::FitText;
 pub use mouse_area::MouseArea;
 pub use pick_list::PickList;
 pub use row::Row;
