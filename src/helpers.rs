@@ -158,7 +158,7 @@ where
 /// Creates a new [`FitText`] from the given content.
 ///
 /// [`FitText`] scales its font size to fit the bounds it is laid out into,
-/// up to a configurable ceiling. See the [`fit_text`](crate::widget::fit_text)
+/// up to a configurable ceiling. See the [`fit_text`](mod@crate::widget::fit_text)
 /// module docs for the semantics.
 pub fn fit_text<'a, Theme, Renderer>(
     content: impl core::text::IntoFragment<'a>,

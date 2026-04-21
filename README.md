@@ -90,6 +90,28 @@ column(items.iter().map(|s| s.as_str().into()))
     .into()
 ```
 
+### `FitText`
+
+A text widget that auto-scales its font size to fit the bounds it is laid out
+into. Think CSS' `clamp(min, ideal, max)`, but the "ideal" is solved for
+instead of specified — `sweeten` binary-searches the size range and picks the
+largest font that still fits. Use it like:
+
+```rust
+use iced::Fill;
+use sweeten::widget::fit_text;
+
+fit_text("Big headline")
+    .max_size(120)
+    .min_size(16)
+    .width(Fill)
+    .height(Fill)
+    .center()
+```
+
+Both `min_size` and `max_size` are optional — call neither and the font scales
+within `[1.0, 1024.0]` pixels by default.
+
 ## Examples
 
 For complete examples, see [`examples/`](examples/) or run an example like this:
@@ -102,6 +124,7 @@ Other examples include:
 ```bash
 cargo run --example pick_list
 cargo run --example text_input
+cargo run --example fit_text
 ```
 
 ## Code Structure
@@ -112,14 +135,8 @@ The library is organized into modules for each enhanced widget:
   - `mouse_area.rs`: Sweetened mouse interaction handling
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
+  - `fit_text.rs`: Auto-scaling text that fits its bounds
   - (more widgets coming soon!)
-
-## Planned Features
-
-- [x] MouseArea widget
-- [x] PickList widget
-- [x] TextInput widget with focus management
-- [x] Row and Column with drag and drop
 
 ## Contributing
 
