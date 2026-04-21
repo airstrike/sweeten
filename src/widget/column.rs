@@ -981,88 +981,91 @@ where
                 );
 
                 for i in 0..child_count {
+                    if i == *index {
+                        continue;
+                    }
+
                     let child = &self.children[i];
                     let state = &tree.children[i];
                     let child_layout = layout.children().nth(i).unwrap();
 
-                    if i == *index {
-                        let scale_factor = 1.0
-                            + (style.scale - 1.0)
-                                * animations.offsets_x[i]
-                                    .interpolate_with(|v| v, *now);
-
-                        let scaling = Transformation::scale(scale_factor);
-                        let translation = *last_cursor - *origin * scaling;
-
-                        renderer.with_translation(translation, |renderer| {
-                            renderer.with_transformation(scaling, |renderer| {
-                                renderer.with_layer(
-                                    child_layout.bounds(),
-                                    |renderer| {
-                                        child.as_widget().draw(
-                                            state,
-                                            renderer,
-                                            theme,
-                                            defaults,
-                                            child_layout,
-                                            cursor,
-                                            viewport,
-                                        );
-                                    },
-                                );
-                            });
-                        });
+                    let offset_x = if i < animations.offsets_x.len() {
+                        let v = animations.offsets_x[i]
+                            .interpolate_with(|v| v, *now);
+                        if v == 0.0 { offsets[i].x } else { v }
                     } else {
-                        let offset_x = if i < animations.offsets_x.len() {
-                            let v = animations.offsets_x[i]
-                                .interpolate_with(|v| v, *now);
-                            if v == 0.0 { offsets[i].x } else { v }
-                        } else {
-                            offsets[i].x
-                        };
-                        let offset_y = if i < animations.offsets_y.len() {
-                            let v = animations.offsets_y[i]
-                                .interpolate_with(|v| v, *now);
-                            if v == 0.0 { offsets[i].y } else { v }
-                        } else {
-                            offsets[i].y
-                        };
+                        offsets[i].x
+                    };
+                    let offset_y = if i < animations.offsets_y.len() {
+                        let v = animations.offsets_y[i]
+                            .interpolate_with(|v| v, *now);
+                        if v == 0.0 { offsets[i].y } else { v }
+                    } else {
+                        offsets[i].y
+                    };
 
-                        let translation = Vector::new(offset_x, offset_y);
+                    let translation = Vector::new(offset_x, offset_y);
 
-                        renderer.with_translation(translation, |renderer| {
-                            child.as_widget().draw(
-                                state,
-                                renderer,
-                                theme,
-                                defaults,
-                                child_layout,
-                                cursor,
-                                viewport,
+                    renderer.with_translation(translation, |renderer| {
+                        child.as_widget().draw(
+                            state,
+                            renderer,
+                            theme,
+                            defaults,
+                            child_layout,
+                            cursor,
+                            viewport,
+                        );
+
+                        if offset_x != 0.0 || offset_y != 0.0 {
+                            let magnitude = (offset_x * offset_x
+                                + offset_y * offset_y)
+                                .sqrt();
+                            let item_extent =
+                                child_bounds[i].height + self.spacing;
+                            let progress = (magnitude / item_extent).min(1.0);
+
+                            renderer.fill_quad(
+                                renderer::Quad {
+                                    bounds: child_layout.bounds(),
+                                    ..renderer::Quad::default()
+                                },
+                                style.moved_item_overlay.scale_alpha(progress),
                             );
-
-                            if offset_x != 0.0 || offset_y != 0.0 {
-                                let magnitude = (offset_x * offset_x
-                                    + offset_y * offset_y)
-                                    .sqrt();
-                                let item_extent =
-                                    child_bounds[i].height + self.spacing;
-                                let progress =
-                                    (magnitude / item_extent).min(1.0);
-
-                                renderer.fill_quad(
-                                    renderer::Quad {
-                                        bounds: child_layout.bounds(),
-                                        ..renderer::Quad::default()
-                                    },
-                                    style
-                                        .moved_item_overlay
-                                        .scale_alpha(progress),
-                                );
-                            }
-                        });
-                    }
+                        }
+                    });
                 }
+
+                let child = &self.children[*index];
+                let state = &tree.children[*index];
+                let child_layout = layout.children().nth(*index).unwrap();
+
+                let scale_factor = 1.0
+                    + (style.scale - 1.0)
+                        * animations.offsets_x[*index]
+                            .interpolate_with(|v| v, *now);
+
+                let scaling = Transformation::scale(scale_factor);
+                let translation = *last_cursor - *origin * scaling;
+
+                renderer.with_translation(translation, |renderer| {
+                    renderer.with_transformation(scaling, |renderer| {
+                        renderer.with_layer(
+                            child_layout.bounds(),
+                            |renderer| {
+                                child.as_widget().draw(
+                                    state,
+                                    renderer,
+                                    theme,
+                                    defaults,
+                                    child_layout,
+                                    cursor,
+                                    viewport,
+                                );
+                            },
+                        );
+                    });
+                });
 
                 let ghost_vector = offsets[*index];
 
