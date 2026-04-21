@@ -34,6 +34,28 @@ sweeten = { git = "https://github.com/airstrike/sweeten", branch = "master" }
 
 ## Current Features
 
+### `Button`
+
+A sweetened version of `iced`'s `button` widget with focus-related callbacks:
+
+- `.on_focus(Message)` fires when the button gains keyboard focus
+- `.on_blur(Message)` fires when it loses focus
+
+Pairs with `sweeten::widget::operation::{focus_next, focus_previous}` to build
+keyboard-navigable forms where any kind of widget can be focused.
+
+### `Toggler`
+
+A sweetened version of `iced`'s `toggler` widget that smoothly animates state
+changes — the handle slides between positions and the fill color crossfades
+between the off- and on-state styles.
+
+```rust
+toggler(self.is_on)
+    .label("Enable notifications")
+    .on_toggle(Message::Toggled)
+```
+
 ### `MouseArea`
 
 A sweetened version of `iced`'s `mouse_area` widget with an additional
@@ -132,6 +154,8 @@ cargo run --example fit_text
 The library is organized into modules for each enhanced widget:
 
 - `widget/`: Contains all widget implementations
+  - `button.rs`: Sweetened button with focus/blur callbacks
+  - `toggler.rs`: Sweetened toggler with animated state changes
   - `mouse_area.rs`: Sweetened mouse interaction handling
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
