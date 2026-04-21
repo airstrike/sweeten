@@ -3,6 +3,7 @@
 - [Text Input](#text-input)
 - [Mouse Area](#mouse-area)
 - [Pick List](#pick-list)
+- [Fit Text](#fit-text)
 
 Run any example using:
 
@@ -52,3 +53,15 @@ cargo run --example pick_list
 <div align="center">
   <img src="../assets/pick_list.gif" alt="Pick List Demo">
 </div>
+
+---
+
+## Fit Text
+
+Demonstrates the `fit_text` widget that auto-scales its font size to fit the
+available bounds. Type a headline and drag the min/max sliders to watch the
+binary-searched fit in action.
+
+```bash
+cargo run --example fit_text
+```

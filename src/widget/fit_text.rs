@@ -1,6 +1,6 @@
 //! Text that scales its font size to fit the bounds it is given.
 //!
-//! [`FitText`] is a drop-in-ish replacement for [`iced::widget::text`] where
+//! [`FitText`] is a drop-in-ish replacement for `iced::widget::text` where
 //! you hand it a range `[min_size, max_size]` and it picks the largest font
 //! size in that range whose shaped paragraph still fits inside the widget's
 //! laid-out bounds. Think CSS' `clamp(min, ideal, max)`, but the "ideal" is
