@@ -38,6 +38,8 @@
 //!   and [`on_blur`][button_on_blur] messages.
 //! - [`column`] — Distribute content vertically, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
+//! - [`fit_text`] — A text widget that auto-scales its font size to fit the
+//!   available bounds, up to a configurable ceiling.
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
@@ -63,6 +65,7 @@
 //! [`iced`]: https://github.com/iced-rs/iced
 //! [`button`]: mod@widget::button
 //! [`column`]: mod@widget::column
+//! [`fit_text`]: mod@widget::fit_text
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`row`]: mod@widget::row
