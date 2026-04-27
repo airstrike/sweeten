@@ -134,7 +134,7 @@ impl App {
                 },
             )
             .tab_style(
-                cells::stub().rows(|i| INDENTED_BODY_ROWS.contains(&i)),
+                cells::body().rows(|i| INDENTED_BODY_ROWS.contains(&i)),
                 CellStyle {
                     text: Some(TextStyle {
                         color: Some(neutral_500),

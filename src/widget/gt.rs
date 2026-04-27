@@ -1337,9 +1337,24 @@ where
         cell_rect: Rectangle,
     ) {
         if let Some(fill) = meta.style.fill {
+            // Extend the fill across half the separator gap on every
+            // side. Adjacent filled cells meet exactly at the
+            // separator midpoint, so two summary rows stacked on top
+            // of each other (or a group-label row sitting above a
+            // summary row) read as one continuous filled region —
+            // without this the table-level `separator_y` between them
+            // would punch a hairline of base color through whatever
+            // they share. Borders still draw against the un-extended
+            // rect so they don't shift visually.
+            let fill_rect = Rectangle {
+                x: cell_rect.x - self.separator_x / 2.0,
+                y: cell_rect.y - self.separator_y / 2.0,
+                width: cell_rect.width + self.separator_x,
+                height: cell_rect.height + self.separator_y,
+            };
             renderer.fill_quad(
                 renderer::Quad {
-                    bounds: cell_rect,
+                    bounds: fill_rect,
                     snap: true,
                     ..renderer::Quad::default()
                 },
