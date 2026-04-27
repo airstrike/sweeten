@@ -464,7 +464,7 @@ impl Internal {
                 (item.id, ow * oh)
             })
             .collect();
-        collider_ids.sort_by(|a, b| b.1.cmp(&a.1)); // largest overlap first
+        collider_ids.sort_by_key(|c| std::cmp::Reverse(c.1)); // largest overlap first
 
         let collider_ids: Vec<ItemId> =
             collider_ids.into_iter().map(|(id, _)| id).collect();
