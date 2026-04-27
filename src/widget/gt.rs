@@ -374,6 +374,7 @@ where
                 let end = cells_out.len();
                 layout_rows.push(RowSpec::PerColumn {
                     cell_range: start..end,
+                    layer,
                 });
             };
 
@@ -406,7 +407,10 @@ where
                 style: resolved_style,
                 align: alignment::Horizontal::Left,
             });
-            layout_rows.push(RowSpec::Spanned { cell_index: idx });
+            layout_rows.push(RowSpec::Spanned {
+                cell_index: idx,
+                layer,
+            });
         };
 
         if let Some(text) = &title {
@@ -766,8 +770,23 @@ where
 
 #[derive(Clone)]
 enum RowSpec {
-    PerColumn { cell_range: std::ops::Range<usize> },
-    Spanned { cell_index: usize },
+    PerColumn {
+        cell_range: std::ops::Range<usize>,
+        layer: Layer,
+    },
+    Spanned {
+        cell_index: usize,
+        layer: Layer,
+    },
+}
+
+impl RowSpec {
+    fn layer(&self) -> Layer {
+        match self {
+            RowSpec::PerColumn { layer, .. }
+            | RowSpec::Spanned { layer, .. } => *layer,
+        }
+    }
 }
 
 struct CellMeta {
@@ -798,6 +817,13 @@ struct Metrics {
     column_widths: Vec<f32>,
     row_heights: Vec<f32>,
     table_width: f32,
+    /// Per-cell stride rectangle (full cell area incl. padding) in
+    /// table-relative coords. Populated in `layout()` so `draw()` can
+    /// paint backgrounds and borders against the row-stride box rather
+    /// than the cell's intrinsic text bounds — without this, cells
+    /// whose text wraps to multiple lines while their row-mates stay
+    /// single-line would draw chrome at mismatched y positions.
+    cell_rects: Vec<Rectangle>,
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -822,6 +848,7 @@ where
             column_widths: vec![0.0; self.columns.len()],
             row_heights: vec![0.0; self.layout_rows.len()],
             table_width: 0.0,
+            cell_rects: vec![Rectangle::default(); self.cells.len()],
         })
     }
 
@@ -966,10 +993,15 @@ where
             }
         }
 
-        // Position pass: place every cell.
+        // Position pass: place every cell and record its row-stride
+        // rectangle so `draw_cell_chrome` paints fills/borders against
+        // the row box rather than the cell's intrinsic text bounds.
+        metrics.cell_rects = vec![Rectangle::default(); self.cells.len()];
         let mut y = self.padding_y;
         for (row_idx, row) in self.layout_rows.iter().enumerate() {
             let row_height = metrics.row_heights[row_idx];
+            let stride_y = y - self.padding_y;
+            let stride_h = row_height + self.padding_y * 2.0;
             match row {
                 RowSpec::PerColumn { cell_range, .. } => {
                     let mut x = self.padding_x;
@@ -984,12 +1016,24 @@ where
                             core::Alignment::from(alignment::Vertical::Center),
                             Size::new(col_width, row_height),
                         );
+                        metrics.cell_rects[cell_idx] = Rectangle {
+                            x: x - self.padding_x,
+                            y: stride_y,
+                            width: col_width + self.padding_x * 2.0,
+                            height: stride_h,
+                        };
                         x += col_width + spacing_x;
                     }
                 }
                 RowSpec::Spanned { cell_index, .. } => {
                     let node = &mut cell_layouts[*cell_index];
                     node.move_to_mut(Point::new(self.padding_x, y));
+                    metrics.cell_rects[*cell_index] = Rectangle {
+                        x: 0.0,
+                        y: stride_y,
+                        width: table_width,
+                        height: stride_h,
+                    };
                 }
             }
             y += row_height + spacing_y;
@@ -1063,16 +1107,17 @@ where
         let sticky_active = shift > 0.0;
         let sticky_cell_count = self.sticky_cell_count();
 
-        // Cell backgrounds first.
-        for (i, cell_layout) in layout.children().enumerate() {
+        // Cell backgrounds first. We use the row-stride rect captured
+        // during `layout()` so chrome (fills, borders) lines up across
+        // a row even when one cell wraps onto more lines than its
+        // row-mates — laying out against `cell_layout.bounds()` would
+        // tie chrome to each cell's intrinsic text height.
+        for i in 0..self.cells.len() {
             if sticky_active && i < sticky_cell_count {
                 continue;
             }
-            self.draw_cell_chrome(
-                renderer,
-                &self.cell_meta[i],
-                cell_layout.bounds(),
-            );
+            let rect = self.absolute_cell_rect(metrics, bounds, i);
+            self.draw_cell_chrome(renderer, &self.cell_meta[i], rect);
         }
 
         // Row separators.
@@ -1148,10 +1193,12 @@ where
                             if i >= sticky_cell_count {
                                 break;
                             }
+                            let rect =
+                                self.absolute_cell_rect(metrics, bounds, i);
                             self.draw_cell_chrome(
                                 renderer,
                                 &self.cell_meta[i],
-                                cell_layout.bounds(),
+                                rect,
                             );
                             cell.as_widget().draw(
                                 child,
@@ -1268,21 +1315,27 @@ where
             + self.padding_y * 2.0
     }
 
+    fn absolute_cell_rect(
+        &self,
+        metrics: &Metrics,
+        bounds: Rectangle,
+        cell_index: usize,
+    ) -> Rectangle {
+        let r = metrics.cell_rects[cell_index];
+        Rectangle {
+            x: bounds.x + r.x,
+            y: bounds.y + r.y,
+            width: r.width,
+            height: r.height,
+        }
+    }
+
     fn draw_cell_chrome(
         &self,
         renderer: &mut Renderer,
         meta: &CellMeta,
-        bounds: Rectangle,
+        cell_rect: Rectangle,
     ) {
-        let pad_x = self.padding_x;
-        let pad_y = self.padding_y;
-        let cell_rect = Rectangle {
-            x: bounds.x - pad_x,
-            y: bounds.y - pad_y,
-            width: bounds.width + pad_x * 2.0,
-            height: bounds.height + pad_y * 2.0,
-        };
-
         if let Some(fill) = meta.style.fill {
             renderer.fill_quad(
                 renderer::Quad {
@@ -1376,19 +1429,35 @@ where
         let mut y = self.padding_y;
         for r in 0..self.layout_rows.len() - 1 {
             y += metrics.row_heights[r] + self.padding_y;
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x,
-                        y: bounds.y + y,
-                        width: bounds.width,
-                        height: self.separator_y,
+            let above = self.layout_rows[r].layer();
+            let below = self.layout_rows[r + 1].layer();
+            // Title-block rows shouldn't get hairline separators
+            // between them — the title / subtitle / units caption
+            // visually belong to one masthead and lines between them
+            // read as cell borders the caller didn't ask for. Callers
+            // who want a divider above the column labels can opt in
+            // via a `Sides::top()` border on `cells::column_labels()`.
+            let in_title_block = |layer: Layer| {
+                matches!(
+                    layer,
+                    Layer::Title | Layer::Subtitle | Layer::UnitsCaption
+                )
+            };
+            if !(in_title_block(above) || in_title_block(below)) {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: bounds.x,
+                            y: bounds.y + y,
+                            width: bounds.width,
+                            height: self.separator_y,
+                        },
+                        snap: true,
+                        ..renderer::Quad::default()
                     },
-                    snap: true,
-                    ..renderer::Quad::default()
-                },
-                style.separator_y,
-            );
+                    style.separator_y,
+                );
+            }
             y += self.separator_y + self.padding_y;
         }
     }

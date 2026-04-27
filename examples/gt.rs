@@ -192,7 +192,6 @@ impl App {
                 CellStyle {
                     text: Some(TextStyle {
                         weight: Some(font::Weight::Bold),
-                        size: Some(13.0),
                         ..Default::default()
                     }),
                     fill: Some(neutral_100.into()),
