@@ -1337,20 +1337,18 @@ where
         cell_rect: Rectangle,
     ) {
         if let Some(fill) = meta.style.fill {
-            // Extend the fill across half the separator gap on every
-            // side. Adjacent filled cells meet exactly at the
-            // separator midpoint, so two summary rows stacked on top
-            // of each other (or a group-label row sitting above a
-            // summary row) read as one continuous filled region —
-            // without this the table-level `separator_y` between them
-            // would punch a hairline of base color through whatever
-            // they share. Borders still draw against the un-extended
-            // rect so they don't shift visually.
+            // Extend the fill across half the column separator gap on
+            // each side so horizontally adjacent filled cells meet at
+            // the gridline midpoint when `separator_x > 0`. We
+            // intentionally do NOT extend vertically — the table-level
+            // `separator_y` is meant to read as a row divider, and
+            // bridging it across filled rows would erase boundaries
+            // the caller still wants visible.
             let fill_rect = Rectangle {
                 x: cell_rect.x - self.separator_x / 2.0,
-                y: cell_rect.y - self.separator_y / 2.0,
+                y: cell_rect.y,
                 width: cell_rect.width + self.separator_x,
-                height: cell_rect.height + self.separator_y,
+                height: cell_rect.height,
             };
             renderer.fill_quad(
                 renderer::Quad {
@@ -1458,22 +1456,69 @@ where
                     Layer::Title | Layer::Subtitle | Layer::UnitsCaption
                 )
             };
-            if !(in_title_block(above) || in_title_block(below)) {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: bounds.x,
-                            y: bounds.y + y,
-                            width: bounds.width,
-                            height: self.separator_y,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    style.separator_y,
-                );
+            if in_title_block(above) || in_title_block(below) {
+                y += self.separator_y + self.padding_y;
+                continue;
             }
+            // Suppress the separator when adjacent cells already own
+            // the boundary via explicit per-cell borders. Without this
+            // a `Sides::bottom()` on the row above (or `Sides::top()`
+            // on the row below) doubles up with the table-level
+            // separator and reads as a thicker, two-tone line.
+            if self.row_has_bottom_border(r) || self.row_has_top_border(r + 1) {
+                y += self.separator_y + self.padding_y;
+                continue;
+            }
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x,
+                        y: bounds.y + y,
+                        width: bounds.width,
+                        height: self.separator_y,
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                style.separator_y,
+            );
             y += self.separator_y + self.padding_y;
+        }
+    }
+
+    fn row_has_bottom_border(&self, row_idx: usize) -> bool {
+        self.row_cells(row_idx).any(|i| {
+            self.cell_meta[i]
+                .style
+                .borders
+                .as_ref()
+                .map(|b| b.sides.bottom)
+                .unwrap_or(false)
+        })
+    }
+
+    fn row_has_top_border(&self, row_idx: usize) -> bool {
+        self.row_cells(row_idx).any(|i| {
+            self.cell_meta[i]
+                .style
+                .borders
+                .as_ref()
+                .map(|b| b.sides.top)
+                .unwrap_or(false)
+        })
+    }
+
+    fn row_cells(
+        &self,
+        row_idx: usize,
+    ) -> Box<dyn Iterator<Item = usize> + '_> {
+        match &self.layout_rows[row_idx] {
+            RowSpec::PerColumn { cell_range, .. } => {
+                Box::new(cell_range.clone())
+            }
+            RowSpec::Spanned { cell_index, .. } => {
+                Box::new(std::iter::once(*cell_index))
+            }
         }
     }
 
