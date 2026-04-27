@@ -73,6 +73,7 @@ where
     separator_x: f32,
     separator_y: f32,
     border: f32,
+    header_underline_height: Option<f32>,
     has_header: bool,
     sticky_header: bool,
     class: Theme::Class<'a>,
@@ -172,6 +173,7 @@ where
             separator_x: 1.0,
             separator_y: 1.0,
             border: 0.0,
+            header_underline_height: None,
             has_header,
             sticky_header: false,
             class: Theme::default(),
@@ -232,6 +234,26 @@ where
         self
     }
 
+    /// Sets the thickness of the underline drawn directly below the
+    /// header row, replacing the regular horizontal separator at that
+    /// boundary.
+    ///
+    /// The underline color is controlled by [`Style::header_underline`];
+    /// when that is `None`, the regular [`Style::separator_y`] color is
+    /// used at the new thickness. Conversely, leaving the height unset
+    /// while a non-default [`Style::header_underline`] color is
+    /// configured will draw the underline at [`Table::separator_y`]
+    /// thickness.
+    ///
+    /// Has no effect on tables built entirely from headerless columns.
+    pub fn header_underline_height(
+        mut self,
+        height: impl Into<Pixels>,
+    ) -> Self {
+        self.header_underline_height = Some(height.into().0);
+        self
+    }
+
     /// Makes the header row stay pinned to the top of the visible area
     /// as the [`Table`] is scrolled inside a parent scrollable.
     ///
@@ -245,6 +267,23 @@ where
     /// Has no effect on tables built entirely from headerless columns.
     pub fn sticky_header(mut self, sticky: bool) -> Self {
         self.sticky_header = sticky;
+        self
+    }
+
+    /// Sets the style of the [`Table`].
+    #[must_use]
+    pub fn style(mut self, style: impl Fn(&Theme) -> Style + 'a) -> Self
+    where
+        Theme::Class<'a>: From<StyleFn<'a, Theme>>,
+    {
+        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
+        self
+    }
+
+    /// Sets the style class of the [`Table`].
+    #[must_use]
+    pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
+        self.class = class.into();
         self
     }
 }
@@ -316,6 +355,23 @@ where
 
         let spacing_x = self.padding_x * 2.0 + self.separator_x;
         let spacing_y = self.padding_y * 2.0 + self.separator_y;
+        // The header→body gap can be thicker than other row gaps when an
+        // underline is configured (see `header_underline_height`). Falls
+        // back to `spacing_y` when no underline is requested or when the
+        // table has no header at all.
+        let header_spacing_y = if self.has_header {
+            self.padding_y * 2.0
+                + self.header_underline_height.unwrap_or(self.separator_y)
+        } else {
+            spacing_y
+        };
+        let row_spacing = |row: usize| {
+            if row == 1 {
+                header_spacing_y
+            } else {
+                spacing_y
+            }
+        };
 
         // FIRST PASS
         // Lay out non-fluid cells
@@ -335,7 +391,7 @@ where
                 x = self.padding_x;
 
                 if row > 0 {
-                    y += metrics.rows[row - 1] + spacing_y;
+                    y += metrics.rows[row - 1] + row_spacing(row);
 
                     if row_factor != 0 {
                         total_fluid_height += metrics.rows[row - 1];
@@ -455,6 +511,7 @@ where
 
         let height_unit = (left.height
             - spacing_y * rows.saturating_sub(1) as f32
+            - (header_spacing_y - spacing_y)
             - self.padding_y * 2.0)
             / total_row_factors as f32;
 
@@ -477,7 +534,7 @@ where
                 x = self.padding_x;
 
                 if row > 0 {
-                    y += metrics.rows[row - 1] + spacing_y;
+                    y += metrics.rows[row - 1] + row_spacing(row);
                 }
             }
 
@@ -595,7 +652,7 @@ where
                 x = self.padding_x;
 
                 if row > 0 {
-                    y += metrics.rows[row - 1] + spacing_y;
+                    y += metrics.rows[row - 1] + row_spacing(row);
                 }
             }
 
@@ -685,6 +742,19 @@ where
         let table_style = theme.style(&self.class);
         let num_columns = self.columns.len();
 
+        // The thickness/color of the line below the header row. Falls
+        // back to the regular `separator_y` thickness/color when neither
+        // override is set, so a table with no header underline configured
+        // draws exactly as before.
+        let header_underline_height = if self.has_header {
+            self.header_underline_height.unwrap_or(self.separator_y)
+        } else {
+            self.separator_y
+        };
+        let header_underline_color = table_style
+            .header_underline
+            .unwrap_or(table_style.separator_y);
+
         // How far past the table's top the user has scrolled, in the
         // table's own content coordinates. Inside an iced `scrollable`,
         // `viewport.y` is already adjusted into content space, so this
@@ -754,28 +824,39 @@ where
             }
         }
 
-        if self.separator_y > 0.0 {
+        if self.separator_y > 0.0 || header_underline_height > 0.0 {
             let mut y = self.padding_y;
 
-            for height in &metrics.rows[..metrics.rows.len().saturating_sub(1)]
+            for (i, height) in metrics.rows
+                [..metrics.rows.len().saturating_sub(1)]
+                .iter()
+                .enumerate()
             {
                 y += height + self.padding_y;
 
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: bounds.x,
-                            y: bounds.y + y,
-                            width: bounds.width,
-                            height: self.separator_y,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    table_style.separator_y,
-                );
+                let (sep_height, sep_color) = if i == 0 && self.has_header {
+                    (header_underline_height, header_underline_color)
+                } else {
+                    (self.separator_y, table_style.separator_y)
+                };
 
-                y += self.separator_y + self.padding_y;
+                if sep_height > 0.0 {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x,
+                                y: bounds.y + y,
+                                width: bounds.width,
+                                height: sep_height,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        sep_color,
+                    );
+                }
+
+                y += sep_height + self.padding_y;
             }
         }
 
@@ -787,8 +868,8 @@ where
             let strip_rect = Rectangle {
                 x: bounds.x,
                 y: strip_y,
-                // Include the separator below the strip inside the clip.
-                height: strip_height + self.separator_y,
+                // Include the underline below the strip inside the clip.
+                height: strip_height + header_underline_height,
                 width: bounds.width,
             };
 
@@ -883,20 +964,22 @@ where
                     },
                 );
 
-                // Horizontal separator directly below the sticky strip.
-                if self.separator_y > 0.0 {
+                // Header underline drawn directly below the sticky strip.
+                // Falls back to `separator_y` thickness/color when no
+                // underline is configured.
+                if header_underline_height > 0.0 {
                     renderer.fill_quad(
                         renderer::Quad {
                             bounds: Rectangle {
                                 x: bounds.x,
                                 y: strip_y + strip_height,
                                 width: bounds.width,
-                                height: self.separator_y,
+                                height: header_underline_height,
                             },
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        table_style.separator_y,
+                        header_underline_color,
                     );
                 }
 
@@ -907,7 +990,7 @@ where
                 // fill inside the strip. Redraw the missing pieces
                 // here so the visible table frame stays continuous.
                 if self.border > 0.0 {
-                    let frame_height = strip_height + self.separator_y;
+                    let frame_height = strip_height + header_underline_height;
 
                     // Top edge pinned at the top of the strip.
                     renderer.fill_quad(
@@ -1147,6 +1230,12 @@ pub struct Style {
     /// scrolling data rows don't show through. Only used when
     /// [`Table::sticky_header`] is enabled.
     pub sticky_background: Background,
+    /// The background color of the underline drawn directly below the
+    /// header row, replacing the regular horizontal separator there.
+    /// When `None`, the [`Style::separator_y`] color is used at the
+    /// header boundary like every other row. Pair with
+    /// [`Table::header_underline_height`] to control its thickness.
+    pub header_underline: Option<Background>,
 }
 
 /// The theme catalog of a [`Table`].
@@ -1192,5 +1281,6 @@ pub fn default(theme: &crate::Theme) -> Style {
         separator_y: separator,
         border: separator,
         sticky_background: palette.background.base.color.into(),
+        header_underline: None,
     }
 }

@@ -15,6 +15,7 @@ use iced::widget::{
 use iced::{Center, Element, Fill, Font, Right, Theme};
 
 use sweeten::widget::table;
+use sweeten::widget::table::Style;
 
 pub fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -28,6 +29,7 @@ struct App {
     padding: (f32, f32),
     separator: (f32, f32),
     border: f32,
+    underline: f32,
     show_header: bool,
     sticky_header: bool,
 }
@@ -37,6 +39,7 @@ enum Message {
     PaddingChanged(f32, f32),
     SeparatorChanged(f32, f32),
     BorderChanged(f32),
+    UnderlineChanged(f32),
     ShowHeaderToggled(bool),
     StickyHeaderToggled(bool),
 }
@@ -48,6 +51,7 @@ impl App {
             padding: (10.0, 5.0),
             separator: (1.0, 1.0),
             border: 0.0,
+            underline: 2.0,
             show_header: true,
             sticky_header: true,
         }
@@ -58,6 +62,7 @@ impl App {
             Message::PaddingChanged(x, y) => self.padding = (x, y),
             Message::SeparatorChanged(x, y) => self.separator = (x, y),
             Message::BorderChanged(width) => self.border = width,
+            Message::UnderlineChanged(height) => self.underline = height,
             Message::ShowHeaderToggled(show) => self.show_header = show,
             Message::StickyHeaderToggled(sticky) => {
                 self.sticky_header = sticky;
@@ -120,7 +125,14 @@ impl App {
                 .separator_x(self.separator.0)
                 .separator_y(self.separator.1)
                 .border(self.border)
+                .header_underline_height(self.underline)
                 .sticky_header(self.sticky_header)
+                .style(|theme| Style {
+                    header_underline: Some(
+                        theme.palette().primary.base.color.into(),
+                    ),
+                    ..table::default(theme)
+                })
         };
 
         let controls = {
@@ -146,18 +158,24 @@ impl App {
                     .align_y(Center)
                 };
 
-            let border_slider = row![
-                text("Border").font(Font::MONOSPACE).size(14).width(100),
-                tooltip(
-                    slider(0.0..=10.0, self.border, Message::BorderChanged),
-                    text!("{:.0}px", self.border)
-                        .font(Font::MONOSPACE)
-                        .size(10),
-                    tooltip::Position::Right,
-                ),
-            ]
-            .spacing(10)
-            .align_y(Center);
+            let single_slider =
+                |label: &'static str,
+                 range: std::ops::RangeInclusive<f32>,
+                 value: f32,
+                 on_change: fn(f32) -> Message| {
+                    row![
+                        text(label).font(Font::MONOSPACE).size(14).width(100),
+                        tooltip(
+                            slider(range, value, on_change),
+                            text!("{value:.0}px")
+                                .font(Font::MONOSPACE)
+                                .size(10),
+                            tooltip::Position::Right,
+                        ),
+                    ]
+                    .spacing(10)
+                    .align_y(Center)
+                };
 
             column![
                 checkbox(self.show_header)
@@ -178,7 +196,18 @@ impl App {
                     self.separator,
                     Message::SeparatorChanged
                 ),
-                border_slider,
+                single_slider(
+                    "Border",
+                    0.0..=10.0,
+                    self.border,
+                    Message::BorderChanged,
+                ),
+                single_slider(
+                    "Underline",
+                    0.0..=10.0,
+                    self.underline,
+                    Message::UnderlineChanged,
+                ),
             ]
             .spacing(10)
             .width(400)
