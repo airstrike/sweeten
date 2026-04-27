@@ -1366,12 +1366,23 @@ where
                 .map(Background::from)
                 .unwrap_or(Background::Color(Color::BLACK));
             let width = border.width.unwrap_or(1.0);
+            // Borders draw centered on the cell edge — half inside the
+            // cell stride, half in the inter-row / inter-column gap.
+            // This is the "border-collapse: collapse" model: a border
+            // wider than the surrounding gap fully covers it (so a
+            // 1.5px header underline absorbs the 1px `separator_y` gap
+            // beneath it without leaving an exposed hairline of base
+            // color), and adjacent cells with the same border meet on
+            // the same line rather than stacking. With separators
+            // suppressed at bordered boundaries, this is what makes
+            // the row edge read as one clean line instead of "border
+            // + gap".
             if border.sides.top {
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
                             x: cell_rect.x,
-                            y: cell_rect.y,
+                            y: cell_rect.y - width / 2.0,
                             width: cell_rect.width,
                             height: width,
                         },
@@ -1386,7 +1397,7 @@ where
                     renderer::Quad {
                         bounds: Rectangle {
                             x: cell_rect.x,
-                            y: cell_rect.y + cell_rect.height - width,
+                            y: cell_rect.y + cell_rect.height - width / 2.0,
                             width: cell_rect.width,
                             height: width,
                         },
@@ -1400,7 +1411,7 @@ where
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
-                            x: cell_rect.x,
+                            x: cell_rect.x - width / 2.0,
                             y: cell_rect.y,
                             width,
                             height: cell_rect.height,
@@ -1415,7 +1426,7 @@ where
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
-                            x: cell_rect.x + cell_rect.width - width,
+                            x: cell_rect.x + cell_rect.width - width / 2.0,
                             y: cell_rect.y,
                             width,
                             height: cell_rect.height,
