@@ -1117,7 +1117,7 @@ where
                 continue;
             }
             let rect = self.absolute_cell_rect(metrics, bounds, i);
-            self.draw_cell_chrome(renderer, &self.cell_meta[i], rect);
+            self.draw_cell_chrome(renderer, &self.cell_meta[i], rect, bounds);
         }
 
         // Row separators.
@@ -1199,6 +1199,7 @@ where
                                 renderer,
                                 &self.cell_meta[i],
                                 rect,
+                                bounds,
                             );
                             cell.as_widget().draw(
                                 child,
@@ -1330,11 +1331,32 @@ where
         }
     }
 
+    /// Clamps `rect` to the widget's allocated `bounds`. Layout
+    /// reports `min(natural_table_width, parent_max)` as the widget
+    /// size when the parent constrains us, but `metrics.cell_rects`
+    /// stay at their natural widths — spanned rows in particular fill
+    /// `[0, table_width]`. Without this clamp, fills, borders, and
+    /// separators paint past the right edge we were actually given,
+    /// bleeding into whatever sits next to the table.
+    fn clip_to_bounds(rect: Rectangle, bounds: Rectangle) -> Rectangle {
+        let x = rect.x.max(bounds.x);
+        let y = rect.y.max(bounds.y);
+        let right = (rect.x + rect.width).min(bounds.x + bounds.width);
+        let bottom = (rect.y + rect.height).min(bounds.y + bounds.height);
+        Rectangle {
+            x,
+            y,
+            width: (right - x).max(0.0),
+            height: (bottom - y).max(0.0),
+        }
+    }
+
     fn draw_cell_chrome(
         &self,
         renderer: &mut Renderer,
         meta: &CellMeta,
         cell_rect: Rectangle,
+        bounds: Rectangle,
     ) {
         if let Some(fill) = meta.style.fill {
             // Extend the fill across half the column separator gap on
@@ -1344,20 +1366,25 @@ where
             // `separator_y` is meant to read as a row divider, and
             // bridging it across filled rows would erase boundaries
             // the caller still wants visible.
-            let fill_rect = Rectangle {
-                x: cell_rect.x - self.separator_x / 2.0,
-                y: cell_rect.y,
-                width: cell_rect.width + self.separator_x,
-                height: cell_rect.height,
-            };
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: fill_rect,
-                    snap: true,
-                    ..renderer::Quad::default()
+            let fill_rect = Self::clip_to_bounds(
+                Rectangle {
+                    x: cell_rect.x - self.separator_x / 2.0,
+                    y: cell_rect.y,
+                    width: cell_rect.width + self.separator_x,
+                    height: cell_rect.height,
                 },
-                fill,
+                bounds,
             );
+            if fill_rect.width > 0.0 && fill_rect.height > 0.0 {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: fill_rect,
+                        snap: true,
+                        ..renderer::Quad::default()
+                    },
+                    fill,
+                );
+            }
         }
 
         if let Some(border) = meta.style.borders {
@@ -1377,65 +1404,50 @@ where
             // suppressed at bordered boundaries, this is what makes
             // the row edge read as one clean line instead of "border
             // + gap".
-            if border.sides.top {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: cell_rect.x,
-                            y: cell_rect.y - width / 2.0,
-                            width: cell_rect.width,
-                            height: width,
+            let mut draw_border = |rect: Rectangle| {
+                let clipped = Self::clip_to_bounds(rect, bounds);
+                if clipped.width > 0.0 && clipped.height > 0.0 {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: clipped,
+                            snap: true,
+                            ..renderer::Quad::default()
                         },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    color,
-                );
+                        color,
+                    );
+                }
+            };
+            if border.sides.top {
+                draw_border(Rectangle {
+                    x: cell_rect.x,
+                    y: cell_rect.y - width / 2.0,
+                    width: cell_rect.width,
+                    height: width,
+                });
             }
             if border.sides.bottom {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: cell_rect.x,
-                            y: cell_rect.y + cell_rect.height - width / 2.0,
-                            width: cell_rect.width,
-                            height: width,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    color,
-                );
+                draw_border(Rectangle {
+                    x: cell_rect.x,
+                    y: cell_rect.y + cell_rect.height - width / 2.0,
+                    width: cell_rect.width,
+                    height: width,
+                });
             }
             if border.sides.left {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: cell_rect.x - width / 2.0,
-                            y: cell_rect.y,
-                            width,
-                            height: cell_rect.height,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    color,
-                );
+                draw_border(Rectangle {
+                    x: cell_rect.x - width / 2.0,
+                    y: cell_rect.y,
+                    width,
+                    height: cell_rect.height,
+                });
             }
             if border.sides.right {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: cell_rect.x + cell_rect.width - width / 2.0,
-                            y: cell_rect.y,
-                            width,
-                            height: cell_rect.height,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    color,
-                );
+                draw_border(Rectangle {
+                    x: cell_rect.x + cell_rect.width - width / 2.0,
+                    y: cell_rect.y,
+                    width,
+                    height: cell_rect.height,
+                });
             }
         }
     }
@@ -1480,19 +1492,25 @@ where
                 y += self.separator_y + self.padding_y;
                 continue;
             }
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x,
-                        y: bounds.y + y,
-                        width: bounds.width,
-                        height: self.separator_y,
-                    },
-                    snap: true,
-                    ..renderer::Quad::default()
+            let sep = Self::clip_to_bounds(
+                Rectangle {
+                    x: bounds.x,
+                    y: bounds.y + y,
+                    width: bounds.width,
+                    height: self.separator_y,
                 },
-                style.separator_y,
+                bounds,
             );
+            if sep.width > 0.0 && sep.height > 0.0 {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: sep,
+                        snap: true,
+                        ..renderer::Quad::default()
+                    },
+                    style.separator_y,
+                );
+            }
             y += self.separator_y + self.padding_y;
         }
     }
@@ -1546,14 +1564,22 @@ where
         let mut x = self.padding_x;
         for c in 0..metrics.column_widths.len() - 1 {
             x += metrics.column_widths[c] + self.padding_x;
+            let sep = Self::clip_to_bounds(
+                Rectangle {
+                    x: bounds.x + x,
+                    y: bounds.y,
+                    width: self.separator_x,
+                    height: bounds.height,
+                },
+                bounds,
+            );
+            if sep.width <= 0.0 || sep.height <= 0.0 {
+                x += self.separator_x + self.padding_x;
+                continue;
+            }
             renderer.fill_quad(
                 renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x + x,
-                        y: bounds.y,
-                        width: self.separator_x,
-                        height: bounds.height,
-                    },
+                    bounds: sep,
                     snap: true,
                     ..renderer::Quad::default()
                 },
