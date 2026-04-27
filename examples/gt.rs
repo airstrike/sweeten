@@ -7,7 +7,7 @@
 //! Run with: `cargo run --example gt`
 
 use iced::widget::{center, scrollable};
-use iced::{Color, Element, Theme, alignment, font};
+use iced::{Element, Theme, alignment, color, font};
 
 use sweeten::widget::gt;
 use sweeten::widget::gt::{
@@ -42,12 +42,12 @@ impl App {
         let summary_rows = build_summary_rows();
         let grand_summary_rows = build_grand_summary_rows();
 
-        let neutral_50 = Color::from_rgb8(0xfa, 0xfa, 0xfa);
-        let neutral_100 = Color::from_rgb8(0xf5, 0xf5, 0xf5);
-        let neutral_200 = Color::from_rgb8(0xe5, 0xe5, 0xe5);
-        let neutral_300 = Color::from_rgb8(0xd4, 0xd4, 0xd4);
-        let neutral_500 = Color::from_rgb8(0x73, 0x73, 0x73);
-        let neutral_900 = Color::from_rgb8(0x17, 0x17, 0x17);
+        let neutral_50 = color!(0xfafafa);
+        let neutral_100 = color!(0xf5f5f5);
+        let neutral_200 = color!(0xe5e5e5);
+        let neutral_300 = color!(0xd4d4d4);
+        let neutral_500 = color!(0x737373);
+        let neutral_900 = color!(0x171717);
 
         let table = gt::Table::new(columns, rows)
             .title("Financial Summary · Revenue to Gross Profit")
