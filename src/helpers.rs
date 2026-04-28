@@ -185,6 +185,27 @@ where
     Table::new(columns, rows)
 }
 
+/// Creates a new grammar-of-tables [`gt::Table`](crate::widget::gt::Table)
+/// from typed columns and rows.
+///
+/// This is the rich, declarative table for reports and dashboards —
+/// title / subtitle / units caption / column labels / stub / body /
+/// row groups / summary / grand summary / source notes — with
+/// selector-based styling and pluggable number formatters. Reach for
+/// the flat [`table`] when you just need a data grid.
+pub fn gt<'a, Message, Theme, Renderer>(
+    columns: Vec<crate::widget::gt::Column>,
+    rows: Vec<Vec<crate::widget::gt::Cell>>,
+) -> crate::widget::gt::Table<'a, Message, Theme, Renderer>
+where
+    Theme: crate::widget::gt::Catalog + iced_widget::text::Catalog + 'a,
+    <Theme as iced_widget::text::Catalog>::Class<'a>:
+        From<iced_widget::text::StyleFn<'a, Theme>>,
+    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+{
+    crate::widget::gt::Table::new(columns, rows)
+}
+
 /// Creates a new [`Toggler`].
 ///
 /// This is a sweetened version of [`iced`'s `toggler`] with a smooth

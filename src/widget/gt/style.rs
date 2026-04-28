@@ -15,12 +15,19 @@ pub struct CellStyle {
     pub text: Option<TextStyle>,
     /// Background fill drawn behind the cell.
     pub fill: Option<Background>,
-    /// Per-cell border overrides drawn at the cell's edges. The
-    /// table-level separators still draw between cells; per-cell
-    /// borders stack on top of them.
+    /// Per-cell border overrides drawn at the cell's edges, centered
+    /// on the edge in CSS-`border-collapse: collapse` style.
     pub borders: Option<BorderStyle>,
-    /// Padding override for the cell. Falls back to the table-level
-    /// `padding_x` / `padding_y` when unset.
+    // TODO(v2): per-cell padding overrides. Reserved field — currently
+    // a no-op. Wiring it requires growing the layout pass to track
+    // per-cell content area independently of the cell stride (so
+    // column widths still align across rows when one row's cells use
+    // different padding). Today every cell uses the table-level
+    // `padding_x` / `padding_y`.
+    /// Reserved for future per-cell padding overrides. **Currently a
+    /// no-op** — every cell uses the table-level
+    /// [`Table::padding_x`](super::Table::padding_x) /
+    /// [`Table::padding_y`](super::Table::padding_y).
     pub padding: Option<Padding>,
 }
 
