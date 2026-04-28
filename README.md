@@ -129,6 +129,72 @@ transition::transition(self.message.clone(), |s: &String| {
 .into()
 ```
 
+### `gt::Table`
+
+A grammar-of-tables widget for richly-styled tables — think R's `gt`
+package, mapped to `iced`. Where the flat `Table` (above) is the right
+choice for a plain data grid, `gt::Table` is the right choice when the
+output is a *report*: financial summaries, dashboard cards, anything
+where the table itself is part of the visual design.
+
+The grammar is selector-based: layout and styling are decoupled.
+Vertical stacking — top to bottom — is title → subtitle → units
+caption → column labels → body (with optional row groups) → group
+summaries → grand summary → source notes. Column widths are computed
+once across every per-column row, so headers, body, and summaries
+stay aligned.
+
+```rust
+use sweeten::widget::gt::{
+    self, Cell, CellStyle, Column, Sides, BorderStyle, TextStyle, cells,
+};
+use iced::{color, font};
+
+let table = gt::Table::new(
+    vec![
+        Column::text("line_item", "Line Item"),
+        Column::numeric("fy_2026", "FY 2026"),
+    ],
+    rows,
+)
+.title("Financial Summary")
+.units_caption("Figures in $M")
+.stub_column("line_item")
+.tab_style(
+    cells::column_labels(),
+    CellStyle {
+        text: Some(TextStyle {
+            weight: Some(font::Weight::Medium),
+            ..Default::default()
+        }),
+        borders: Some(BorderStyle {
+            sides: Sides::bottom(),
+            color: Some(color!(0xd4d4d4)),
+            width: Some(1.5),
+        }),
+        ..Default::default()
+    },
+)
+.fmt(cells::body(), gt::parens_for_negatives(gt::decimal(1)));
+```
+
+Cells are typed (`Cell::Number(f64)`, `Cell::Text(String)`,
+`Cell::Empty`) so numeric columns run through pluggable formatters at
+render time — `gt::number()`, `gt::decimal(n)`, `gt::currency(sym, n)`,
+`gt::percent(n)`, `gt::scientific(n)`, `gt::scaled(div, suffix, n)`,
+`gt::parens_for_negatives(inner)`, or `gt::arbitrary(closure)` to
+plug in your own. Empty-cell rendering is the formatter's job, so
+custom formatters can choose their own glyph.
+
+`tab_style(target, style)` calls accumulate and field-merge — later
+calls override earlier ones at overlapping cells without clobbering
+unset fields. Explicit per-cell borders are drawn centered on the row
+edge (CSS `border-collapse: collapse` style) and suppress the
+table-level separator at that boundary. Sticky header pins the title
+block + column labels together.
+
+For the full example see `examples/gt.rs`.
+
 ### `FitText`
 
 A text widget that auto-scales its font size to fit the bounds it is laid out
@@ -164,6 +230,7 @@ Other examples include:
 cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
+cargo run --example gt
 ```
 
 ## Code Structure
@@ -177,6 +244,7 @@ The library is organized into modules for each enhanced widget:
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
   - `fit_text.rs`: Auto-scaling text that fits its bounds
+  - `gt.rs`: Grammar-of-tables widget for richly-styled reports
   - (more widgets coming soon!)
 
 ## Contributing
