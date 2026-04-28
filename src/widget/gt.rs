@@ -35,6 +35,34 @@
 //! [`Table::tab_style`] for cell styles or [`Table::fmt`] for number
 //! formatters. Multiple `tab_style` calls accumulate; later calls
 //! field-merge over earlier ones at overlapping cells.
+//!
+//! # v2 roadmap
+//!
+//! Out of scope for v1 but tracked as TODOs:
+//!
+//! - **Spanner columns** — multi-level column headers that group
+//!   adjacent columns under a shared label (`gt::tab_spanner` in R's
+//!   `gt`). Needs a column-tree representation in [`Table::new`] and
+//!   an extra header row in the layout pass.
+//! - **Sorting** — clickable column-label cells that emit sort
+//!   messages and a sorted view of `rows`. Needs `Message`-emitting
+//!   cells (which v1 deliberately avoids).
+//! - **Per-cell padding overrides** — [`CellStyle::padding`] is a
+//!   reserved no-op field today. Wiring it requires per-cell content
+//!   rectangles inside a uniform stride so column widths still align.
+//! - **Click-source cells** — generic per-cell `on_press`. Same
+//!   `Message`-emitting story as sorting.
+//! - **Composite-selector refinement** — calling `.columns()` /
+//!   `.rows()` / `.groups()` on a selector built via `intersect` /
+//!   `union` currently degrades to "intersect with a body atom
+//!   carrying the refinement" (see [`selector`] internals). Refining
+//!   the leaves before composing is the supported pattern; lift this
+//!   to first-class refinement on composites if a real use case
+//!   appears.
+//! - **Unit tests** — the [`fmt`] module is covered, but the selector
+//!   matcher and the layout pass are visually-verified-only via
+//!   `examples/gt.rs`. Targeted tests for selector composition and
+//!   layer stacking would harden the widget.
 
 mod cell;
 mod column;

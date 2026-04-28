@@ -134,13 +134,17 @@ impl Selector {
         match &mut self.repr {
             Repr::Atom(atom) => f(atom),
             Repr::Intersect(_, _) | Repr::Union(_, _) => {
-                // Refinement on a composite selector wraps it in an
-                // identity Atom on the same layer set, then folds via
-                // intersect — but composite selectors don't have a
-                // single layer, so we degrade by intersecting with a
-                // body atom carrying the refinement. Callers who need
-                // refinement on composites should refine the leaves
-                // before composing.
+                // FIXME(v2): refinement on a composite selector
+                // currently degrades to "intersect with a body atom
+                // carrying the refinement". Composite selectors don't
+                // carry a single layer, so we can't push the column /
+                // row / group constraint into every leaf without
+                // walking the tree. Callers should refine the leaves
+                // before composing — e.g.
+                // `cells::body().columns(["a"]).union(cells::summary().columns(["a"]))`,
+                // not `cells::body().union(cells::summary()).columns(["a"])`.
+                // Lift to first-class refinement on composites if a
+                // real use case appears.
                 let mut atom = Atom {
                     layer: Layer::Body,
                     columns: None,
