@@ -50,6 +50,9 @@
 //! - **Per-cell padding overrides** — [`CellStyle::padding`] is a
 //!   reserved no-op field today. Wiring it requires per-cell content
 //!   rectangles inside a uniform stride so column widths still align.
+//!   The common case of "first/last column inset to align with an
+//!   outer card title" is already covered by
+//!   [`Table::outer_padding_x`].
 //! - **Click-source cells** — generic per-cell `on_press`. Same
 //!   `Message`-emitting story as sorting.
 //! - **Composite-selector refinement** — calling `.columns()` /
@@ -126,6 +129,7 @@ where
     width: Length,
     padding_x: f32,
     padding_y: f32,
+    outer_padding_x: Option<f32>,
     separator_x: f32,
     separator_y: f32,
     sticky_header: bool,
@@ -161,6 +165,7 @@ where
             width: Length::Shrink,
             padding_x: 10.0,
             padding_y: 5.0,
+            outer_padding_x: None,
             separator_x: 0.0,
             separator_y: 1.0,
             sticky_header: false,
@@ -266,6 +271,27 @@ where
         self
     }
 
+    /// Sets the outer horizontal padding — the extra inset applied to
+    /// the leftmost cell on its left edge and to the rightmost cell on
+    /// its right edge. Inter-cell gaps remain at
+    /// [`padding_x`](Self::padding_x).
+    ///
+    /// Useful for embedding a table inside a card whose title is
+    /// itself inset from the card edge: set `outer_padding_x` to
+    /// match the card's content padding so the table's first-column
+    /// text and last-column text line up with the card title, while
+    /// borders / fills still extend edge-to-edge across the table.
+    /// Spanned-row content (title, subtitle, units caption, group
+    /// labels, source notes) is also inset by `outer_padding_x` so it
+    /// shares the same start/end as the first/last data column.
+    ///
+    /// Defaults to `padding_x` when unset (no outer inset).
+    #[must_use]
+    pub fn outer_padding_x(mut self, padding: impl Into<Pixels>) -> Self {
+        self.outer_padding_x = Some(padding.into().0);
+        self
+    }
+
     /// Sets the thickness of the vertical separator drawn between
     /// columns. Defaults to `0.0`.
     #[must_use]
@@ -327,6 +353,7 @@ where
             width,
             padding_x,
             padding_y,
+            outer_padding_x,
             separator_x,
             separator_y,
             sticky_header,
@@ -620,6 +647,7 @@ where
             width,
             padding_x,
             padding_y,
+            outer_padding_x,
             separator_x,
             separator_y,
             sticky_header,
@@ -835,6 +863,7 @@ where
     width: Length,
     padding_x: f32,
     padding_y: f32,
+    outer_padding_x: Option<f32>,
     separator_x: f32,
     separator_y: f32,
     sticky_header: bool,
@@ -905,6 +934,13 @@ where
         metrics.column_widths = vec![0.0; n_cols];
         metrics.row_heights = vec![0.0; self.layout_rows.len()];
 
+        // `outer_x` is the inset applied to the leftmost cell's left
+        // edge and the rightmost cell's right edge (and to spanned-row
+        // content). Defaults to `padding_x` for backwards-compat — set
+        // explicitly via `Table::outer_padding_x` to align first/last
+        // column text with an outer card title while letting borders
+        // and fills run edge-to-edge.
+        let outer_x = self.outer_padding_x.unwrap_or(self.padding_x);
         let spacing_x = self.padding_x * 2.0 + self.separator_x;
         let spacing_y = self.padding_y * 2.0 + self.separator_y;
 
@@ -955,8 +991,8 @@ where
                     (*f == 0).then_some(metrics.column_widths[i])
                 })
                 .sum();
-            let total_spacing = spacing_x * n_cols.saturating_sub(1) as f32
-                + self.padding_x * 2.0;
+            let total_spacing =
+                spacing_x * n_cols.saturating_sub(1) as f32 + outer_x * 2.0;
             let available_width =
                 (available.width - consumed - total_spacing).max(0.0);
             let unit = available_width / total_factor as f32;
@@ -998,13 +1034,14 @@ where
 
         let table_width = metrics.column_widths.iter().sum::<f32>()
             + spacing_x * n_cols.saturating_sub(1) as f32
-            + self.padding_x * 2.0;
+            + outer_x * 2.0;
         metrics.table_width = table_width;
 
-        // Spanned rows lay out at full table width (minus outer padding).
+        // Spanned rows lay out at full table width (minus outer padding
+        // so their text starts at the same x as the first column).
         for (row_idx, row) in self.layout_rows.iter().enumerate() {
             if let RowSpec::Spanned { cell_index, .. } = row {
-                let inner_width = (table_width - self.padding_x * 2.0).max(0.0);
+                let inner_width = (table_width - outer_x * 2.0).max(0.0);
                 let limits = layout::Limits::new(
                     Size::ZERO,
                     Size::new(inner_width, available.height),
@@ -1024,6 +1061,10 @@ where
         // Position pass: place every cell and record its row-stride
         // rectangle so `draw_cell_chrome` paints fills/borders against
         // the row box rather than the cell's intrinsic text bounds.
+        // The leftmost cell's stride extends to x=0 (table edge) and
+        // the rightmost cell's stride extends to x=table_width, so
+        // chrome runs edge-to-edge — the `outer_x` inset only affects
+        // where text content sits within those strides.
         metrics.cell_rects = vec![Rectangle::default(); self.cells.len()];
         let mut y = self.padding_y;
         for (row_idx, row) in self.layout_rows.iter().enumerate() {
@@ -1032,11 +1073,22 @@ where
             let stride_h = row_height + self.padding_y * 2.0;
             match row {
                 RowSpec::PerColumn { cell_range, .. } => {
-                    let mut x = self.padding_x;
+                    let mut x = outer_x;
+                    let last = cell_range.len().saturating_sub(1);
                     for (col_offset, cell_idx) in cell_range.clone().enumerate()
                     {
                         let col_width = metrics.column_widths[col_offset];
                         let align = self.cell_meta[cell_idx].align;
+                        let pad_left = if col_offset == 0 {
+                            outer_x
+                        } else {
+                            self.padding_x
+                        };
+                        let pad_right = if col_offset == last {
+                            outer_x
+                        } else {
+                            self.padding_x
+                        };
                         let node = &mut cell_layouts[cell_idx];
                         node.move_to_mut(Point::new(x, y));
                         node.align_mut(
@@ -1045,9 +1097,9 @@ where
                             Size::new(col_width, row_height),
                         );
                         metrics.cell_rects[cell_idx] = Rectangle {
-                            x: x - self.padding_x,
+                            x: x - pad_left,
                             y: stride_y,
-                            width: col_width + self.padding_x * 2.0,
+                            width: col_width + pad_left + pad_right,
                             height: stride_h,
                         };
                         x += col_width + spacing_x;
@@ -1055,7 +1107,7 @@ where
                 }
                 RowSpec::Spanned { cell_index, .. } => {
                     let node = &mut cell_layouts[*cell_index];
-                    node.move_to_mut(Point::new(self.padding_x, y));
+                    node.move_to_mut(Point::new(outer_x, y));
                     metrics.cell_rects[*cell_index] = Rectangle {
                         x: 0.0,
                         y: stride_y,
@@ -1589,7 +1641,8 @@ where
         if metrics.column_widths.len() < 2 {
             return;
         }
-        let mut x = self.padding_x;
+        let outer_x = self.outer_padding_x.unwrap_or(self.padding_x);
+        let mut x = outer_x;
         for c in 0..metrics.column_widths.len() - 1 {
             x += metrics.column_widths[c] + self.padding_x;
             let sep = Self::clip_to_bounds(

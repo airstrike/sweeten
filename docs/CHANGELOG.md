@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the formatter's job), and layout layers (title / subtitle / units caption
   / column labels / stub / body / row groups / summary rows / grand summary /
   source notes). Sticky header pins the title block + column labels together.
+  `outer_padding_x` insets the first/last column's text (and spanned-row
+  content) so the table can sit inside a card whose title is itself inset
+  from the card edge — borders and fills still run edge-to-edge.
   Spanner columns, sorting, click-source cells, and per-cell padding overrides
   are out of scope for v1. The existing `widget::table` stays as the terse
   choice for flat data grids.
