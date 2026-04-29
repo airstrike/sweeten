@@ -1486,10 +1486,11 @@ where
             .max()
             .unwrap_or_default();
 
-        // Only override `Idle` — anything more specific from a child
-        // (text caret, grab, etc.) wins, since we don't want a generic
-        // pointer cursor to mask a child widget's affordance.
-        if from_children != mouse::Interaction::Idle || self.on_press.is_empty()
+        // Only override `None` (the default for non-interactive widgets
+        // like `text`) — anything more specific from a child (text
+        // caret, grab, etc.) wins so we don't mask a child's affordance.
+        // Matches the `mouse_area` pattern.
+        if from_children != mouse::Interaction::None || self.on_press.is_empty()
         {
             return from_children;
         }
