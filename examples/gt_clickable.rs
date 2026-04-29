@@ -1,21 +1,26 @@
-//! `gt::Table` — selector-driven `on_press` handlers.
+//! `gt::Table` — selector-driven `on_press` handlers with an
+//! either-or row/column selection model.
 //!
-//! Country-stats table demonstrating:
+//! Click a body cell (other than the country) to toggle row selection;
+//! click any column header to toggle column selection. The two are
+//! mutually exclusive: picking one clears the other. Clicking a country
+//! body cell still drills (the specific handler wins on that column).
 //!
-//! - `on_press` accumulation with first-match-wins dispatch — clicking
-//!   the `country` column drills down via the specific handler;
-//!   clicking any other body cell falls through to the broad handler
-//!   that toggles row selection.
-//! - Selection state lives in the user's `App`. The table reflects it
-//!   via the existing `tab_style + cells::body().rows(predicate)`
-//!   primitives — no `gt`-side selection API needed.
-//! - `Click::modifiers` plumbed through to the message readout.
+//! Selection lives in user state as a [`Selection`] enum that makes the
+//! mutual-exclusion invariant structural — you can't accidentally
+//! populate both. The table reflects it via
+//! `tab_style + cells::body().rows(...) / .columns(...)` plus
+//! `cells::column_labels().columns(...)` so headers tint along with
+//! their column.
+//!
+//! Also demonstrates gt's outer border (`.border(1.0)`) and
+//! sticky-header behavior inside a fixed-height `scrollable`.
 //!
 //! Run with: `cargo run --example gt_clickable`
 
 use std::collections::BTreeSet;
 
-use iced::widget::{center, column, container, text};
+use iced::widget::{center, column, scrollable, text};
 use iced::{Background, Element, Theme, color};
 
 use sweeten::widget::gt;
@@ -30,22 +35,81 @@ pub fn main() -> iced::Result {
 
 #[derive(Default)]
 struct App {
-    selected: BTreeSet<usize>,
+    selection: Selection,
     last_action: String,
+}
+
+#[derive(Default)]
+enum Selection {
+    #[default]
+    None,
+    Rows(BTreeSet<usize>),
+    Columns(BTreeSet<String>),
+}
+
+impl Selection {
+    fn toggle_row(&mut self, row: usize) {
+        let mut set = match std::mem::replace(self, Self::None) {
+            Self::Rows(s) => s,
+            _ => BTreeSet::new(),
+        };
+        if !set.insert(row) {
+            set.remove(&row);
+        }
+        if !set.is_empty() {
+            *self = Self::Rows(set);
+        }
+    }
+
+    fn toggle_column(&mut self, column: String) {
+        let mut set = match std::mem::replace(self, Self::None) {
+            Self::Columns(s) => s,
+            _ => BTreeSet::new(),
+        };
+        if !set.remove(&column) {
+            set.insert(column);
+        }
+        if !set.is_empty() {
+            *self = Self::Columns(set);
+        }
+    }
+
+    fn row_set(&self) -> BTreeSet<usize> {
+        match self {
+            Self::Rows(s) => s.clone(),
+            _ => BTreeSet::new(),
+        }
+    }
+
+    fn column_set(&self) -> BTreeSet<String> {
+        match self {
+            Self::Columns(s) => s.clone(),
+            _ => BTreeSet::new(),
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self {
+            Self::None => "no selection".to_string(),
+            Self::Rows(s) => format!("rows {s:?}"),
+            Self::Columns(s) => format!("columns {s:?}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     DrillCountry { row: usize, modifiers: String },
-    ToggleRow { row: usize, modifiers: String },
+    ToggleRow(usize),
+    ToggleColumn(String),
 }
 
 impl App {
     fn new() -> Self {
         Self {
-            selected: BTreeSet::new(),
-            last_action: "Click a country to drill; click any other cell \
-                          to toggle row selection."
+            selection: Selection::None,
+            last_action: "Click body to select rows; click a header to \
+                          select columns. Picking one clears the other."
                 .to_string(),
         }
     }
@@ -57,21 +121,14 @@ impl App {
                 self.last_action =
                     format!("DrillCountry → {name} (row {row}){modifiers}");
             }
-            Message::ToggleRow { row, modifiers } => {
-                if !self.selected.insert(row) {
-                    self.selected.remove(&row);
-                }
+            Message::ToggleRow(row) => {
                 let name = COUNTRIES[row].0;
-                let verb = if self.selected.contains(&row) {
-                    "selected"
-                } else {
-                    "deselected"
-                };
-                self.last_action = format!(
-                    "{verb} {name} (row {row}){modifiers} — \
-                     selection: {:?}",
-                    self.selected
-                );
+                self.selection.toggle_row(row);
+                self.last_action = format!("toggled row {row} ({name})");
+            }
+            Message::ToggleColumn(column) => {
+                self.last_action = format!("toggled column \"{column}\"");
+                self.selection.toggle_column(column);
             }
         }
     }
@@ -90,51 +147,66 @@ impl App {
             })
             .collect();
 
-        // Cloned into the predicate so `Selector::rows`' `'static`
-        // bound is satisfied. One small clone per `view` call.
-        let selected = self.selected.clone();
-        let selected_style = CellStyle {
+        let row_set = self.selection.row_set();
+        let col_set = self.selection.column_set();
+        let highlight = CellStyle {
             fill: Some(Background::Color(color!(0xb3d4fc))),
             ..CellStyle::default()
         };
 
         let table = gt::Table::new(columns, rows)
-            .title("Click handlers · first-match-wins")
-            .subtitle(
-                "Country drills; other cells toggle row selection \
-                 (highlighted via tab_style).",
-            )
+            .title("Country statistics, 2023")
+            .subtitle("Population in millions; GDP in USD billions.")
             .stub_column("country")
             .padding_x(12.0)
             .padding_y(6.0)
             .separator_y(1.0)
-            // Highlight rows whose index is in the selection set. Pure
-            // existing-API: `tab_style` + a row predicate over the body
-            // layer. No `gt`-side selection state.
+            .border(1.0)
+            .sticky_header(true)
+            // Visualization. Three calls — at most one of `row_set` /
+            // `col_set` is non-empty, so only one tints anything.
             .tab_style(
-                cells::body().rows(move |i| selected.contains(&i)),
-                selected_style,
+                cells::body().rows(move |i| row_set.contains(&i)),
+                highlight.clone(),
             )
-            // Specific handler — registered FIRST, so it wins on the
-            // country column.
+            .tab_style(
+                cells::body().columns(col_set.clone()),
+                highlight.clone(),
+            )
+            .tab_style(cells::column_labels().columns(col_set), highlight)
+            // Specific handler — country body cell drills (first-match
+            // wins over the broad body fallback below).
             .on_press(cells::body().columns(["country"]), |c| {
                 Message::DrillCountry {
                     row: c.coord.row,
                     modifiers: fmt_mods(c.modifiers),
                 }
             })
-            // Broad fallback — any other body cell toggles selection.
-            .on_press(cells::body(), |c| Message::ToggleRow {
-                row: c.coord.row,
-                modifiers: fmt_mods(c.modifiers),
+            // Broad fallback — any other body cell toggles row.
+            .on_press(cells::body(), |c| Message::ToggleRow(c.coord.row))
+            // Any column header toggles that column.
+            .on_press(cells::column_labels(), |c| {
+                Message::ToggleColumn(c.coord.column.unwrap_or("").to_owned())
             })
             .fmt(cells::body(), gt::decimal(1));
 
-        let readout = text(&self.last_action).size(14);
+        let instructions = text(
+            "Click body cells to toggle row selection; click headers to \
+             toggle column selection. Picking one clears the other. The \
+             country column drills (specific handler wins).",
+        )
+        .size(13);
+        let action = text(&self.last_action).size(14);
+        let state = text(self.selection.describe()).size(14);
 
         center(
-            column![container(table).style(container::bordered_box), readout]
-                .spacing(20.0),
+            column![
+                instructions,
+                scrollable(table).height(220.0),
+                action,
+                state
+            ]
+            .spacing(20.0),
         )
         .padding(20.0)
         .into()
