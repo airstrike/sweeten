@@ -223,6 +223,9 @@ pub struct Style {
     pub separator_x: Background,
     /// Color of the vertical line separator drawn between columns.
     pub separator_y: Background,
+    /// Color of the outline drawn around the entire table when
+    /// [`Table::border`](super::Table::border) is non-zero.
+    pub border: Background,
     /// Background fill drawn behind the sticky header block, so that
     /// scrolling data rows don't show through.
     pub sticky_background: Background,
@@ -278,6 +281,7 @@ pub fn default(theme: &crate::Theme) -> Style {
     Style {
         separator_x: palette.background.weak.color.into(),
         separator_y: palette.background.weak.color.into(),
+        border: palette.background.weak.color.into(),
         sticky_background: palette.background.base.color.into(),
         text: palette.background.base.text,
         title: palette.background.base.text,

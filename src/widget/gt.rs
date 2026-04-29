@@ -189,6 +189,7 @@ where
     outer_padding_x: Option<f32>,
     separator_x: f32,
     separator_y: f32,
+    border: f32,
     sticky_header: bool,
     class: <Theme as Catalog>::Class<'a>,
     _phantom: std::marker::PhantomData<(Message, Renderer)>,
@@ -226,6 +227,7 @@ where
             outer_padding_x: None,
             separator_x: 0.0,
             separator_y: 1.0,
+            border: 0.0,
             sticky_header: false,
             class: <Theme as Catalog>::default(),
             _phantom: std::marker::PhantomData,
@@ -381,6 +383,17 @@ where
         self
     }
 
+    /// Sets the thickness of the outline drawn around the entire
+    /// [`Table`]. The border is drawn at the table bounds, on top of
+    /// any cell chrome. Setting it to `0.0` — the default — disables
+    /// the outline. Color is controlled by
+    /// [`Style::border`](style::Style::border).
+    #[must_use]
+    pub fn border(mut self, width: impl Into<Pixels>) -> Self {
+        self.border = width.into().0;
+        self
+    }
+
     /// Pins the title block and column labels to the top of the visible
     /// area when the table is scrolled inside a parent scrollable.
     #[must_use]
@@ -430,6 +443,7 @@ where
             outer_padding_x,
             separator_x,
             separator_y,
+            border,
             sticky_header,
             class,
             _phantom,
@@ -738,6 +752,7 @@ where
             outer_padding_x,
             separator_x,
             separator_y,
+            border,
             sticky_header,
             class,
         }
@@ -964,6 +979,7 @@ where
     outer_padding_x: Option<f32>,
     separator_x: f32,
     separator_y: f32,
+    border: f32,
     sticky_header: bool,
     class: <Theme as Catalog>::Class<'a>,
 }
@@ -1458,6 +1474,67 @@ where
                     },
                 );
             });
+        }
+
+        // Outer border, drawn last so it sits on top of cell chrome
+        // and (when active) the sticky strip's top edge.
+        if self.border > 0.0 {
+            // Top
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: self.border,
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                table_style.border,
+            );
+            // Bottom
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x,
+                        y: bounds.y + bounds.height - self.border,
+                        width: bounds.width,
+                        height: self.border,
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                table_style.border,
+            );
+            // Left
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: self.border,
+                        height: bounds.height,
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                table_style.border,
+            );
+            // Right
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x + bounds.width - self.border,
+                        y: bounds.y,
+                        width: self.border,
+                        height: bounds.height,
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                table_style.border,
+            );
         }
     }
 
