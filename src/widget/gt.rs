@@ -120,6 +120,31 @@ pub struct Click<'a> {
     pub button: mouse::Button,
 }
 
+/// Boxed click handler stored in the [`Table`]'s `on_press` accumulator.
+type Handler<'a, Message> = Box<dyn for<'c> Fn(Click<'c>) -> Message + 'a>;
+
+/// Owned coordinate stored alongside [`CellMeta`] so the widget can
+/// rebuild a [`CellCoord`] (which borrows column / group ids) at hit-test
+/// time without re-walking the source data.
+#[derive(Debug, Clone)]
+struct OwnedCellCoord {
+    layer: CellLayer,
+    row: usize,
+    column: Option<String>,
+    group: Option<String>,
+}
+
+impl OwnedCellCoord {
+    fn as_borrowed(&self) -> CellCoord<'_> {
+        CellCoord {
+            layer: self.layer,
+            row: self.row,
+            column: self.column.as_deref(),
+            group: self.group.as_deref(),
+        }
+    }
+}
+
 /// Builder for a grammar-of-tables widget. See the [module
 /// docs](self) for the full grammar.
 pub struct Table<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer>
@@ -139,6 +164,7 @@ where
     source_notes: Vec<String>,
     tab_styles: Vec<(Selector, CellStyle)>,
     formatters: Vec<(Selector, Formatter)>,
+    on_press: Vec<(Selector, Handler<'a, Message>)>,
     width: Length,
     padding_x: f32,
     padding_y: f32,
@@ -175,6 +201,7 @@ where
             source_notes: Vec::new(),
             tab_styles: Vec::new(),
             formatters: Vec::new(),
+            on_press: Vec::new(),
             width: Length::Shrink,
             padding_x: 10.0,
             padding_y: 5.0,
@@ -260,6 +287,21 @@ where
     #[must_use]
     pub fn fmt(mut self, target: Selector, formatter: Formatter) -> Self {
         self.formatters.push((target, formatter));
+        self
+    }
+
+    /// Registers a click handler for cells matching `target`. Multiple
+    /// `on_press` calls accumulate; on a press, handlers are walked in
+    /// registration order and the FIRST matching handler fires (so
+    /// register specific handlers before broad fallbacks). Cells matching
+    /// no registered selector are non-clickable and show no pointer
+    /// cursor.
+    #[must_use]
+    pub fn on_press<F>(mut self, target: Selector, handler: F) -> Self
+    where
+        F: 'a + Fn(Click<'_>) -> Message,
+    {
+        self.on_press.push((target, Box::new(handler)));
         self
     }
 
@@ -363,6 +405,7 @@ where
             source_notes,
             tab_styles,
             formatters,
+            on_press,
             width,
             padding_x,
             padding_y,
@@ -437,6 +480,12 @@ where
                         align: col
                             .align
                             .unwrap_or_else(|| col.kind.default_align()),
+                        coord: OwnedCellCoord {
+                            layer,
+                            row: layer_row,
+                            column: Some(col.id.clone()),
+                            group: group_id.map(str::to_owned),
+                        },
                     });
                 }
                 let end = cells_out.len();
@@ -474,6 +523,12 @@ where
             cell_meta.push(CellMeta {
                 style: resolved_style,
                 align: alignment::Horizontal::Left,
+                coord: OwnedCellCoord {
+                    layer,
+                    row: layer_row,
+                    column: None,
+                    group: group_id.map(str::to_owned),
+                },
             });
             layout_rows.push(RowSpec::Spanned {
                 cell_index: idx,
@@ -657,6 +712,8 @@ where
             cell_meta,
             layout_rows,
             sticky_block_row_count,
+            stub_column,
+            on_press,
             width,
             padding_x,
             padding_y,
@@ -861,6 +918,10 @@ impl RowSpec {
 struct CellMeta {
     style: CellStyle,
     align: alignment::Horizontal,
+    /// Owned coord rebuilt into a [`CellCoord`] at click-dispatch /
+    /// hover time so handlers can be matched against registered
+    /// selectors without re-walking the source data.
+    coord: OwnedCellCoord,
 }
 
 struct Materialized<'a, Message, Theme, Renderer>
@@ -873,6 +934,12 @@ where
     cell_meta: Vec<CellMeta>,
     layout_rows: Vec<RowSpec>,
     sticky_block_row_count: usize,
+    /// Stub-column id (if any), needed at hit-test time to resolve
+    /// `cells::stub()` selectors against body cells.
+    stub_column: Option<String>,
+    /// Click-handler accumulator. Walked in registration order at press
+    /// dispatch and hover; first matching selector wins.
+    on_press: Vec<(Selector, Handler<'a, Message>)>,
     width: Length,
     padding_x: f32,
     padding_y: f32,
@@ -894,6 +961,10 @@ struct Metrics {
     /// whose text wraps to multiple lines while their row-mates stay
     /// single-line would draw chrome at mismatched y positions.
     cell_rects: Vec<Rectangle>,
+    /// Modifier-key state, kept fresh by intercepting
+    /// `keyboard::Event::ModifiersChanged` in `update()`. Read at
+    /// click-dispatch time to populate [`Click::modifiers`].
+    modifiers: keyboard::Modifiers,
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -919,6 +990,7 @@ where
             row_heights: vec![0.0; self.layout_rows.len()],
             table_width: 0.0,
             cell_rects: vec![Rectangle::default(); self.cells.len()],
+            modifiers: keyboard::Modifiers::default(),
         })
     }
 
@@ -1157,6 +1229,14 @@ where
         shell: &mut core::Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        // Keep modifier state fresh. We don't capture the event — other
+        // widgets need to see modifier changes too.
+        if let core::Event::Keyboard(keyboard::Event::ModifiersChanged(m)) =
+            event
+        {
+            tree.state.downcast_mut::<Metrics>().modifiers = *m;
+        }
+
         for ((cell, child), cell_layout) in self
             .cells
             .iter_mut()
@@ -1172,6 +1252,59 @@ where
                 shell,
                 viewport,
             );
+        }
+
+        // Click dispatch. Bail if a child consumed the event (e.g. a
+        // nested button) so we don't double-fire, and bail when no
+        // handlers are registered so we don't pay for hit-testing on
+        // every press in non-clickable tables.
+        if self.on_press.is_empty() || shell.is_event_captured() {
+            return;
+        }
+
+        // v1 fires on left-press only. `Click::button` is plumbed
+        // through so right-click / context-menu handlers can be added
+        // later without breaking the signature.
+        let core::Event::Mouse(mouse::Event::ButtonPressed(
+            button @ mouse::Button::Left,
+        )) = event
+        else {
+            return;
+        };
+        let bounds = layout.bounds();
+        if !cursor.is_over(bounds) {
+            return;
+        }
+
+        let metrics = tree.state.downcast_ref::<Metrics>();
+        let stub = self.stub_column.as_deref();
+
+        // Sticky-header edge case: when the sticky strip is active,
+        // hit-testing here resolves to the ORIGINAL cell at its scrolled
+        // position, not the duplicated sticky cell painted on top.
+        // Clicks landing on the sticky strip therefore won't fire unless
+        // the original cell is also under the cursor. Acceptable for v1
+        // — sticky-header rows are typically column labels, which today
+        // are most users' fallback non-interactive content.
+        let hit = self.cell_meta.iter().enumerate().find(|(i, _)| {
+            cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
+        });
+
+        if let Some((_, meta)) = hit {
+            let coord = meta.coord.as_borrowed();
+            if let Some((_, handler)) = self
+                .on_press
+                .iter()
+                .find(|(selector, _)| selector.matches(&coord, stub))
+            {
+                let click = Click {
+                    coord,
+                    modifiers: metrics.modifiers,
+                    button: *button,
+                };
+                shell.publish(handler(click));
+                shell.capture_event();
+            }
         }
     }
 
@@ -1318,7 +1451,8 @@ where
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        self.cells
+        let from_children = self
+            .cells
             .iter()
             .zip(&tree.children)
             .zip(layout.children())
@@ -1332,7 +1466,40 @@ where
                 )
             })
             .max()
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        // Only override `Idle` — anything more specific from a child
+        // (text caret, grab, etc.) wins, since we don't want a generic
+        // pointer cursor to mask a child widget's affordance.
+        if from_children != mouse::Interaction::Idle || self.on_press.is_empty()
+        {
+            return from_children;
+        }
+
+        let bounds = layout.bounds();
+        if !cursor.is_over(bounds) {
+            return from_children;
+        }
+
+        let metrics = tree.state.downcast_ref::<Metrics>();
+        let stub = self.stub_column.as_deref();
+
+        let hit = self.cell_meta.iter().enumerate().find(|(i, _)| {
+            cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
+        });
+
+        if let Some((_, meta)) = hit {
+            let coord = meta.coord.as_borrowed();
+            if self
+                .on_press
+                .iter()
+                .any(|(selector, _)| selector.matches(&coord, stub))
+            {
+                return mouse::Interaction::Pointer;
+            }
+        }
+
+        from_children
     }
 
     fn operate(
