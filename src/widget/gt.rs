@@ -36,6 +36,26 @@
 //! formatters. Multiple `tab_style` calls accumulate; later calls
 //! field-merge over earlier ones at overlapping cells.
 //!
+//! # Click handling
+//!
+//! [`Table::on_press`] mirrors [`Table::tab_style`] / [`Table::fmt`]:
+//! pass a [`Selector`] and a closure that builds a `Message` from a
+//! [`Click`]. Multiple `on_press` calls accumulate; on a press,
+//! handlers are walked in registration order and the FIRST match
+//! fires (so register specific handlers before broad fallbacks).
+//! Cells matching no registered selector are non-clickable and show
+//! no pointer cursor.
+//!
+//! ```ignore
+//! gt::Table::new(columns, rows)
+//!     .on_press(cells::body().columns(["country"]),
+//!               |c| Message::DrillCountry(c.coord.row))
+//!     .on_press(cells::body(),
+//!               |c| Message::SelectCell(c.coord.row,
+//!                                       c.coord.column.unwrap_or("")
+//!                                                     .to_owned()))
+//! ```
+//!
 //! # v2 roadmap
 //!
 //! Out of scope for v1 but tracked as TODOs:
@@ -53,8 +73,6 @@
 //!   The common case of "first/last column inset to align with an
 //!   outer card title" is already covered by
 //!   [`Table::outer_padding_x`].
-//! - **Click-source cells** — generic per-cell `on_press`. Same
-//!   `Message`-emitting story as sorting.
 //! - **Composite-selector refinement** — calling `.columns()` /
 //!   `.rows()` / `.groups()` on a selector built via `intersect` /
 //!   `union` currently degrades to "intersect with a body atom
