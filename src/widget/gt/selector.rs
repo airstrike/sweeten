@@ -30,7 +30,7 @@ enum Repr {
 
 #[derive(Clone)]
 struct Atom {
-    layer: Layer,
+    layer: CellLayer,
     columns: Option<HashSet<String>>,
     groups: Option<HashSet<String>>,
     predicate: Option<Predicate>,
@@ -38,17 +38,29 @@ struct Atom {
 
 type Predicate = Arc<dyn Fn(usize) -> bool + Send + Sync>;
 
+/// The conceptual layer a cell belongs to within a
+/// [`Table`](super::Table) (body, column labels, stub, summary, etc.).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) enum Layer {
+pub enum CellLayer {
+    /// A body cell.
     Body,
+    /// A header label cell.
     ColumnLabels,
+    /// A body cell in the stub column.
     Stub,
+    /// A group-summary row cell.
     Summary,
+    /// A grand-summary row cell.
     GrandSummary,
+    /// A row-group label row.
     RowGroupLabels,
+    /// The title block above the table.
     Title,
+    /// The subtitle row.
     Subtitle,
+    /// The units-caption row.
     UnitsCaption,
+    /// The source-notes block below the table.
     SourceNotes,
 }
 
@@ -56,15 +68,19 @@ pub(super) enum Layer {
 /// these for each cell (or spanned row) it draws and asks every
 /// accumulated selector whether it applies.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Coord<'a> {
-    pub layer: Layer,
+pub struct CellCoord<'a> {
+    /// Which layer the cell belongs to.
+    pub layer: CellLayer,
+    /// Row index within the cell's layer.
     pub row: usize,
-    pub column_id: Option<&'a str>,
-    pub group_id: Option<&'a str>,
+    /// Column id, or `None` for full-width / spanned rows.
+    pub column: Option<&'a str>,
+    /// Row-group id the cell is part of, when the table has row groups.
+    pub group: Option<&'a str>,
 }
 
 impl Selector {
-    fn atom(layer: Layer) -> Self {
+    fn atom(layer: CellLayer) -> Self {
         Self {
             repr: Repr::Atom(Atom {
                 layer,
@@ -146,7 +162,7 @@ impl Selector {
                 // Lift to first-class refinement on composites if a
                 // real use case appears.
                 let mut atom = Atom {
-                    layer: Layer::Body,
+                    layer: CellLayer::Body,
                     columns: None,
                     groups: None,
                     predicate: None,
@@ -163,7 +179,7 @@ impl Selector {
 
     pub(super) fn matches(
         &self,
-        coord: &Coord<'_>,
+        coord: &CellCoord<'_>,
         stub_column: Option<&str>,
     ) -> bool {
         match &self.repr {
@@ -180,34 +196,34 @@ impl Selector {
 
 fn match_atom(
     atom: &Atom,
-    coord: &Coord<'_>,
+    coord: &CellCoord<'_>,
     stub_column: Option<&str>,
 ) -> bool {
     let layer_ok = match atom.layer {
-        Layer::Stub => {
-            coord.layer == Layer::Body && coord.column_id == stub_column
+        CellLayer::Stub => {
+            coord.layer == CellLayer::Body && coord.column == stub_column
         }
-        Layer::Body
-        | Layer::ColumnLabels
-        | Layer::Summary
-        | Layer::GrandSummary
-        | Layer::RowGroupLabels
-        | Layer::Title
-        | Layer::Subtitle
-        | Layer::UnitsCaption
-        | Layer::SourceNotes => coord.layer == atom.layer,
+        CellLayer::Body
+        | CellLayer::ColumnLabels
+        | CellLayer::Summary
+        | CellLayer::GrandSummary
+        | CellLayer::RowGroupLabels
+        | CellLayer::Title
+        | CellLayer::Subtitle
+        | CellLayer::UnitsCaption
+        | CellLayer::SourceNotes => coord.layer == atom.layer,
     };
     if !layer_ok {
         return false;
     }
     if let Some(cols) = &atom.columns {
-        match coord.column_id {
+        match coord.column {
             Some(id) if cols.contains(id) => {}
             _ => return false,
         }
     }
     if let Some(groups) = &atom.groups {
-        match coord.group_id {
+        match coord.group {
             Some(id) if groups.contains(id) => {}
             _ => return false,
         }
@@ -223,17 +239,17 @@ fn match_atom(
 /// Pre-built selectors targeting the named layers of a
 /// [`Table`](super::Table).
 pub mod cells {
-    use super::{Layer, Selector};
+    use super::{CellLayer, Selector};
 
     /// Every body cell (excludes header, summary, source notes, etc.).
     /// The stub column is part of the body.
     pub fn body() -> Selector {
-        Selector::atom(Layer::Body)
+        Selector::atom(CellLayer::Body)
     }
 
     /// The header label row.
     pub fn column_labels() -> Selector {
-        Selector::atom(Layer::ColumnLabels)
+        Selector::atom(CellLayer::ColumnLabels)
     }
 
     /// Body cells in the stub column. Resolves at render time to the
@@ -241,41 +257,41 @@ pub mod cells {
     /// [`Table::stub_column`](super::super::Table::stub_column); a
     /// table with no stub column matches no cells.
     pub fn stub() -> Selector {
-        Selector::atom(Layer::Stub)
+        Selector::atom(CellLayer::Stub)
     }
 
     /// Cells in any group-summary row.
     pub fn summary() -> Selector {
-        Selector::atom(Layer::Summary)
+        Selector::atom(CellLayer::Summary)
     }
 
     /// Cells in any grand-summary row.
     pub fn grand_summary() -> Selector {
-        Selector::atom(Layer::GrandSummary)
+        Selector::atom(CellLayer::GrandSummary)
     }
 
     /// The optional group-header rows above each row group.
     pub fn row_group_labels() -> Selector {
-        Selector::atom(Layer::RowGroupLabels)
+        Selector::atom(CellLayer::RowGroupLabels)
     }
 
     /// The title block above the table.
     pub fn title() -> Selector {
-        Selector::atom(Layer::Title)
+        Selector::atom(CellLayer::Title)
     }
 
     /// The subtitle row.
     pub fn subtitle() -> Selector {
-        Selector::atom(Layer::Subtitle)
+        Selector::atom(CellLayer::Subtitle)
     }
 
     /// The units-caption row.
     pub fn units_caption() -> Selector {
-        Selector::atom(Layer::UnitsCaption)
+        Selector::atom(CellLayer::UnitsCaption)
     }
 
     /// The source-notes block below the table.
     pub fn source_notes() -> Selector {
-        Selector::atom(Layer::SourceNotes)
+        Selector::atom(CellLayer::SourceNotes)
     }
 }

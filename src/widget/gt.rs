@@ -82,19 +82,18 @@ pub use fmt::{
     parens_for_negatives, percent, scaled, scientific,
 };
 pub use row_group::RowGroup;
-pub use selector::{Selector, cells};
+pub use selector::{CellCoord, CellLayer, Selector, cells};
 pub use style::{
     BorderStyle, Catalog, CellStyle, Sides, Style, StyleFn, TextStyle,
     TextTransform, default,
 };
 pub use summary_row::SummaryRow;
 
-use selector::{Coord, Layer};
-
 use std::sync::Arc;
 
 use crate::core;
 use crate::core::alignment;
+use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
@@ -106,6 +105,20 @@ use crate::core::{
 };
 
 use iced_widget::text;
+
+/// A click on a [`Table`] cell, delivered to handlers registered via
+/// `on_press`. Carries the cell's [`CellCoord`] plus the modifier and
+/// mouse-button state at press time.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
+pub struct Click<'a> {
+    /// The clicked cell's coordinate.
+    pub coord: CellCoord<'a>,
+    /// Modifier keys held at press time.
+    pub modifiers: keyboard::Modifiers,
+    /// Which mouse button was pressed.
+    pub button: mouse::Button,
+}
 
 /// Builder for a grammar-of-tables widget. See the [module
 /// docs](self) for the full grammar.
@@ -371,7 +384,7 @@ where
             |layout_rows: &mut Vec<RowSpec>,
              cells_out: &mut Vec<Element<'a, Message, Theme, Renderer>>,
              cell_meta: &mut Vec<CellMeta>,
-             layer: Layer,
+             layer: CellLayer,
              layer_row: usize,
              group_id: Option<&str>,
              values: &[Cell],
@@ -398,11 +411,11 @@ where
                         }
                     };
 
-                    let coord = Coord {
+                    let coord = CellCoord {
                         layer,
                         row: layer_row,
-                        column_id: Some(col.id.as_str()),
-                        group_id,
+                        column: Some(col.id.as_str()),
+                        group: group_id,
                     };
 
                     let resolved_style =
@@ -438,15 +451,15 @@ where
             Element<'a, Message, Theme, Renderer>,
         >,
                             cell_meta: &mut Vec<CellMeta>,
-                            layer: Layer,
+                            layer: CellLayer,
                             layer_row: usize,
                             group_id: Option<&str>,
                             text_value: String| {
-            let coord = Coord {
+            let coord = CellCoord {
                 layer,
                 row: layer_row,
-                column_id: None,
-                group_id,
+                column: None,
+                group: group_id,
             };
             let resolved_style = resolve_style(&tab_styles, &coord, stub_id);
 
@@ -473,7 +486,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::Title,
+                CellLayer::Title,
                 0,
                 None,
                 text.clone(),
@@ -484,7 +497,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::Subtitle,
+                CellLayer::Subtitle,
                 0,
                 None,
                 text.clone(),
@@ -495,7 +508,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::UnitsCaption,
+                CellLayer::UnitsCaption,
                 0,
                 None,
                 text.clone(),
@@ -511,7 +524,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::ColumnLabels,
+                CellLayer::ColumnLabels,
                 0,
                 None,
                 &labels,
@@ -552,7 +565,7 @@ where
                         &mut layout_rows,
                         &mut cells_out,
                         &mut cell_meta,
-                        Layer::RowGroupLabels,
+                        CellLayer::RowGroupLabels,
                         group_label_index,
                         Some(group_id_str),
                         label.clone(),
@@ -568,7 +581,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::Body,
+                CellLayer::Body,
                 body_layer_row,
                 group_id.as_deref(),
                 &row_cells,
@@ -602,7 +615,7 @@ where
                         &mut layout_rows,
                         &mut cells_out,
                         &mut cell_meta,
-                        Layer::Summary,
+                        CellLayer::Summary,
                         summary_layer_row,
                         Some(gid),
                         &summary.cells,
@@ -618,7 +631,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::GrandSummary,
+                CellLayer::GrandSummary,
                 i,
                 None,
                 &summary.cells,
@@ -631,7 +644,7 @@ where
                 &mut layout_rows,
                 &mut cells_out,
                 &mut cell_meta,
-                Layer::SourceNotes,
+                CellLayer::SourceNotes,
                 i,
                 None,
                 note.clone(),
@@ -658,7 +671,7 @@ where
 
 fn resolve_style(
     tab_styles: &[(Selector, CellStyle)],
-    coord: &Coord<'_>,
+    coord: &CellCoord<'_>,
     stub_id: Option<&str>,
 ) -> CellStyle {
     let mut merged = CellStyle::default();
@@ -672,7 +685,7 @@ fn resolve_style(
 
 fn resolve_formatter(
     formatters: &[(Selector, Formatter)],
-    coord: &Coord<'_>,
+    coord: &CellCoord<'_>,
     stub_id: Option<&str>,
 ) -> Option<Formatter> {
     let mut latest: Option<Formatter> = None;
@@ -741,7 +754,7 @@ where
 fn build_spanned_text_element<'a, Message, Theme, Renderer>(
     rendered: String,
     style: &CellStyle,
-    layer: Layer,
+    layer: CellLayer,
 ) -> Element<'a, Message, Theme, Renderer>
 where
     Theme: text::Catalog + 'a,
@@ -754,16 +767,16 @@ where
     );
     let mut t = text::Text::<'a, Theme, Renderer>::new(transformed);
     let default_align = match layer {
-        Layer::Title | Layer::Subtitle | Layer::UnitsCaption => {
+        CellLayer::Title | CellLayer::Subtitle | CellLayer::UnitsCaption => {
             alignment::Horizontal::Left
         }
-        Layer::RowGroupLabels => alignment::Horizontal::Left,
-        Layer::SourceNotes => alignment::Horizontal::Left,
-        Layer::Body
-        | Layer::ColumnLabels
-        | Layer::Stub
-        | Layer::Summary
-        | Layer::GrandSummary => alignment::Horizontal::Left,
+        CellLayer::RowGroupLabels => alignment::Horizontal::Left,
+        CellLayer::SourceNotes => alignment::Horizontal::Left,
+        CellLayer::Body
+        | CellLayer::ColumnLabels
+        | CellLayer::Stub
+        | CellLayer::Summary
+        | CellLayer::GrandSummary => alignment::Horizontal::Left,
     };
     let align = style
         .text
@@ -828,16 +841,16 @@ where
 enum RowSpec {
     PerColumn {
         cell_range: std::ops::Range<usize>,
-        layer: Layer,
+        layer: CellLayer,
     },
     Spanned {
         cell_index: usize,
-        layer: Layer,
+        layer: CellLayer,
     },
 }
 
 impl RowSpec {
-    fn layer(&self) -> Layer {
+    fn layer(&self) -> CellLayer {
         match self {
             RowSpec::PerColumn { layer, .. }
             | RowSpec::Spanned { layer, .. } => *layer,
@@ -1553,10 +1566,12 @@ where
             // read as cell borders the caller didn't ask for. Callers
             // who want a divider above the column labels can opt in
             // via a `Sides::top()` border on `cells::column_labels()`.
-            let in_title_block = |layer: Layer| {
+            let in_title_block = |layer: CellLayer| {
                 matches!(
                     layer,
-                    Layer::Title | Layer::Subtitle | Layer::UnitsCaption
+                    CellLayer::Title
+                        | CellLayer::Subtitle
+                        | CellLayer::UnitsCaption
                 )
             };
             if in_title_block(above) || in_title_block(below) {
