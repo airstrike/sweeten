@@ -1,19 +1,25 @@
 //! `gt::Table` — selector-driven `on_press` handlers.
 //!
-//! A small country-stats table demonstrating that `on_press` handlers
-//! accumulate and dispatch first-match-wins: clicks on the `country`
-//! column drill down via the specific handler, while clicks on any
-//! other body cell fall through to the broad handler. The press
-//! readout below also shows the modifier state plumbed via
-//! [`gt::Click::modifiers`].
+//! Country-stats table demonstrating:
+//!
+//! - `on_press` accumulation with first-match-wins dispatch — clicking
+//!   the `country` column drills down via the specific handler;
+//!   clicking any other body cell falls through to the broad handler
+//!   that toggles row selection.
+//! - Selection state lives in the user's `App`. The table reflects it
+//!   via the existing `tab_style + cells::body().rows(predicate)`
+//!   primitives — no `gt`-side selection API needed.
+//! - `Click::modifiers` plumbed through to the message readout.
 //!
 //! Run with: `cargo run --example gt_clickable`
 
-use iced::widget::{center, column, text};
-use iced::{Element, Theme};
+use std::collections::BTreeSet;
+
+use iced::widget::{center, column, container, text};
+use iced::{Background, Element, Theme, color};
 
 use sweeten::widget::gt;
-use sweeten::widget::gt::{Cell, Column, cells};
+use sweeten::widget::gt::{Cell, CellStyle, Column, cells};
 
 pub fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -24,46 +30,50 @@ pub fn main() -> iced::Result {
 
 #[derive(Default)]
 struct App {
+    selected: BTreeSet<usize>,
     last_action: String,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
-    DrillCountry {
-        row: usize,
-        modifiers: String,
-    },
-    SelectCell {
-        row: usize,
-        column: String,
-        modifiers: String,
-    },
+    DrillCountry { row: usize, modifiers: String },
+    ToggleRow { row: usize, modifiers: String },
 }
 
 impl App {
     fn new() -> Self {
         Self {
-            last_action: "Click any cell.".to_string(),
+            selected: BTreeSet::new(),
+            last_action: "Click a country to drill; click any other cell \
+                          to toggle row selection."
+                .to_string(),
         }
     }
 
     fn update(&mut self, message: Message) {
-        self.last_action = match message {
+        match message {
             Message::DrillCountry { row, modifiers } => {
                 let name = COUNTRIES[row].0;
-                format!("DrillCountry: row={row} ({name}){modifiers}")
+                self.last_action =
+                    format!("DrillCountry → {name} (row {row}){modifiers}");
             }
-            Message::SelectCell {
-                row,
-                column,
-                modifiers,
-            } => {
+            Message::ToggleRow { row, modifiers } => {
+                if !self.selected.insert(row) {
+                    self.selected.remove(&row);
+                }
                 let name = COUNTRIES[row].0;
-                format!(
-                    "SelectCell: row={row} ({name}), column={column}{modifiers}"
-                )
+                let verb = if self.selected.contains(&row) {
+                    "selected"
+                } else {
+                    "deselected"
+                };
+                self.last_action = format!(
+                    "{verb} {name} (row {row}){modifiers} — \
+                     selection: {:?}",
+                    self.selected
+                );
             }
-        };
+        }
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -80,14 +90,32 @@ impl App {
             })
             .collect();
 
+        // Cloned into the predicate so `Selector::rows`' `'static`
+        // bound is satisfied. One small clone per `view` call.
+        let selected = self.selected.clone();
+        let selected_style = CellStyle {
+            fill: Some(Background::Color(color!(0xb3d4fc))),
+            ..CellStyle::default()
+        };
+
         let table = gt::Table::new(columns, rows)
             .title("Click handlers · first-match-wins")
-            .subtitle("Country column drills down; other body cells select.")
+            .subtitle(
+                "Country drills; other cells toggle row selection \
+                 (highlighted via tab_style).",
+            )
             .stub_column("country")
             .padding_x(12.0)
             .padding_y(6.0)
             .separator_y(1.0)
-            // Specific handler — registered FIRST so it wins on the
+            // Highlight rows whose index is in the selection set. Pure
+            // existing-API: `tab_style` + a row predicate over the body
+            // layer. No `gt`-side selection state.
+            .tab_style(
+                cells::body().rows(move |i| selected.contains(&i)),
+                selected_style,
+            )
+            // Specific handler — registered FIRST, so it wins on the
             // country column.
             .on_press(cells::body().columns(["country"]), |c| {
                 Message::DrillCountry {
@@ -95,19 +123,21 @@ impl App {
                     modifiers: fmt_mods(c.modifiers),
                 }
             })
-            // Broad fallback — fires on any other body cell.
-            .on_press(cells::body(), |c| Message::SelectCell {
+            // Broad fallback — any other body cell toggles selection.
+            .on_press(cells::body(), |c| Message::ToggleRow {
                 row: c.coord.row,
-                column: c.coord.column.unwrap_or("").to_owned(),
                 modifiers: fmt_mods(c.modifiers),
             })
             .fmt(cells::body(), gt::decimal(1));
 
         let readout = text(&self.last_action).size(14);
 
-        center(column![table, readout].spacing(20))
-            .padding(20)
-            .into()
+        center(
+            column![container(table).style(container::bordered_box), readout]
+                .spacing(20.0),
+        )
+        .padding(20.0)
+        .into()
     }
 }
 
