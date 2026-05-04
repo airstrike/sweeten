@@ -134,6 +134,28 @@ fit_text("Big headline")
 Both `min_size` and `max_size` are optional — call neither and the font scales
 within `[1.0, 1024.0]` pixels by default.
 
+### `Transition`
+
+A single-slot container that animates a slide transition whenever its child
+value changes — like Compose's `AnimatedContent` or Android's `ViewSwitcher`.
+The new content slides into the canonical position from the edge opposite the
+configured `Direction`, while the previous content slides off the same-side
+edge.
+
+```rust
+use sweeten::widget::transition::{self, Direction};
+
+transition::transition(self.phrase.clone(), |s: &String| {
+    text(s.clone()).size(22).into()
+})
+.direction(Direction::Up)
+.into()
+```
+
+Direction is sugar for the more general `Mode` knob (`.mode(Mode::Slide(d))`),
+which is where future transition styles (crossfade, fade, wipe, …) will land
+as additional variants.
+
 ## Examples
 
 For complete examples, see [`examples/`](examples/) or run an example like this:
@@ -147,6 +169,7 @@ Other examples include:
 cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
+cargo run --example transition
 ```
 
 ## Code Structure
@@ -160,6 +183,7 @@ The library is organized into modules for each enhanced widget:
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
   - `fit_text.rs`: Auto-scaling text that fits its bounds
+  - `transition.rs`: Animated single-slot container that slides between values
   - (more widgets coming soon!)
 
 ## Contributing
