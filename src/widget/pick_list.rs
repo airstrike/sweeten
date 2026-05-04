@@ -82,7 +82,7 @@ use std::f32;
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
 /// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 /// #
-/// use iced::widget::pick_list;
+/// use sweeten::widget::pick_list;
 ///
 /// struct State {
 ///    favorite: Option<Fruit>,
