@@ -11,6 +11,7 @@ use crate::widget::pick_list::{self, PickList};
 use crate::widget::row::{self, Row};
 use crate::widget::text_input::{self, TextInput};
 use crate::widget::toggler::{self, Toggler};
+use crate::widget::transition::{self, Transition};
 
 use std::borrow::Borrow;
 
@@ -168,4 +169,20 @@ where
     Renderer: core::text::Renderer,
 {
     FitText::new(content)
+}
+
+/// Creates a new [`Transition`] showing the given `value`, with `view` as the
+/// recipe for materializing an [`Element`] from any value of type `T`.
+///
+/// Whenever `value` changes (as detected by [`PartialEq`]), the widget
+/// animates a slide transition between the previous and new content.
+pub fn transition<'a, T, Message, Theme, Renderer>(
+    value: T,
+    view: impl Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a,
+) -> Transition<'a, T, Message, Theme, Renderer>
+where
+    T: Clone + PartialEq + 'static,
+    Renderer: core::Renderer,
+{
+    transition::Transition::new(value, view)
 }

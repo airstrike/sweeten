@@ -17,6 +17,7 @@ pub mod pick_list;
 pub mod row;
 pub mod text_input;
 pub mod toggler;
+pub mod transition;
 
 pub use button::Button;
 pub use column::Column;
@@ -26,6 +27,7 @@ pub use pick_list::PickList;
 pub use row::Row;
 pub use text_input::TextInput;
 pub use toggler::Toggler;
+pub use transition::Transition;
 
 // Re-export helper functions (same pattern as iced_widget)
 pub use crate::helpers::*;
