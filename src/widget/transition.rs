@@ -66,46 +66,89 @@ pub enum Direction {
     Right,
 }
 
-impl Direction {
-    /// Returns the unit vector of motion as `(dx, dy)` in the iced
-    /// coordinate system (y grows downward).
-    fn unit(self) -> (f32, f32) {
-        match self {
-            Self::Up => (0.0, -1.0),
-            Self::Down => (0.0, 1.0),
-            Self::Left => (-1.0, 0.0),
-            Self::Right => (1.0, 0.0),
-        }
-    }
+/// The transition style applied when content swaps.
+///
+/// New variants slot in here; each gets its own private `*_transforms`
+/// function below that produces the visual transforms for both children
+/// at a given animation progress. Slide is the only mode today; future
+/// modes (`Crossfade`, `Fade`, `Wipe`, `Hero`, …) will extend [`Content`]
+/// with the additional knobs they need (alpha for the fades, a per-child
+/// clip rect for wipe, etc.) and add a match arm in [`transforms`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Slide the new content into the canonical position from the edge
+    /// opposite the [`Direction`], pushing the previous content off the
+    /// same-side edge.
+    Slide(Direction),
+}
 
-    /// Returns `(current_offset, previous_offset)` — the slide
-    /// translations to apply to the incoming and outgoing children at
-    /// the given animation `progress` in `[0, 1]`, given the content
-    /// area `size`.
-    ///
-    /// Both offsets have magnitude equal to the content area's extent
-    /// along the motion axis, so the current slides all the way in
-    /// from the edge opposite the motion direction, and the previous
-    /// slides all the way out along the motion direction.
-    ///
-    /// Note that these are *visual* offsets — the widget's layout
-    /// puts the current child at its canonical (non-translated)
-    /// position, so events, focus, and hit-testing fire there from
-    /// t=0. `draw` applies `current_offset` via
-    /// [`Renderer::with_translation`], and `update` /
-    /// `mouse_interaction` translate the incoming cursor by
-    /// `-current_offset` so the child's hover/click tests match what
-    /// the user sees.
-    fn offsets(self, size: Size, progress: f32) -> (Vector, Vector) {
-        let (ux, uy) = self.unit();
-        let inv = 1.0 - progress;
-        let current =
-            Vector::new(-ux * size.width * inv, -uy * size.height * inv);
-        let previous = Vector::new(
-            ux * size.width * progress,
-            uy * size.height * progress,
-        );
-        (current, previous)
+impl Default for Mode {
+    fn default() -> Self {
+        Self::Slide(Direction::default())
+    }
+}
+
+/// Per-pass visual transform for one of the two children rendered during
+/// a transition. Mode-agnostic shape: modes that need additional knobs
+/// (alpha for fade/crossfade, per-child clip rect for wipe) extend this
+/// struct, and [`Widget::draw`] picks the new fields up.
+#[derive(Debug, Clone, Copy, Default)]
+struct Content {
+    translation: Vector,
+}
+
+/// Pair of [`Content`] transforms — one for the entering child, one for
+/// the exiting child. Returned by [`transforms`].
+#[derive(Debug, Clone, Copy, Default)]
+struct Transforms {
+    current: Content,
+    previous: Content,
+}
+
+/// Computes the per-child transforms for `mode` at the given animation
+/// `progress` in `[0, 1]`, given the content area `size`. Pure function;
+/// the only place that knows how each mode renders.
+fn transforms(mode: Mode, size: Size, progress: f32) -> Transforms {
+    match mode {
+        Mode::Slide(direction) => slide_transforms(direction, size, progress),
+    }
+}
+
+/// Slide-specific [`Transforms`].
+///
+/// Both translations have magnitude equal to the content area's extent
+/// along the motion axis, so the current slides all the way in from the
+/// edge opposite the motion direction, and the previous slides all the
+/// way out along the motion direction.
+///
+/// The translations are *visual*: layout puts the current child at its
+/// canonical (non-translated) position, so events, focus, and
+/// hit-testing fire there from t=0. `draw` applies these via
+/// `Renderer::with_translation`, and `update` / `mouse_interaction`
+/// translate the incoming cursor by `-current.translation` so the
+/// child's hover/click tests match what the user sees.
+fn slide_transforms(
+    direction: Direction,
+    size: Size,
+    progress: f32,
+) -> Transforms {
+    let (ux, uy) = match direction {
+        Direction::Up => (0.0, -1.0),
+        Direction::Down => (0.0, 1.0),
+        Direction::Left => (-1.0, 0.0),
+        Direction::Right => (1.0, 0.0),
+    };
+    let inv = 1.0 - progress;
+    let current = Vector::new(-ux * size.width * inv, -uy * size.height * inv);
+    let previous =
+        Vector::new(ux * size.width * progress, uy * size.height * progress);
+    Transforms {
+        current: Content {
+            translation: current,
+        },
+        previous: Content {
+            translation: previous,
+        },
     }
 }
 
@@ -115,11 +158,12 @@ impl Direction {
 type ViewFn<'a, T, Message, Theme, Renderer> =
     Box<dyn Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a>;
 
-/// Recomputes the current child's visual slide offset from the widget's
-/// absolute bounds, padding, and animation state. Shared by `update`,
-/// `mouse_interaction`, and (implicitly, through direct inlining) `draw`.
+/// Recomputes the current child's visual translation from the widget's
+/// absolute bounds, padding, and animation state. Shared by `update` and
+/// `mouse_interaction` for cursor-translation; `draw` reads both halves
+/// of [`transforms`] directly.
 fn current_offset<T>(
-    direction: Direction,
+    mode: Mode,
     padding: Padding,
     layout: &Layout<'_>,
     state: &State<T>,
@@ -136,7 +180,7 @@ fn current_offset<T>(
         (outer.width - padding.x()).max(0.0),
         (outer.height - padding.y()).max(0.0),
     );
-    direction.offsets(content_size, progress).0
+    transforms(mode, content_size, progress).current.translation
 }
 
 /// Subtracts a slide offset from a cursor's screen position so a child
@@ -166,7 +210,7 @@ pub struct Transition<
 {
     value: T,
     view: ViewFn<'a, T, Message, Theme, Renderer>,
-    direction: Direction,
+    mode: Mode,
     duration: Duration,
     easing: Easing,
     width: Length,
@@ -219,7 +263,7 @@ where
         Self {
             value,
             view: Box::new(view),
-            direction: Direction::default(),
+            mode: Mode::default(),
             duration: Duration::from_millis(200),
             easing: Easing::EaseOut,
             width: Length::Shrink,
@@ -239,11 +283,18 @@ where
         }
     }
 
-    /// Sets the [`Direction`] of the slide motion.
+    /// Sets the [`Mode`] of the transition.
     #[must_use]
-    pub fn direction(mut self, direction: Direction) -> Self {
-        self.direction = direction;
+    pub fn mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
+    }
+
+    /// Sets the [`Direction`] of the slide motion. Sugar for
+    /// `.mode(Mode::Slide(direction))`, the most common case.
+    #[must_use]
+    pub fn direction(self, direction: Direction) -> Self {
+        self.mode(Mode::Slide(direction))
     }
 
     /// Sets the [`Duration`] of the slide animation.
@@ -604,7 +655,7 @@ where
         // `current_offset` from the cursor makes hit-testing line up
         // with the visual position `draw` paints at.
         let current_offset =
-            current_offset(self.direction, self.padding, &layout, state);
+            current_offset(self.mode, self.padding, &layout, state);
 
         // Defensive: `layout` runs before `update` in the normal
         // path, but handle the inverted order so events never drop.
@@ -653,7 +704,7 @@ where
             return mouse::Interaction::None;
         };
         let current_offset =
-            current_offset(self.direction, self.padding, &layout, state);
+            current_offset(self.mode, self.padding, &layout, state);
         let adjusted_cursor = translate_cursor(cursor, current_offset);
         current_element.as_widget().mouse_interaction(
             &state.current_tree,
@@ -734,7 +785,8 @@ where
             state.previous_value.is_some() && state.previous_layout.is_some();
 
         let (cur_offset, prev_offset) = if has_previous {
-            self.direction.offsets(content_area.size(), progress)
+            let t = transforms(self.mode, content_area.size(), progress);
+            (t.current.translation, t.previous.translation)
         } else {
             (Vector::ZERO, Vector::ZERO)
         };
