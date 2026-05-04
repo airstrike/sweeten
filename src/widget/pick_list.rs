@@ -496,45 +496,43 @@ where
             }
             Event::Mouse(mouse::Event::WheelScrolled {
                 delta: mouse::ScrollDelta::Lines { y, .. },
-            }) => {
-                if state.keyboard_modifiers.command()
-                    && cursor.is_over(layout.bounds())
-                    && !state.is_open
-                {
-                    fn find_next<'a, T: PartialEq>(
-                        selected: &'a T,
-                        mut options: impl Iterator<Item = &'a T>,
-                    ) -> Option<&'a T> {
-                        let _ = options.find(|&option| option == selected);
+            }) if state.keyboard_modifiers.command()
+                && cursor.is_over(layout.bounds())
+                && !state.is_open =>
+            {
+                fn find_next<'a, T: PartialEq>(
+                    selected: &'a T,
+                    mut options: impl Iterator<Item = &'a T>,
+                ) -> Option<&'a T> {
+                    let _ = options.find(|&option| option == selected);
 
-                        options.next()
-                    }
-
-                    let options = self.options.borrow();
-                    let selected = self.selected.as_ref().map(Borrow::borrow);
-
-                    let next_option = if *y < 0.0 {
-                        if let Some(selected) = selected {
-                            find_next(selected, options.iter())
-                        } else {
-                            options.first()
-                        }
-                    } else if *y > 0.0 {
-                        if let Some(selected) = selected {
-                            find_next(selected, options.iter().rev())
-                        } else {
-                            options.last()
-                        }
-                    } else {
-                        None
-                    };
-
-                    if let Some(next_option) = next_option {
-                        shell.publish((self.on_select)(next_option.clone()));
-                    }
-
-                    shell.capture_event();
+                    options.next()
                 }
+
+                let options = self.options.borrow();
+                let selected = self.selected.as_ref().map(Borrow::borrow);
+
+                let next_option = if *y < 0.0 {
+                    if let Some(selected) = selected {
+                        find_next(selected, options.iter())
+                    } else {
+                        options.first()
+                    }
+                } else if *y > 0.0 {
+                    if let Some(selected) = selected {
+                        find_next(selected, options.iter().rev())
+                    } else {
+                        options.last()
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(next_option) = next_option {
+                    shell.publish((self.on_select)(next_option.clone()));
+                }
+
+                shell.capture_event();
             }
             Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                 state.keyboard_modifiers = *modifiers;
