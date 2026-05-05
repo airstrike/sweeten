@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are out of scope for v1. The existing `widget::table` stays as the terse
   choice for flat data grids.
 - `FitText` widget that auto-scales font size to fit its bounds via binary search. [#13](https://github.com/airstrike/sweeten/pull/13)
-- README sections for `Button` and `Toggler`.
+- `Transition` widget — single-slot container that animates between values when its `T` changes (Compose `AnimatedContent` / Android `ViewSwitcher` shape). Built around a `Mode` dispatch (`Mode::Slide(Direction)` today; `Crossfade`/`Fade`/`Wipe`/`Hero` slot in as additional variants without touching the widget pipeline). `.direction(d)` stays as sugar for the common slide case.
+- README sections for `Button`, `Toggler`, and `Transition`.
 - `Table::header_underline_height` and `Style::header_underline` to draw a distinct underline below the header row, replacing the standard separator at that boundary. Both default to the existing `separator_y` thickness/color so behavior is unchanged unless opted into.
 - `Table::style` and `Table::class` setters for customizing table appearance per-instance, mirroring the pattern used by sweetened `Button` and `PickList`.
 
