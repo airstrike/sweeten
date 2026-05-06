@@ -28,7 +28,7 @@ use super::item_id::ItemId;
 use super::state;
 
 const DRAG_DEADBAND_DISTANCE: f32 = 10.0;
-const RESIZE_LEEWAY: f32 = 8.0;
+const RESIZE_CORNER_REACH: f32 = 20.0;
 
 /// How the widget selects between [`MoveMode::Swap`] and
 /// [`MoveMode::Place`] during drags.
@@ -1634,19 +1634,12 @@ where
                 height: rect.height,
             };
 
-            let near_right =
-                (cursor_position.x - (abs_rect.x + abs_rect.width)).abs()
-                    < RESIZE_LEEWAY
-                    && cursor_position.y >= abs_rect.y
-                    && cursor_position.y <= abs_rect.y + abs_rect.height;
+            // Triangular wedge anchored at the bottom-right corner,
+            // matching the visible grip's shape: dx + dy < L.
+            let dx = (abs_rect.x + abs_rect.width) - cursor_position.x;
+            let dy = (abs_rect.y + abs_rect.height) - cursor_position.y;
 
-            let near_bottom =
-                (cursor_position.y - (abs_rect.y + abs_rect.height)).abs()
-                    < RESIZE_LEEWAY
-                    && cursor_position.x >= abs_rect.x
-                    && cursor_position.x <= abs_rect.x + abs_rect.width;
-
-            if near_right || near_bottom {
+            if dx >= 0.0 && dy >= 0.0 && dx + dy < RESIZE_CORNER_REACH {
                 return Some(*id);
             }
         }
@@ -1711,14 +1704,16 @@ where
             .find(|((_, _), layout)| layout.bounds().contains(cursor_position));
 
         if let Some(((id, content), item_layout)) = clicked {
-            if let Some(on_action) = &self.on_action {
+            let in_drag_zone = !self.locked
+                && content.is_draggable()
+                && content.can_be_dragged_at(item_layout, cursor_position);
+
+            if !in_drag_zone && let Some(on_action) = &self.on_action {
                 shell.publish(on_action(Action::Click(id)));
             }
 
             if self.on_action.is_some()
-                && !self.locked
-                && content.is_draggable()
-                && content.can_be_dragged_at(item_layout, cursor_position)
+                && in_drag_zone
                 && let Some(item) = self.internal.get(id)
             {
                 let item_pos = item_layout.bounds().position();
