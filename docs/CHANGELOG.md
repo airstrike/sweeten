@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- `widget::gt::Table::animate_on_load` — opt-in entrance animation
+  that reveals each non-sticky row in place via a height-clip mask
+  with a per-row stagger. Matches framer-motion's default `motion.tr`
+  keyframe transition (`cubic-bezier(0.25, 0.1, 0.35, 1)` over 300ms
+  per row, 50ms between rows; default curve sourced from
+  `motion-dom/src/animation/utils/default-transitions.ts`). Sticky
+  block (title / subtitle / units caption / column labels) doesn't
+  animate; row and column separators stay drawn at full extent so
+  rows materialize within a static lattice — clip-mask reveal is the
+  iced-native equivalent of motion.tr's fade since iced has no
+  generic widget alpha. Animation fires once per widget instance.
 - `widget::gt::Table` — declarative grammar-of-tables widget. Selector-based
   styling (`tab_style(target, style)`), typed cells (`Cell::Number` / `Text` /
   `Empty`), pluggable number formatters that take `&Cell` (so empty rendering

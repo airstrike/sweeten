@@ -108,21 +108,34 @@ pub use style::{
 pub use summary_row::SummaryRow;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::core;
 use crate::core::alignment;
+use crate::core::animation::Easing;
 use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
+use crate::core::time::Instant;
 use crate::core::widget;
+use crate::core::window;
 use crate::core::{
-    Background, Color, Element, Em, Layout, Length, Pixels, Point, Rectangle,
-    Size, Vector, Widget,
+    Animation, Background, Color, Element, Em, Event, Layout, Length, Pixels,
+    Point, Rectangle, Shell, Size, Vector, Widget,
 };
 
 use iced_widget::text;
+
+/// Per-row reveal duration of the [`Table::animate_on_load`] animation.
+/// Matches framer-motion's default keyframe transition (`0.3s`); see
+/// `motion-dom/src/animation/utils/default-transitions.ts`.
+const LOAD_ROW_DURATION: Duration = Duration::from_millis(300);
+/// Stagger between consecutive rows in [`Table::animate_on_load`],
+/// matching the customary `staggerChildren: 0.05` framer-motion users
+/// reach for on row entrances.
+const LOAD_ROW_STAGGER: Duration = Duration::from_millis(50);
 
 /// A click on a [`Table`] cell, delivered to handlers registered via
 /// `on_press`. Carries the cell's [`CellCoord`] plus the modifier and
@@ -191,6 +204,7 @@ where
     separator_y: f32,
     border: f32,
     sticky_header: bool,
+    animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
     _phantom: std::marker::PhantomData<(Message, Renderer)>,
 }
@@ -229,6 +243,7 @@ where
             separator_y: 1.0,
             border: 0.0,
             sticky_header: false,
+            animate_on_load: false,
             class: <Theme as Catalog>::default(),
             _phantom: std::marker::PhantomData,
         }
@@ -394,6 +409,34 @@ where
         self
     }
 
+    /// Animates body rows in on first display, revealing each row in
+    /// place via a height-clip mask with a per-row stagger. Matches
+    /// framer-motion's default `motion.tr` entry timing — a
+    /// `cubic-bezier(0.25, 0.1, 0.35, 1)` keyframe ease (the curve
+    /// motion-dom's `getDefaultTransition` falls back to) over
+    /// [`LOAD_ROW_DURATION`] per row, with [`LOAD_ROW_STAGGER`]
+    /// between consecutive rows.
+    ///
+    /// Iced has no row-level alpha, so this is a clip-mask reveal
+    /// rather than a fade — each row's drawable area grows from the
+    /// top edge to the row's full height as its local progress
+    /// advances. Sticky-block rows (title / subtitle / units caption /
+    /// column labels) don't animate; they form the masthead that's
+    /// already in place when body rows reveal underneath. Row and
+    /// column separators also stay drawn at full extent — they read
+    /// as a static lattice that body rows materialize within, which
+    /// avoids the gap-between-translated-rows artifact a per-row
+    /// translate would have without per-row backgrounds.
+    ///
+    /// Animation fires once per widget instance, on the first
+    /// [`window::Event::RedrawRequested`] the table receives. Toggling
+    /// the flag at runtime does not retrigger it.
+    #[must_use]
+    pub fn animate_on_load(mut self) -> Self {
+        self.animate_on_load = true;
+        self
+    }
+
     /// Pins the title block and column labels to the top of the visible
     /// area when the table is scrolled inside a parent scrollable.
     #[must_use]
@@ -445,6 +488,7 @@ where
             separator_y,
             border,
             sticky_header,
+            animate_on_load,
             class,
             _phantom,
         } = self;
@@ -754,6 +798,7 @@ where
             separator_y,
             border,
             sticky_header,
+            animate_on_load,
             class,
         }
     }
@@ -981,6 +1026,7 @@ where
     separator_y: f32,
     border: f32,
     sticky_header: bool,
+    animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
 }
 
@@ -1001,6 +1047,35 @@ struct Metrics {
     modifiers: keyboard::Modifiers,
 }
 
+/// Tree-state container. Wraps [`Metrics`] alongside the optional
+/// load-animation slot so a non-animated table costs the same as
+/// before plus one `Option::None`.
+struct State {
+    metrics: Metrics,
+    animation: Option<LoadAnimation>,
+}
+
+/// Drives the per-row entrance reveal when
+/// [`Table::animate_on_load`] is set. Same shape as the slot used by
+/// [`crate::widget::transition`] — armed in [`Widget::state`] with
+/// `pending_start = true`, fired on the first
+/// [`window::Event::RedrawRequested`] (which carries the `Instant`
+/// `lilt::Animated` needs to compute remaining time), and sampled in
+/// [`Widget::draw`] via `now`.
+///
+/// `progress` is a linear `Animation<f32>` from 0 → 1 over `total_ms`;
+/// the motion-ease curve is applied to each row's *local* progress in
+/// `draw`, after the per-row stagger has been subtracted, since
+/// applying ease globally would smear the stagger. `total_ms` is
+/// recorded at arming because `lilt::Animated`'s duration field is
+/// private.
+struct LoadAnimation {
+    progress: Animation<f32>,
+    pending_start: bool,
+    now: Option<Instant>,
+    total_ms: f32,
+}
+
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Materialized<'a, Message, Theme, Renderer>
 where
@@ -1015,16 +1090,27 @@ where
     }
 
     fn tag(&self) -> widget::tree::Tag {
-        widget::tree::Tag::of::<Metrics>()
+        widget::tree::Tag::of::<State>()
     }
 
     fn state(&self) -> widget::tree::State {
-        widget::tree::State::new(Metrics {
-            column_widths: vec![0.0; self.columns.len()],
-            row_heights: vec![0.0; self.layout_rows.len()],
-            table_width: 0.0,
-            cell_rects: vec![Rectangle::default(); self.cells.len()],
-            modifiers: keyboard::Modifiers::default(),
+        // Real total duration (= row + (n-1)·stagger) is set in
+        // [`Widget::update`] once the animating row count is known.
+        let animation = self.animate_on_load.then(|| LoadAnimation {
+            progress: Animation::new(0.0_f32).easing(Easing::Linear),
+            pending_start: true,
+            now: None,
+            total_ms: 0.0,
+        });
+        widget::tree::State::new(State {
+            metrics: Metrics {
+                column_widths: vec![0.0; self.columns.len()],
+                row_heights: vec![0.0; self.layout_rows.len()],
+                table_width: 0.0,
+                cell_rects: vec![Rectangle::default(); self.cells.len()],
+                modifiers: keyboard::Modifiers::default(),
+            },
+            animation,
         })
     }
 
@@ -1045,7 +1131,7 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let metrics = tree.state.downcast_mut::<Metrics>();
+        let metrics = &mut tree.state.downcast_mut::<State>().metrics;
         let limits = limits.width(self.width).height(Length::Shrink);
         let available = limits.max();
 
@@ -1256,19 +1342,47 @@ where
     fn update(
         &mut self,
         tree: &mut widget::Tree,
-        event: &core::Event,
+        event: &Event,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        shell: &mut core::Shell<'_, Message>,
+        shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
         // Keep modifier state fresh. We don't capture the event — other
         // widgets need to see modifier changes too.
-        if let core::Event::Keyboard(keyboard::Event::ModifiersChanged(m)) =
-            event
-        {
-            tree.state.downcast_mut::<Metrics>().modifiers = *m;
+        if let Event::Keyboard(keyboard::Event::ModifiersChanged(m)) = event {
+            tree.state.downcast_mut::<State>().metrics.modifiers = *m;
+        }
+
+        // Drive the load animation. On the first
+        // [`window::Event::RedrawRequested`], size the animation to
+        // the current animating-row count and arm it; on subsequent
+        // frames, request another redraw while it's still running.
+        if let Event::Window(window::Event::RedrawRequested(now)) = event {
+            let state = tree.state.downcast_mut::<State>();
+            if let Some(anim) = state.animation.as_mut() {
+                anim.now = Some(*now);
+
+                if anim.pending_start {
+                    let animating = self
+                        .layout_rows
+                        .len()
+                        .saturating_sub(self.sticky_block_row_count);
+                    let total = total_load_duration(animating);
+                    anim.total_ms = total.as_secs_f32() * 1_000.0;
+                    anim.progress = Animation::new(0.0_f32)
+                        .easing(Easing::Linear)
+                        .duration(total);
+                    anim.progress.go_mut(1.0, *now);
+                    anim.pending_start = false;
+                    shell.request_redraw();
+                }
+
+                if anim.progress.is_animating(*now) {
+                    shell.request_redraw();
+                }
+            }
         }
 
         for ((cell, child), cell_layout) in self
@@ -1310,7 +1424,7 @@ where
             return;
         }
 
-        let metrics = tree.state.downcast_ref::<Metrics>();
+        let metrics = &tree.state.downcast_ref::<State>().metrics;
         let stub = self.stub_column.as_deref();
 
         // Sticky-header edge case: when the sticky strip is active,
@@ -1353,8 +1467,28 @@ where
         viewport: &Rectangle,
     ) {
         let bounds = layout.bounds();
-        let metrics = tree.state.downcast_ref::<Metrics>();
+        let state = tree.state.downcast_ref::<State>();
+        let metrics = &state.metrics;
         let table_style = theme.style(&self.class);
+
+        // Per-row eased progress for the load animation. Returns 1.0
+        // for sticky-block rows (they're the masthead, never
+        // animate) and rows whose local window has finished. `None`
+        // when no animation was configured. `now` is `None` until
+        // the first `RedrawRequested` lands; rows render fully
+        // visible until then so the table never starts in a blank
+        // state.
+        let row_progress = build_row_progress(
+            state.animation.as_ref(),
+            self.layout_rows.len(),
+            self.sticky_block_row_count,
+        );
+        // Cell → row index lookup needed by the per-cell clip
+        // wrapping below; only built when an animation is active
+        // since it's pure overhead otherwise.
+        let cell_row = row_progress
+            .as_ref()
+            .map(|_| build_cell_row(&self.layout_rows, self.cells.len()));
 
         let sticky_height = self.sticky_strip_height(metrics);
         let shift = if self.sticky_header && sticky_height > 0.0 {
@@ -1377,7 +1511,34 @@ where
                 continue;
             }
             let rect = self.absolute_cell_rect(metrics, bounds, i);
-            self.draw_cell_chrome(renderer, &self.cell_meta[i], rect, bounds);
+            let progress = row_progress
+                .as_ref()
+                .zip(cell_row.as_ref())
+                .map(|(p, cr)| p[cr[i] as usize])
+                .unwrap_or(1.0);
+            // Skip rows whose local window hasn't started — drawing
+            // them would just be a no-op clipped to zero height.
+            if progress <= 0.0 {
+                continue;
+            }
+            if progress >= 1.0 {
+                self.draw_cell_chrome(
+                    renderer,
+                    &self.cell_meta[i],
+                    rect,
+                    bounds,
+                );
+            } else {
+                let clip = row_clip_rect(rect, progress);
+                renderer.with_layer(clip, |renderer| {
+                    self.draw_cell_chrome(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                });
+            }
         }
 
         // Row separators.
@@ -1399,15 +1560,32 @@ where
             if sticky_active && i < sticky_cell_count {
                 continue;
             }
-            cell.as_widget().draw(
-                child,
-                renderer,
-                theme,
-                defaults,
-                cell_layout,
-                cursor,
-                viewport,
-            );
+            let progress = row_progress
+                .as_ref()
+                .zip(cell_row.as_ref())
+                .map(|(p, cr)| p[cr[i] as usize])
+                .unwrap_or(1.0);
+            if progress <= 0.0 {
+                continue;
+            }
+            let draw_content = |renderer: &mut Renderer| {
+                cell.as_widget().draw(
+                    child,
+                    renderer,
+                    theme,
+                    defaults,
+                    cell_layout,
+                    cursor,
+                    viewport,
+                );
+            };
+            if progress >= 1.0 {
+                draw_content(renderer);
+            } else {
+                let rect = self.absolute_cell_rect(metrics, bounds, i);
+                let clip = row_clip_rect(rect, progress);
+                renderer.with_layer(clip, draw_content);
+            }
         }
 
         if sticky_active {
@@ -1577,7 +1755,7 @@ where
             return from_children;
         }
 
-        let metrics = tree.state.downcast_ref::<Metrics>();
+        let metrics = &tree.state.downcast_ref::<State>().metrics;
         let stub = self.stub_column.as_deref();
 
         let hit = self.cell_meta.iter().enumerate().find(|(i, _)| {
@@ -1947,6 +2125,132 @@ where
             x += self.separator_x + self.padding_x;
         }
     }
+}
+
+/// Total wall-time of the staggered load animation: the entry of the
+/// last row finishes [`LOAD_ROW_DURATION`] after it starts, and it
+/// starts `(rows - 1) * `[`LOAD_ROW_STAGGER`] after the first.
+fn total_load_duration(rows: usize) -> Duration {
+    let staggered = LOAD_ROW_STAGGER * rows.saturating_sub(1) as u32;
+    LOAD_ROW_DURATION + staggered
+}
+
+/// Builds a per-layout-row eased progress vector for the load
+/// animation, or returns `None` when no animation is configured /
+/// armed. Sticky-block rows (the masthead) always read as `1.0`;
+/// rows that haven't started yet read as `0.0`. The motion-ease
+/// curve is applied here per row, after the per-row stagger has
+/// been subtracted from the global elapsed time.
+fn build_row_progress(
+    anim: Option<&LoadAnimation>,
+    layout_rows: usize,
+    sticky_block_row_count: usize,
+) -> Option<Vec<f32>> {
+    let anim = anim?;
+    if anim.total_ms <= 0.0 {
+        // Animation not yet armed (no `RedrawRequested` seen). Show
+        // everything fully — the first frame would otherwise flash
+        // a blank table before `update` arms the animation.
+        return None;
+    }
+    let now = anim.now?;
+    let global = anim.progress.interpolate_with(|v| v, now).clamp(0.0, 1.0);
+    let elapsed_ms = global * anim.total_ms;
+    let row_duration_ms = LOAD_ROW_DURATION.as_secs_f32() * 1_000.0;
+    let stagger_ms = LOAD_ROW_STAGGER.as_secs_f32() * 1_000.0;
+
+    let mut out = Vec::with_capacity(layout_rows);
+    for r in 0..layout_rows {
+        if r < sticky_block_row_count {
+            out.push(1.0);
+            continue;
+        }
+        let idx = r - sticky_block_row_count;
+        let local = ((elapsed_ms - idx as f32 * stagger_ms) / row_duration_ms)
+            .clamp(0.0, 1.0);
+        out.push(motion_ease(local));
+    }
+    Some(out)
+}
+
+/// Lookup table from cell index → layout-row index. Built in
+/// [`Widget::draw`] only when an animation is active, since it's
+/// pure overhead otherwise. Stored as `u32` to halve cache pressure
+/// on tables with many cells.
+fn build_cell_row(layout_rows: &[RowSpec], cells: usize) -> Vec<u32> {
+    let mut out = vec![0u32; cells];
+    for (r, row) in layout_rows.iter().enumerate() {
+        match row {
+            RowSpec::PerColumn { cell_range, .. } => {
+                for i in cell_range.clone() {
+                    out[i] = r as u32;
+                }
+            }
+            RowSpec::Spanned { cell_index, .. } => {
+                out[*cell_index] = r as u32;
+            }
+        }
+    }
+    out
+}
+
+/// Top-anchored clip rect at `progress` of `rect`'s height. Drives
+/// the per-row reveal: at `progress = 0` the rect is empty, at
+/// `progress = 1` it equals `rect`. Anchored at the top edge so
+/// rows materialize "downward" from their top boundary, which reads
+/// as the row "drawing in" rather than rising.
+fn row_clip_rect(rect: Rectangle, progress: f32) -> Rectangle {
+    Rectangle {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: (rect.height * progress).max(0.0),
+    }
+}
+
+/// Solves a cubic-bezier `(x1, y1)..(x2, y2)` curve at input `x`,
+/// returning the corresponding `y`. Newton-Raphson on `B_x(t) = x`
+/// followed by direct evaluation of `B_y(t)`. Same shape as the
+/// helper used by [`button`](crate::widget::button) for its hover
+/// ease; kept local to this module to avoid a public utility module
+/// just for one private fn.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
+
+    let mut t = x;
+    for _ in 0..8 {
+        let t2 = t * t;
+        let t3 = t2 * t;
+        let bx = 3.0 * (1.0 - t) * (1.0 - t) * t * x1
+            + 3.0 * (1.0 - t) * t2 * x2
+            + t3;
+        let dbx = 3.0 * (1.0 - t) * (1.0 - t) * x1
+            + 6.0 * (1.0 - t) * t * (x2 - x1)
+            + 3.0 * t2 * (1.0 - x2);
+        if dbx.abs() < 1e-6 {
+            break;
+        }
+        t -= (bx - x) / dbx;
+        t = t.clamp(0.0, 1.0);
+    }
+
+    let t2 = t * t;
+    let t3 = t2 * t;
+    3.0 * (1.0 - t) * (1.0 - t) * t * y1 + 3.0 * (1.0 - t) * t2 * y2 + t3
+}
+
+/// Evaluates framer-motion's default keyframe ease curve at `t` —
+/// `cubic-bezier(0.25, 0.1, 0.35, 1)`, the curve motion-dom's
+/// `getDefaultTransition` falls back to (a slightly shallower CSS
+/// `ease`). Reference: `~/projects/motion/packages/motion-dom/src/
+/// animation/utils/default-transitions.ts`.
+fn motion_ease(t: f32) -> f32 {
+    cubic_bezier(0.25, 0.1, 0.35, 1.0, t)
 }
 
 impl<'a, Message, Theme, Renderer> From<Table<'a, Message, Theme, Renderer>>

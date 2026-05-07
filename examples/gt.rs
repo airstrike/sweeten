@@ -64,6 +64,7 @@ impl App {
             .padding_y(6.0)
             .separator_y(1.0)
             .sticky_header(true)
+            .animate_on_load()
             .tab_style(
                 cells::title(),
                 CellStyle {
