@@ -110,6 +110,7 @@ pub use summary_row::SummaryRow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::animation::cubic_bezier;
 use crate::core;
 use crate::core::alignment;
 use crate::core::animation::Easing;
@@ -2206,42 +2207,6 @@ fn row_clip_rect(rect: Rectangle, progress: f32) -> Rectangle {
         width: rect.width,
         height: (rect.height * progress).max(0.0),
     }
-}
-
-/// Solves a cubic-bezier `(x1, y1)..(x2, y2)` curve at input `x`,
-/// returning the corresponding `y`. Newton-Raphson on `B_x(t) = x`
-/// followed by direct evaluation of `B_y(t)`. Same shape as the
-/// helper used by [`button`](crate::widget::button) for its hover
-/// ease; kept local to this module to avoid a public utility module
-/// just for one private fn.
-fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    if x >= 1.0 {
-        return 1.0;
-    }
-
-    let mut t = x;
-    for _ in 0..8 {
-        let t2 = t * t;
-        let t3 = t2 * t;
-        let bx = 3.0 * (1.0 - t) * (1.0 - t) * t * x1
-            + 3.0 * (1.0 - t) * t2 * x2
-            + t3;
-        let dbx = 3.0 * (1.0 - t) * (1.0 - t) * x1
-            + 6.0 * (1.0 - t) * t * (x2 - x1)
-            + 3.0 * t2 * (1.0 - x2);
-        if dbx.abs() < 1e-6 {
-            break;
-        }
-        t -= (bx - x) / dbx;
-        t = t.clamp(0.0, 1.0);
-    }
-
-    let t2 = t * t;
-    let t3 = t2 * t;
-    3.0 * (1.0 - t) * (1.0 - t) * t * y1 + 3.0 * (1.0 - t) * t2 * y2 + t3
 }
 
 /// Evaluates framer-motion's default keyframe ease curve at `t` —

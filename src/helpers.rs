@@ -5,6 +5,7 @@ use crate::core::Element;
 use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
+use crate::widget::checkbox::{self, Checkbox};
 use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
@@ -204,6 +205,23 @@ where
     Renderer: core::text::Renderer<Font = core::Font> + 'a,
 {
     crate::widget::gt::Table::new(columns, rows)
+}
+
+/// Creates a new [`Checkbox`].
+///
+/// This is a sweetened version of [`iced`'s `checkbox`] with a smooth
+/// animation when toggling between states — the box's fill, border, and
+/// the checkmark itself fade and scale in unison.
+///
+/// [`iced`'s `checkbox`]: https://docs.iced.rs/iced/widget/checkbox/index.html
+pub fn checkbox<'a, Message, Theme, Renderer>(
+    is_checked: bool,
+) -> Checkbox<'a, Message, Theme, Renderer>
+where
+    Theme: checkbox::Catalog + 'a,
+    Renderer: core::text::Renderer,
+{
+    Checkbox::new(is_checked)
 }
 
 /// Creates a new [`Toggler`].

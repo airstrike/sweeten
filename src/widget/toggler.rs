@@ -30,6 +30,7 @@
 //!     }
 //! }
 //! ```
+use crate::animation::cubic_bezier;
 use crate::core::alignment;
 use crate::core::animation::Easing;
 use crate::core::border;
@@ -311,7 +312,11 @@ where
             paragraph: widget::text::State::default(),
             animation: Animation::new(self.is_toggled)
                 .very_quick()
-                .easing(Easing::EaseOut),
+                // cubic-bezier(0, 0, 0.2, 1) — Tailwind v4's
+                // `--ease-out`. Same curve the checkbox uses.
+                .easing(Easing::Custom(|t| {
+                    cubic_bezier(0.0, 0.0, 0.2, 1.0, t)
+                })),
             now: None,
             last_is_toggled: self.is_toggled,
         })

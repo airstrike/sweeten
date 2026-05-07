@@ -36,6 +36,8 @@
 //!
 //! - [`button`] — A button widget, with support for [`on_focus`][button_on_focus]
 //!   and [`on_blur`][button_on_blur] messages.
+//! - [`checkbox`] — A checkbox with smooth animation when toggling between
+//!   states.
 //! - [`column`] — Distribute content vertically, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`fit_text`] — A text widget that auto-scales its font size to fit the
@@ -70,6 +72,7 @@
 //!
 //! [`iced`]: https://github.com/iced-rs/iced
 //! [`button`]: mod@widget::button
+//! [`checkbox`]: mod@widget::checkbox
 //! [`column`]: mod@widget::column
 //! [`fit_text`]: mod@widget::fit_text
 //! [`tile_grid`]: mod@widget::tile_grid
@@ -86,6 +89,7 @@
 //! [`on_focus`]: widget::text_input::TextInput::on_focus
 //! [`on_blur`]: widget::text_input::TextInput::on_blur
 
+mod animation;
 mod helpers;
 pub mod widget;
 
@@ -101,6 +105,8 @@ pub use iced_widget::{scrollable, text_editor};
 // Re-export widget modules at crate level (mirrors iced_widget's structure)
 #[doc(hidden)]
 pub use widget::button;
+#[doc(hidden)]
+pub use widget::checkbox;
 #[doc(hidden)]
 pub use widget::overlay;
 #[doc(hidden)]
