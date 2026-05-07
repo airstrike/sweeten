@@ -290,6 +290,12 @@ struct State<P: text::Paragraph> {
     animation: Animation<bool>,
     now: Option<Instant>,
     last_is_checked: bool,
+    /// Whether the most recent left-button / finger press landed inside
+    /// the checkbox. Toggling fires on release, gated by this flag plus
+    /// a fresh "still inside on release" bounds check — pressing
+    /// outside and dragging in (or pressing in and dragging out before
+    /// release) must not toggle.
+    is_pressed: bool,
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -314,6 +320,7 @@ where
                 })),
             now: None,
             last_is_checked: self.is_checked,
+            is_pressed: false,
         })
     }
 
@@ -404,12 +411,30 @@ where
             }
         }
 
+        // Toggle on release, but only when *both* press and release
+        // happened inside the bounds — pressing outside and dragging
+        // in, or pressing inside and dragging out before release, must
+        // not toggle. We track press-inside in `state.is_pressed` and
+        // gate the publish on a fresh "still inside" bounds check.
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerPressed { .. }) => {
-                let mouse_over = cursor.is_over(layout.bounds());
+            | Event::Touch(touch::Event::FingerPressed { .. })
+                if self.on_toggle.is_some()
+                    && cursor.is_over(layout.bounds()) =>
+            {
+                state.is_pressed = true;
+                shell.capture_event();
+            }
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Touch(touch::Event::FingerLifted { .. })
+            | Event::Touch(touch::Event::FingerLost { .. }) => {
+                let was_pressed =
+                    std::mem::replace(&mut state.is_pressed, false);
 
-                if mouse_over && let Some(on_toggle) = &self.on_toggle {
+                if was_pressed
+                    && cursor.is_over(layout.bounds())
+                    && let Some(on_toggle) = &self.on_toggle
+                {
                     shell.publish((on_toggle)(!self.is_checked));
                     shell.capture_event();
                 }
