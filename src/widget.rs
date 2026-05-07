@@ -7,6 +7,7 @@
 //! [`iced`]: https://github.com/iced-rs/iced
 
 pub mod button;
+pub mod checkbox;
 pub mod column;
 pub mod drag;
 pub mod fit_text;
@@ -20,6 +21,7 @@ pub mod toggler;
 pub mod transition;
 
 pub use button::Button;
+pub use checkbox::Checkbox;
 pub use column::Column;
 pub use fit_text::FitText;
 pub use mouse_area::MouseArea;
