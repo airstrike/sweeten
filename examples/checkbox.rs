@@ -28,6 +28,7 @@ struct App {
     secondary: bool,
     success: bool,
     danger: bool,
+    text: bool,
     disabled: bool,
     theme: Theme,
 }
@@ -39,6 +40,7 @@ impl Default for App {
             secondary: false,
             success: false,
             danger: true,
+            text: true,
             disabled: true,
             theme: Theme::Oxocarbon,
         }
@@ -51,6 +53,7 @@ enum Message {
     Secondary(bool),
     Success(bool),
     Danger(bool),
+    Text(bool),
     ToggleAll,
 }
 
@@ -61,15 +64,18 @@ impl App {
             Message::Secondary(v) => self.secondary = v,
             Message::Success(v) => self.success = v,
             Message::Danger(v) => self.danger = v,
+            Message::Text(v) => self.text = v,
             Message::ToggleAll => {
                 let any_off = !(self.primary
                     && self.secondary
                     && self.success
-                    && self.danger);
+                    && self.danger
+                    && self.text);
                 self.primary = any_off;
                 self.secondary = any_off;
                 self.success = any_off;
                 self.danger = any_off;
+                self.text = any_off;
             }
         }
     }
@@ -92,7 +98,11 @@ impl App {
                 .label("Danger")
                 .on_toggle(Message::Danger)
                 .style(sweeten::widget::checkbox::danger),
-            checkbox(self.disabled).label("Disabled (no on_toggle)"),
+            checkbox(self.text)
+                .label("Text")
+                .on_toggle(Message::Text)
+                .style(sweeten::widget::checkbox::text),
+            checkbox(self.disabled).label("Disabled"),
             row![
                 button(text("Toggle all").size(14.0))
                     .on_press(Message::ToggleAll)
