@@ -56,6 +56,31 @@ toggler(self.is_on)
     .on_toggle(Message::Toggled)
 ```
 
+### `Checkbox`
+
+A sweetened version of `iced`'s `checkbox` widget. Toggling fades and scales
+the checkmark in or out while the box's fill and border crossfade between
+the off- and on-state styles, on Tailwind v4's `--ease-out` curve (the same
+one the `Toggler` uses, so the two boolean widgets feel like siblings).
+
+The press/release gesture is the standard one: pressing inside *arms* the
+checkbox; releasing inside *fires* the toggle. Press outside and drag in,
+or press inside and drag out before release, and nothing happens — matches
+how native checkboxes behave.
+
+```rust
+checkbox(self.is_checked)
+    .label("Subscribe to updates")
+    .on_toggle(Message::Toggled)
+```
+
+Five built-in styles ship: `primary`, `secondary`, `success`, `danger`, and
+`text` — the last is a monochrome variant that uses the theme's body text
+color for the fill, pairing naturally with text-only buttons. Each variant
+follows one rule across states (Active = `<swatch>.base`, Hovered =
+`<swatch>.strong`, Disabled fades much further toward the page background)
+so they're visually consistent.
+
 ### `MouseArea`
 
 A sweetened version of `iced`'s `mouse_area` widget with an additional
@@ -231,6 +256,7 @@ cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
 cargo run --example gt
+cargo run --example checkbox
 ```
 
 ## Code Structure
@@ -240,6 +266,7 @@ The library is organized into modules for each enhanced widget:
 - `widget/`: Contains all widget implementations
   - `button.rs`: Sweetened button with focus/blur callbacks
   - `toggler.rs`: Sweetened toggler with animated state changes
+  - `checkbox.rs`: Sweetened checkbox with animated check + `text` style
   - `mouse_area.rs`: Sweetened mouse interaction handling
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
