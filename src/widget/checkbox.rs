@@ -778,13 +778,19 @@ pub fn primary(theme: &Theme, status: Status) -> Style {
             palette.primary.strong,
             is_checked,
         ),
-        Status::Disabled { is_checked } => styled(
-            palette.background.weak.color,
-            palette.background.weaker,
-            palette.primary.base.text,
-            palette.background.strong,
-            is_checked,
-        ),
+        Status::Disabled { is_checked } => {
+            let accent = weakest_pair(
+                palette.primary.weak,
+                palette.background.base.color,
+            );
+            styled(
+                palette.background.weak.color,
+                palette.background.weaker,
+                accent.text,
+                accent,
+                is_checked,
+            )
+        }
     }
 }
 
@@ -792,28 +798,37 @@ pub fn primary(theme: &Theme, status: Status) -> Style {
 pub fn secondary(theme: &Theme, status: Status) -> Style {
     let palette = theme.palette();
 
+    // Sweetened: paint with `palette.secondary.*` (matching iced's
+    // `button::secondary`) instead of upstream's `palette.background.*`,
+    // which made `secondary-active` collide with `primary-disabled`.
     match status {
         Status::Active { is_checked } => styled(
             palette.background.strong.color,
             palette.background.base,
-            palette.background.base.text,
-            palette.background.strong,
+            palette.secondary.base.text,
+            palette.secondary.base,
             is_checked,
         ),
         Status::Hovered { is_checked } => styled(
             palette.background.strong.color,
             palette.background.weak,
-            palette.background.base.text,
-            palette.background.strong,
+            palette.secondary.base.text,
+            palette.secondary.strong,
             is_checked,
         ),
-        Status::Disabled { is_checked } => styled(
-            palette.background.weak.color,
-            palette.background.weak,
-            palette.background.base.text,
-            palette.background.weak,
-            is_checked,
-        ),
+        Status::Disabled { is_checked } => {
+            let accent = weakest_pair(
+                palette.secondary.weak,
+                palette.background.base.color,
+            );
+            styled(
+                palette.background.weak.color,
+                palette.background.weaker,
+                accent.text,
+                accent,
+                is_checked,
+            )
+        }
     }
 }
 
@@ -836,11 +851,70 @@ pub fn success(theme: &Theme, status: Status) -> Style {
             palette.success.strong,
             is_checked,
         ),
+        Status::Disabled { is_checked } => {
+            let accent = weakest_pair(
+                palette.success.weak,
+                palette.background.base.color,
+            );
+            styled(
+                palette.background.weak.color,
+                palette.background.weaker,
+                accent.text,
+                accent,
+                is_checked,
+            )
+        }
+    }
+}
+
+/// A monochrome checkbox; uses the theme's body text color as the
+/// accent so the checked state reads as a filled black/white block
+/// matching surrounding type. Pairs well with text-only buttons.
+pub fn text(theme: &Theme, status: Status) -> Style {
+    let palette = theme.palette();
+    // Active accent: inverse of `palette.background.base` — fill in
+    // body text color, page-bg color as the icon channel.
+    let inverse = palette::Pair {
+        color: palette.background.base.text,
+        text: palette.background.base.color,
+    };
+    // Hover accent: deviate the body text color further from the
+    // page bg (lighter in dark themes, darker in light themes) — the
+    // monochrome counterpart of the colored variants' `.strong`
+    // shift. Same `0.15` factor `Background::new` uses for `strong`.
+    let hover = palette::Pair {
+        color: palette::deviate(palette.background.base.text, 0.15),
+        text: palette.background.base.color,
+    };
+
+    match status {
+        // Unchecked border tracks the same neutral as the colored
+        // variants (`background.strong.color`) so the empty box reads
+        // at the same visual weight; the body text color shows up
+        // only as the *fill* on check.
+        Status::Active { is_checked } => styled(
+            palette.background.strong.color,
+            palette.background.base,
+            inverse.text,
+            inverse,
+            is_checked,
+        ),
+        Status::Hovered { is_checked } => styled(
+            palette.background.strong.color,
+            palette.background.weak,
+            hover.text,
+            hover,
+            is_checked,
+        ),
         Status::Disabled { is_checked } => styled(
             palette.background.weak.color,
-            palette.background.weak,
-            palette.success.base.text,
-            palette.success.weak,
+            palette.background.weakest,
+            palette
+                .background
+                .base
+                .text
+                .mix(palette.background.base.color, 0.55),
+            palette.background.weakest,
             is_checked,
         ),
     }
@@ -865,13 +939,31 @@ pub fn danger(theme: &Theme, status: Status) -> Style {
             palette.danger.strong,
             is_checked,
         ),
-        Status::Disabled { is_checked } => styled(
-            palette.background.weak.color,
-            palette.background.weak,
-            palette.danger.base.text,
-            palette.danger.weak,
-            is_checked,
-        ),
+        Status::Disabled { is_checked } => {
+            let accent = weakest_pair(
+                palette.danger.weak,
+                palette.background.base.color,
+            );
+            styled(
+                palette.background.weak.color,
+                palette.background.weaker,
+                accent.text,
+                accent,
+                is_checked,
+            )
+        }
+    }
+}
+
+/// Synthesize a "weakest" disabled accent. `Swatch` tops out at
+/// `.weak` (60% variant + 40% bg, still saturated enough to read as
+/// active in dark themes), so for disabled we mix `.weak` further
+/// toward the page bg to produce a barely-tinted fill, then mute
+/// the paired icon by mixing its text channel toward the bg too.
+fn weakest_pair(weak: palette::Pair, bg: Color) -> palette::Pair {
+    palette::Pair {
+        color: weak.color.mix(bg, 0.7),
+        text: weak.text.mix(bg, 0.55),
     }
 }
 
