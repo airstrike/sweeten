@@ -702,6 +702,16 @@ where
             Length::Fill | Length::FillPortion(_) => max.width,
             Length::Shrink => max.width, // grid fills available width
             Length::Fixed(w) => w.min(max.width),
+            Length::Bounded { min, max: cap, .. } => {
+                let mut w = max.width;
+                if let Some(c) = cap {
+                    w = w.min(c);
+                }
+                if let Some(m) = min {
+                    w = w.max(m);
+                }
+                w
+            }
         };
 
         let (cell_w, cell_h) = self.cell_dimensions(resolved_width);
@@ -711,6 +721,21 @@ where
             Length::Fill | Length::FillPortion(_) => max.height,
             Length::Shrink => grid_h.min(max.height),
             Length::Fixed(h) => h.min(max.height),
+            Length::Bounded {
+                min,
+                max: cap,
+                compression,
+            } => {
+                let intrinsic = if compression { grid_h } else { max.height };
+                let mut h = intrinsic;
+                if let Some(c) = cap {
+                    h = h.min(c);
+                }
+                if let Some(m) = min {
+                    h = h.max(m);
+                }
+                h.min(max.height)
+            }
         };
 
         let bounds = Size::new(resolved_width, resolved_height);
