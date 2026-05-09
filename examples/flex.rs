@@ -57,7 +57,6 @@ enum Demo {
     Shrink,
     Basis,
     AlignSelf,
-    Reverse,
     PaddingGap,
     Mixed,
 }
@@ -71,7 +70,6 @@ impl Demo {
         Self::Shrink,
         Self::Basis,
         Self::AlignSelf,
-        Self::Reverse,
         Self::PaddingGap,
         Self::Mixed,
     ];
@@ -85,7 +83,6 @@ impl Demo {
             Self::Shrink => "flex-shrink",
             Self::Basis => "flex-basis",
             Self::AlignSelf => "align-self",
-            Self::Reverse => "row-reverse",
             Self::PaddingGap => "padding & gap",
             Self::Mixed => "Mixed (kitchen sink)",
         }
@@ -125,10 +122,6 @@ impl Demo {
                 "Container is align-items: Stretch. Two \
                 children opt out via align_self — one to Start, one to \
                 End — overriding the container's choice."
-            }
-            Self::Reverse => {
-                "Same children with reverse(true) — the \
-                first source child renders at the visual end edge."
             }
             Self::PaddingGap => {
                 "Padding insets the children from the \
@@ -415,7 +408,6 @@ impl FlexTour {
             Demo::Shrink => self.demo_shrink(),
             Demo::Basis => self.demo_basis(),
             Demo::AlignSelf => self.demo_align_self(),
-            Demo::Reverse => self.demo_reverse(),
             Demo::PaddingGap => self.demo_padding_gap(),
             Demo::Mixed => self.demo_mixed(),
         };
@@ -632,24 +624,6 @@ impl FlexTour {
             flex(cell("E", "", 80.0, 0.0)),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
-    }
-
-    /// Same children with reverse(true).
-    fn demo_reverse(&self) -> Element<'_, Message> {
-        let kids = [
-            cell("A", "", 90.0, 60.0),
-            cell("B", "", 90.0, 60.0),
-            cell("C", "", 90.0, 60.0),
-        ];
-        let demo = flex_demo(self.axis.0, kids)
-            .gap(self.gap)
-            .padding(self.padding)
-            .align(self.align_override.0.unwrap_or(AlignItems::Start))
-            .justify(self.justify_override.0.unwrap_or(Justify::SpaceBetween))
-            .reverse(true)
-            .width(Fill)
-            .height(Fill);
-        frame(demo.into())
     }
 
     /// Padding & gap interaction with grow.
@@ -1010,36 +984,46 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     .text_size(12)
     .width(Fill);
 
+    // Dogfood: the [label · "16px"] readout above each slider is a
+    // `flex::row!` with `Justify::SpaceBetween`, so the value hugs the
+    // right edge while the label sits at the start. Same shape the
+    // example demonstrates in its justify-content card.
     let gap_slider = column![
-        row![
-            label("gap"),
-            text(format!("{:.0}px", app.gap)).size(11).width(Fill),
-        ]
-        .align_y(Center),
-        slider(0.0..=48.0, app.gap, Message::GapChanged).step(1.0),
+        flex::row![label("gap"), text(format!("{:.0}px", app.gap)).size(11),]
+            .justify(Justify::SpaceBetween)
+            .align(AlignItems::Center)
+            .width(Fill),
+        slider(0.0..=48.0, app.gap, Message::GapChanged)
+            .step(1.0)
+            .style(slider_style),
     ]
     .spacing(4);
 
     let padding_slider = column![
-        row![
+        flex::row![
             label("padding"),
-            text(format!("{:.0}px", app.padding)).size(11).width(Fill),
+            text(format!("{:.0}px", app.padding)).size(11),
         ]
-        .align_y(Center),
-        slider(0.0..=32.0, app.padding, Message::PaddingChanged).step(1.0),
+        .justify(Justify::SpaceBetween)
+        .align(AlignItems::Center)
+        .width(Fill),
+        slider(0.0..=32.0, app.padding, Message::PaddingChanged)
+            .step(1.0)
+            .style(slider_style),
     ]
     .spacing(4);
 
     let reverse_box: Element<'_, Message> = checkbox(app.reverse)
         .label("reverse")
+        .text_size(11)
         .on_toggle(Message::ReverseToggled)
         .into();
 
     let body = column![
         text("Flex tour").size(20),
         text("CSS Flexbox for iced").size(11).style(text::secondary),
-        section("Demo", demo_picker.into()),
-        section("Axis", axis_picker.into()),
+        section("demo", demo_picker.into()),
+        section("axis", axis_picker.into()),
         section("justify-content", justify_picker.into()),
         section("align-items", align_picker.into()),
         gap_slider,
@@ -1082,6 +1066,43 @@ fn frame_style(theme: &Theme) -> container::Style {
             radius: 8.0.into(),
         },
         ..container::Style::default()
+    }
+}
+
+fn slider_style(
+    theme: &Theme,
+    status: iced::widget::slider::Status,
+) -> iced::widget::slider::Style {
+    use iced::widget::slider::{Handle, HandleShape, Rail, Status, Style};
+
+    let palette = theme.palette();
+
+    // Filled portion uses primary; the unfilled tail blends quietly
+    // into the sidebar's background. Hovered/dragged states bump the
+    // fill brightness without changing geometry.
+    let fill = match status {
+        Status::Active => palette.primary.base.color,
+        Status::Hovered => palette.primary.strong.color,
+        Status::Dragged => palette.primary.strong.color,
+    };
+    let track = palette.background.weaker.color;
+
+    Style {
+        rail: Rail {
+            backgrounds: (fill.into(), track.into()),
+            width: 1.0,
+            border: iced::Border {
+                color: iced::Color::TRANSPARENT,
+                width: 0.0,
+                radius: 0.5.into(),
+            },
+        },
+        handle: Handle {
+            shape: HandleShape::Circle { radius: 5.0 },
+            background: fill.into(),
+            border_color: palette.background.base.color,
+            border_width: 1.5,
+        },
     }
 }
 
