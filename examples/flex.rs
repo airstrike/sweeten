@@ -984,15 +984,23 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     .text_size(12)
     .width(Fill);
 
-    // Dogfood: the [label · "16px"] readout above each slider is a
-    // `flex::row!` with `Justify::SpaceBetween`, so the value hugs the
-    // right edge while the label sits at the start. Same shape the
-    // example demonstrates in its justify-content card.
+    // Dogfood: each slider readout is `flex::row![label, hotkey,
+    // value.grow(1).align(Right)]` — the label and hotkey hint pack
+    // at the start, the value text grows into the leftover and
+    // right-aligns itself within that space.
     let gap_slider = column![
-        flex::row![label("gap"), text(format!("{:.0}px", app.gap)).size(11),]
-            .justify(Justify::SpaceBetween)
-            .align(AlignItems::Center)
-            .width(Fill),
+        flex::row![
+            label("gap"),
+            hotkey("← →"),
+            flex(
+                text(format!("{:.0}px", app.gap))
+                    .size(11)
+                    .align_x(iced::Right)
+            )
+            .grow(1.0),
+        ]
+        .align(AlignItems::Center)
+        .width(Fill),
         slider(0.0..=48.0, app.gap, Message::GapChanged)
             .step(1.0)
             .style(slider_style),
@@ -1002,9 +1010,14 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     let padding_slider = column![
         flex::row![
             label("padding"),
-            text(format!("{:.0}px", app.padding)).size(11),
+            hotkey("↑ ↓"),
+            flex(
+                text(format!("{:.0}px", app.padding))
+                    .size(11)
+                    .align_x(iced::Right)
+            )
+            .grow(1.0),
         ]
-        .justify(Justify::SpaceBetween)
         .align(AlignItems::Center)
         .width(Fill),
         slider(0.0..=32.0, app.padding, Message::PaddingChanged)
@@ -1013,19 +1026,25 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     ]
     .spacing(4);
 
-    let reverse_box: Element<'_, Message> = checkbox(app.reverse)
-        .label("reverse")
-        .text_size(11)
-        .on_toggle(Message::ReverseToggled)
-        .into();
+    let reverse_box: Element<'_, Message> = flex::row![
+        checkbox(app.reverse)
+            .label("reverse")
+            .text_size(11)
+            .on_toggle(Message::ReverseToggled),
+        hotkey("V"),
+    ]
+    .justify(Justify::SpaceBetween)
+    .align(AlignItems::Center)
+    .width(Fill)
+    .into();
 
     let body = column![
         text("Flex tour").size(20),
         text("CSS Flexbox for iced").size(11).style(text::secondary),
-        section("demo", demo_picker.into()),
-        section("axis", axis_picker.into()),
-        section("justify-content", justify_picker.into()),
-        section("align-items", align_picker.into()),
+        section("demo", "PgUp / PgDn", demo_picker.into()),
+        section("axis", "X · R / C", axis_picker.into()),
+        section("justify-content", "J / ⇧J", justify_picker.into()),
+        section("align-items", "A / ⇧A", align_picker.into()),
         gap_slider,
         padding_slider,
         reverse_box,
@@ -1039,11 +1058,31 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
 
 fn section<'a>(
     title: &'static str,
+    hotkey_hint: &'static str,
     body: Element<'a, Message>,
 ) -> Element<'a, Message> {
-    column![text(title).size(11).style(text::secondary), body,]
-        .spacing(4)
-        .into()
+    column![
+        flex::row![
+            text(title).size(11).style(text::secondary),
+            hotkey(hotkey_hint),
+        ]
+        .justify(Justify::SpaceBetween)
+        .align(AlignItems::Center)
+        .width(Fill),
+        body,
+    ]
+    .spacing(4)
+    .into()
+}
+
+/// Tiny dimmed label for keyboard-shortcut hints next to section
+/// titles. Smaller and more muted than the secondary text around it
+/// so the hotkey reads as ancillary metadata rather than a peer of
+/// the section title.
+fn hotkey<'a>(s: &'a str) -> iced::widget::Text<'a, Theme> {
+    text(s).size(10).style(|theme: &Theme| text::Style {
+        color: Some(theme.palette().background.base.text.scale_alpha(0.45)),
+    })
 }
 
 // --- Styling --------------------------------------------------------------
