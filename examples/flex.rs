@@ -202,25 +202,6 @@ impl std::fmt::Display for AlignChoice {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ThemeChoice(usize);
-
-impl ThemeChoice {
-    fn all() -> Vec<Self> {
-        (0..Theme::ALL.len()).map(Self).collect()
-    }
-
-    fn theme(self) -> Theme {
-        Theme::ALL[self.0].clone()
-    }
-}
-
-impl std::fmt::Display for ThemeChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", Theme::ALL[self.0])
-    }
-}
-
 struct FlexTour {
     demo: Demo,
     axis: AxisChoice,
@@ -229,20 +210,10 @@ struct FlexTour {
     justify_override: JustifyChoice,
     align_override: AlignChoice,
     reverse: bool,
-    theme_choice: ThemeChoice,
-    themes: Vec<ThemeChoice>,
 }
 
 impl Default for FlexTour {
     fn default() -> Self {
-        let themes = ThemeChoice::all();
-        // Pick Oxocarbon as the default — it's the sweeten house theme.
-        let oxocarbon = Theme::ALL
-            .iter()
-            .position(|t| matches!(t, Theme::Oxocarbon))
-            .map(ThemeChoice)
-            .unwrap_or(ThemeChoice(0));
-
         Self {
             demo: Demo::Basic,
             axis: AxisChoice(Axis::Horizontal),
@@ -251,8 +222,6 @@ impl Default for FlexTour {
             justify_override: JustifyChoice(None),
             align_override: AlignChoice(None),
             reverse: false,
-            theme_choice: oxocarbon,
-            themes,
         }
     }
 }
@@ -266,7 +235,6 @@ enum Message {
     JustifySelected(JustifyChoice),
     AlignSelected(AlignChoice),
     ReverseToggled(bool),
-    ThemeSelected(ThemeChoice),
 }
 
 impl FlexTour {
@@ -275,7 +243,7 @@ impl FlexTour {
     }
 
     fn theme(&self) -> Theme {
-        self.theme_choice.theme()
+        Theme::Oxocarbon
     }
 
     fn update(&mut self, message: Message) {
@@ -287,7 +255,6 @@ impl FlexTour {
             Message::JustifySelected(j) => self.justify_override = j,
             Message::AlignSelected(a) => self.align_override = a,
             Message::ReverseToggled(r) => self.reverse = r,
-            Message::ThemeSelected(t) => self.theme_choice = t,
         }
     }
 
@@ -330,9 +297,9 @@ impl FlexTour {
     /// Three children, default props. Showcases packing.
     fn demo_basic(&self) -> Element<'_, Message> {
         let kids = [
-            cell("alpha", 90.0, 60.0),
-            cell("beta", 120.0, 60.0),
-            cell("gamma", 80.0, 60.0),
+            cell("A", "", 90.0, 60.0),
+            cell("B", "", 120.0, 60.0),
+            cell("C", "", 80.0, 60.0),
         ];
         let demo = flex_demo(self.axis.0, kids)
             .gap(self.gap)
@@ -363,9 +330,9 @@ impl FlexTour {
                     let inner = flex_demo(
                         self.axis.0,
                         [
-                            cell("a", 56.0, 40.0),
-                            cell("b", 56.0, 40.0),
-                            cell("c", 56.0, 40.0),
+                            cell("A", "", 56.0, 40.0),
+                            cell("B", "", 56.0, 40.0),
+                            cell("C", "", 56.0, 40.0),
                         ],
                     )
                     .gap(self.gap)
@@ -404,9 +371,9 @@ impl FlexTour {
                 .map(|(a, name)| -> Element<'_, Message> {
                     // Mixed cross sizes so alignment is visible.
                     let inner = flex::row([
-                        cell("sm", 36.0, 28.0),
-                        cell("md", 36.0, 56.0),
-                        cell("lg", 36.0, 84.0),
+                        cell("A", "h=28", 36.0, 28.0),
+                        cell("B", "h=56", 36.0, 56.0),
+                        cell("C", "h=84", 36.0, 84.0),
                     ])
                     .gap(self.gap)
                     .padding(8.0)
@@ -432,9 +399,9 @@ impl FlexTour {
     /// Three growing items with 1 : 2 : 1 ratios.
     fn demo_grow(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("grow=1", color!(0x4a90e2))).grow(1.0),
-            flex(boxed("grow=2", color!(0xe2725b))).grow(2.0),
-            flex(boxed("grow=1", color!(0x6ab04c))).grow(1.0),
+            flex(boxed("A", "grow=1", color!(0x4a90e2))).grow(1.0),
+            flex(boxed("B", "grow=2", color!(0xe2725b))).grow(2.0),
+            flex(boxed("C", "grow=1", color!(0x6ab04c))).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -442,13 +409,13 @@ impl FlexTour {
     /// Three fixed-basis items in a too-narrow container.
     fn demo_shrink(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("basis=200, shrink=1", color!(0x4a90e2)))
+            flex(boxed("A", "basis=200", color!(0x4a90e2)))
                 .basis(200.0)
                 .shrink(1.0),
-            flex(boxed("basis=300, shrink=1", color!(0xe2725b)))
+            flex(boxed("B", "basis=300", color!(0xe2725b)))
                 .basis(300.0)
                 .shrink(1.0),
-            flex(boxed("basis=200, shrink=1", color!(0x6ab04c)))
+            flex(boxed("C", "basis=200", color!(0x6ab04c)))
                 .basis(200.0)
                 .shrink(1.0),
         ];
@@ -458,10 +425,10 @@ impl FlexTour {
     /// Three explicit-basis items plus a fourth grower.
     fn demo_basis(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("basis=80", color!(0x4a90e2))).basis(80.0),
-            flex(boxed("basis=160", color!(0xe2725b))).basis(160.0),
-            flex(boxed("basis=80", color!(0x6ab04c))).basis(80.0),
-            flex(boxed("grow=1", color!(0xb967ff))).grow(1.0),
+            flex(boxed("A", "basis=80", color!(0x4a90e2))).basis(80.0),
+            flex(boxed("B", "basis=160", color!(0xe2725b))).basis(160.0),
+            flex(boxed("C", "basis=80", color!(0x6ab04c))).basis(80.0),
+            flex(boxed("D", "grow=1", color!(0xb967ff))).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -471,11 +438,12 @@ impl FlexTour {
         use sweeten::widget::flex::AlignSelf;
 
         let kids = [
-            flex(cell("default", 80.0, 0.0)),
-            flex(cell("self=Start", 80.0, 40.0)).align_self(AlignSelf::Start),
-            flex(cell("default", 80.0, 0.0)),
-            flex(cell("self=End", 80.0, 40.0)).align_self(AlignSelf::End),
-            flex(cell("default", 80.0, 0.0)),
+            flex(cell("A", "", 80.0, 0.0)),
+            flex(cell("B", "self=Start", 80.0, 40.0))
+                .align_self(AlignSelf::Start),
+            flex(cell("C", "", 80.0, 0.0)),
+            flex(cell("D", "self=End", 80.0, 40.0)).align_self(AlignSelf::End),
+            flex(cell("E", "", 80.0, 0.0)),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -483,9 +451,9 @@ impl FlexTour {
     /// Same children with reverse(true).
     fn demo_reverse(&self) -> Element<'_, Message> {
         let kids = [
-            cell("first", 90.0, 60.0),
-            cell("second", 90.0, 60.0),
-            cell("third", 90.0, 60.0),
+            cell("A", "", 90.0, 60.0),
+            cell("B", "", 90.0, 60.0),
+            cell("C", "", 90.0, 60.0),
         ];
         let demo = flex_demo(self.axis.0, kids)
             .gap(self.gap)
@@ -501,9 +469,9 @@ impl FlexTour {
     /// Padding & gap interaction with grow.
     fn demo_padding_gap(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("grow=1", color!(0x4a90e2))).grow(1.0),
-            flex(boxed("grow=1", color!(0xe2725b))).grow(1.0),
-            flex(boxed("grow=1", color!(0x6ab04c))).grow(1.0),
+            flex(boxed("A", "grow=1", color!(0x4a90e2))).grow(1.0),
+            flex(boxed("B", "grow=1", color!(0xe2725b))).grow(1.0),
+            flex(boxed("C", "grow=1", color!(0x6ab04c))).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -723,16 +691,28 @@ impl<'a, Message: 'a> From<ContainerBuilder<'a, Message>>
     }
 }
 
-/// A labelled cell with a fixed cross-axis size — used by demos that
-/// just need to show packing.
+/// A labelled cell with a fixed cross-axis size. The `letter` is the
+/// block's primary identity (A, B, C, …); `note` is an optional
+/// feature annotation rendered as a secondary line beneath. Pass `""`
+/// for `note` when the block has no distinguishing flex feature.
 fn cell<'a, Message: 'a>(
-    label: &'a str,
+    letter: &'a str,
+    note: &'a str,
     width: f32,
     height: f32,
 ) -> Element<'a, Message> {
-    let mut c = container(text(label).size(12))
-        .padding([6.0, 10.0])
-        .style(cell_style);
+    let body: Element<'_, Message> = if note.is_empty() {
+        text(letter).size(13).into()
+    } else {
+        column![
+            text(letter).size(13),
+            text(note).size(10).style(text::secondary),
+        ]
+        .spacing(1)
+        .into()
+    };
+
+    let mut c = container(body).padding([6.0, 10.0]).style(cell_style);
 
     if width > 0.0 {
         c = c.width(width);
@@ -747,18 +727,27 @@ fn cell<'a, Message: 'a>(
     c.into()
 }
 
-/// A flexible coloured box used by grow/shrink/basis demos. Sized
+/// A flexible coloured box used by grow/shrink/basis demos. The
+/// `letter` is the block's primary identity (A, B, C, …); `note` is
+/// the feature annotation (e.g. `grow=1`, `basis=80`). Sized
 /// `Fill x Fill` so the flex container can resize it freely.
 fn boxed<'a, Message: 'a>(
-    label: &'a str,
+    letter: &'a str,
+    note: &'a str,
     accent: iced::Color,
 ) -> Element<'a, Message> {
-    container(text(label).size(12))
-        .padding(10)
-        .width(Fill)
-        .height(Fill)
-        .style(move |theme: &Theme| boxed_style(theme, accent))
-        .into()
+    container(
+        column![
+            text(letter).size(14),
+            text(note).size(11).style(text::secondary),
+        ]
+        .spacing(2),
+    )
+    .padding(10)
+    .width(Fill)
+    .height(Fill)
+    .style(move |theme: &Theme| boxed_style(theme, accent))
+    .into()
 }
 
 // --- Sidebar --------------------------------------------------------------
@@ -768,11 +757,13 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
 
     let demo_picker = pick_list(Some(app.demo), Demo::ALL, Demo::to_string)
         .on_select(Message::DemoSelected)
+        .text_size(12)
         .width(Fill);
 
     let axis_picker =
         pick_list(Some(app.axis), AxisChoice::ALL, AxisChoice::to_string)
             .on_select(Message::AxisSelected)
+            .text_size(12)
             .width(Fill);
 
     let justify_picker = pick_list(
@@ -781,6 +772,7 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
         JustifyChoice::to_string,
     )
     .on_select(Message::JustifySelected)
+    .text_size(12)
     .width(Fill);
 
     let align_picker = pick_list(
@@ -789,14 +781,7 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
         AlignChoice::to_string,
     )
     .on_select(Message::AlignSelected)
-    .width(Fill);
-
-    let theme_picker = pick_list(
-        Some(app.theme_choice),
-        app.themes.clone(),
-        ThemeChoice::to_string,
-    )
-    .on_select(Message::ThemeSelected)
+    .text_size(12)
     .width(Fill);
 
     let gap_slider = column![
@@ -834,7 +819,6 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
         gap_slider,
         padding_slider,
         reverse_box,
-        section("Theme", theme_picker.into()),
     ]
     .spacing(14)
     .padding(20)
