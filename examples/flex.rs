@@ -15,8 +15,8 @@
 //! [`Row`]: sweeten::widget::flex::Row
 //! [`Column`]: sweeten::widget::flex::Column
 
-use iced::widget::{column, container, row, scrollable, slider, text};
-use iced::{Center, Element, Fill, Length, Shrink, Theme, color};
+use iced::widget::{column, container, row, rule, scrollable, slider, text};
+use iced::{Center, Element, Fill, Length, Shrink, Theme};
 
 use sweeten::widget::flex::{self, AlignItems, Axis, FlexChild, Justify, flex};
 use sweeten::widget::{checkbox, pick_list};
@@ -265,7 +265,18 @@ impl FlexTour {
             .height(Fill)
             .style(canvas_style);
 
-        row![sidebar(self), canvas].height(Fill).into()
+        // Pull the divider darker than the default (`background.strong`,
+        // bright on dark themes) and one notch darker than the
+        // `rule::weak` preset, so it reads as a recessed seam between
+        // the sidebar and the canvas rather than a bright outline.
+        let divider = rule::vertical(1).style(|theme: &Theme| rule::Style {
+            color: theme.palette().background.weaker.color,
+            radius: 0.0.into(),
+            fill_mode: rule::FillMode::Full,
+            snap: true,
+        });
+
+        row![sidebar(self), divider, canvas].height(Fill).into()
     }
 
     fn canvas(&self) -> Element<'_, Message> {
@@ -399,9 +410,9 @@ impl FlexTour {
     /// Three growing items with 1 : 2 : 1 ratios.
     fn demo_grow(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("A", "grow=1", color!(0x4a90e2))).grow(1.0),
-            flex(boxed("B", "grow=2", color!(0xe2725b))).grow(2.0),
-            flex(boxed("C", "grow=1", color!(0x6ab04c))).grow(1.0),
+            flex(boxed("A", "grow=1", Accent::Primary)).grow(1.0),
+            flex(boxed("B", "grow=2", Accent::Warning)).grow(2.0),
+            flex(boxed("C", "grow=1", Accent::Success)).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -409,13 +420,13 @@ impl FlexTour {
     /// Three fixed-basis items in a too-narrow container.
     fn demo_shrink(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("A", "basis=200", color!(0x4a90e2)))
+            flex(boxed("A", "basis=200", Accent::Primary))
                 .basis(200.0)
                 .shrink(1.0),
-            flex(boxed("B", "basis=300", color!(0xe2725b)))
+            flex(boxed("B", "basis=300", Accent::Warning))
                 .basis(300.0)
                 .shrink(1.0),
-            flex(boxed("C", "basis=200", color!(0x6ab04c)))
+            flex(boxed("C", "basis=200", Accent::Success))
                 .basis(200.0)
                 .shrink(1.0),
         ];
@@ -425,10 +436,10 @@ impl FlexTour {
     /// Three explicit-basis items plus a fourth grower.
     fn demo_basis(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("A", "basis=80", color!(0x4a90e2))).basis(80.0),
-            flex(boxed("B", "basis=160", color!(0xe2725b))).basis(160.0),
-            flex(boxed("C", "basis=80", color!(0x6ab04c))).basis(80.0),
-            flex(boxed("D", "grow=1", color!(0xb967ff))).grow(1.0),
+            flex(boxed("A", "basis=80", Accent::Primary)).basis(80.0),
+            flex(boxed("B", "basis=160", Accent::Warning)).basis(160.0),
+            flex(boxed("C", "basis=80", Accent::Success)).basis(80.0),
+            flex(boxed("D", "grow=1", Accent::Danger)).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -469,9 +480,9 @@ impl FlexTour {
     /// Padding & gap interaction with grow.
     fn demo_padding_gap(&self) -> Element<'_, Message> {
         let kids = [
-            flex(boxed("A", "grow=1", color!(0x4a90e2))).grow(1.0),
-            flex(boxed("B", "grow=1", color!(0xe2725b))).grow(1.0),
-            flex(boxed("C", "grow=1", color!(0x6ab04c))).grow(1.0),
+            flex(boxed("A", "grow=1", Accent::Primary)).grow(1.0),
+            flex(boxed("B", "grow=1", Accent::Warning)).grow(1.0),
+            flex(boxed("C", "grow=1", Accent::Success)).grow(1.0),
         ];
         frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
     }
@@ -518,6 +529,7 @@ impl FlexTour {
             .push_flex(flex(sidebar).basis(160.0).shrink(0.0))
             .push_flex(flex(main).grow(1.0))
             .gap(8.0)
+            .width(Fill)
             .height(Fill);
 
         let footer = container(
@@ -701,12 +713,20 @@ fn cell<'a, Message: 'a>(
     width: f32,
     height: f32,
 ) -> Element<'a, Message> {
+    // The note inherits the cell container's text_color
+    // (palette.primary.weak.text — readable by construction per
+    // iced's Pair). A small alpha dim gives visual hierarchy
+    // without breaking contrast against any theme.
     let body: Element<'_, Message> = if note.is_empty() {
         text(letter).size(13).into()
     } else {
         column![
             text(letter).size(13),
-            text(note).size(10).style(text::secondary),
+            text(note).size(10).style(|theme: &Theme| text::Style {
+                color: Some(
+                    theme.palette().primary.weak.text.scale_alpha(0.75),
+                ),
+            }),
         ]
         .spacing(1)
         .into()
@@ -727,19 +747,50 @@ fn cell<'a, Message: 'a>(
     c.into()
 }
 
+/// Semantic accent picked from the active theme's palette.
+///
+/// `boxed()` takes one of these so demos never hardcode RGB —
+/// the actual hex resolves at draw time from `theme.palette()`.
+#[derive(Debug, Clone, Copy)]
+enum Accent {
+    Primary,
+    Success,
+    Warning,
+    Danger,
+}
+
+impl Accent {
+    fn color(self, palette: &iced::theme::Palette) -> iced::Color {
+        match self {
+            Accent::Primary => palette.primary.base.color,
+            Accent::Success => palette.success.base.color,
+            Accent::Warning => palette.warning.base.color,
+            Accent::Danger => palette.danger.base.color,
+        }
+    }
+}
+
 /// A flexible coloured box used by grow/shrink/basis demos. The
 /// `letter` is the block's primary identity (A, B, C, …); `note` is
 /// the feature annotation (e.g. `grow=1`, `basis=80`). Sized
-/// `Fill x Fill` so the flex container can resize it freely.
+/// `Fill x Fill` so the flex container can resize it freely. The
+/// hue resolves from the active theme's palette via [`Accent`].
 fn boxed<'a, Message: 'a>(
     letter: &'a str,
     note: &'a str,
-    accent: iced::Color,
+    accent: Accent,
 ) -> Element<'a, Message> {
+    // Note inherits the box's text_color (palette.background.base.text
+    // — readable on the tinted accent background). Dimmed slightly for
+    // visual hierarchy without a hardcoded color.
     container(
         column![
             text(letter).size(14),
-            text(note).size(11).style(text::secondary),
+            text(note).size(11).style(|theme: &Theme| text::Style {
+                color: Some(
+                    theme.palette().background.base.text.scale_alpha(0.75),
+                ),
+            }),
         ]
         .spacing(2),
     )
@@ -824,11 +875,7 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     .padding(20)
     .width(280.0);
 
-    container(scrollable(body))
-        .width(280.0)
-        .height(Fill)
-        .style(sidebar_chrome_style)
-        .into()
+    container(scrollable(body)).width(280.0).height(Fill).into()
 }
 
 fn section<'a>(
@@ -841,19 +888,6 @@ fn section<'a>(
 }
 
 // --- Styling --------------------------------------------------------------
-
-fn sidebar_chrome_style(theme: &Theme) -> container::Style {
-    let palette = theme.palette();
-    container::Style {
-        background: Some(palette.background.weak.color.into()),
-        border: iced::Border {
-            color: palette.background.strong.color,
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        ..container::Style::default()
-    }
-}
 
 fn canvas_style(theme: &Theme) -> container::Style {
     let palette = theme.palette();
@@ -903,15 +937,16 @@ fn cell_style(theme: &Theme) -> container::Style {
     }
 }
 
-fn boxed_style(theme: &Theme, accent: iced::Color) -> container::Style {
+fn boxed_style(theme: &Theme, accent: Accent) -> container::Style {
     let palette = theme.palette();
-    let tint = accent.scale_alpha(if palette.is_dark { 0.35 } else { 0.55 });
+    let color = accent.color(palette);
+    let tint = color.scale_alpha(if palette.is_dark { 0.35 } else { 0.55 });
 
     container::Style {
         background: Some(tint.into()),
         text_color: Some(palette.background.base.text),
         border: iced::Border {
-            color: accent,
+            color,
             width: 1.5,
             radius: 4.0.into(),
         },
