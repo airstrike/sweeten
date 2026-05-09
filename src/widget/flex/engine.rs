@@ -484,7 +484,18 @@ where
     // measured cross; alignment is per-item.
     let main_used: f32 = nodes.iter().map(|n| axis.main(n.size())).sum();
     let total_main = main_used + total_gap;
-    let leftover = (max_main - total_main).max(0.0);
+
+    // Resolve container size now so positioning uses the *resolved*
+    // bounds, not the limit's max. A `width: Shrink` container
+    // resolves to its intrinsic main — leftover is zero, and
+    // distribution-style justifications (SpaceBetween/Around/Evenly,
+    // End, Center) correctly distribute nothing rather than pushing
+    // items past the resolved right edge using `max_main`.
+    let (intrinsic_w, intrinsic_h) = axis.pack(total_main, cross);
+    let intrinsic = Size::new(intrinsic_w, intrinsic_h);
+    let resolved_size = limits.resolve(width, height, intrinsic);
+    let resolved_main = axis.main(resolved_size);
+    let leftover = (resolved_main - total_main).max(0.0);
 
     // CSS `flex-direction: row-reverse` swaps the visual main-start
     // and main-end. Implement by flipping Justify::Start ↔ End for
@@ -494,7 +505,10 @@ where
         match justify {
             Justify::Start => Justify::End,
             Justify::End => Justify::Start,
-            other => other,
+            Justify::Center
+            | Justify::SpaceBetween
+            | Justify::SpaceAround
+            | Justify::SpaceEvenly => justify,
         }
     } else {
         justify
@@ -540,12 +554,7 @@ where
         main_cursor += item_main;
     }
 
-    let intrinsic_main = main_used + total_gap;
-    let (intrinsic_w, intrinsic_h) = axis.pack(intrinsic_main, cross);
-    let intrinsic = Size::new(intrinsic_w, intrinsic_h);
-    let size = limits.resolve(width, height, intrinsic);
-
-    Node::with_children(size.expand(padding), nodes)
+    Node::with_children(resolved_size.expand(padding), nodes)
 }
 
 impl Properties {
@@ -1213,6 +1222,44 @@ mod tests {
         assert!((kids[0].bounds().x - 0.0).abs() < 1e-3);
         assert!((kids[1].bounds().x - 125.0).abs() < 1e-3);
         assert!((kids[2].bounds().x - 250.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn resolve_justify_space_between_with_shrink_width_clamps_leftover() {
+        // A `Shrink` container has no leftover to distribute, even when
+        // the limit is larger than the content. Items must pack from
+        // the start with no extra gap_extra — anything else would push
+        // items past the container's resolved right edge.
+        let lim = limits(300.0, 50.0);
+        let fix = Fixture::new(vec![
+            Size::new(50.0, 20.0),
+            Size::new(50.0, 20.0),
+            Size::new(50.0, 20.0),
+        ]);
+        let props = props_default(3);
+
+        let node = resolve(
+            Axis::Horizontal,
+            &lim,
+            Length::Shrink, // resolves to intrinsic, not max
+            Length::Shrink,
+            Padding::ZERO,
+            0.0,
+            Justify::SpaceBetween,
+            AlignItems::Start,
+            false,
+            &props,
+            fix.layouter(),
+        );
+
+        let kids = node.children();
+        // Resolved container = intrinsic = 150. No leftover to
+        // distribute. Items at 0, 50, 100.
+        assert!((kids[0].bounds().x - 0.0).abs() < 1e-3);
+        assert!((kids[1].bounds().x - 50.0).abs() < 1e-3);
+        assert!((kids[2].bounds().x - 100.0).abs() < 1e-3);
+        // Container should be intrinsic-sized, not max-sized.
+        assert!((node.size().width - 150.0).abs() < 1e-3);
     }
 
     #[test]
