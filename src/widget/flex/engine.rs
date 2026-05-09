@@ -36,12 +36,10 @@ use super::child::{Basis, Properties};
 /// more of the deficit. Items with `shrink == 0` keep their base size
 /// even when the container overflows.
 ///
-/// The [`resolve`] driver inlines its own variant of this distribution
-/// against the as-yet-unmeasured items, so this helper is exercised
-/// purely by the test suite — it pins the CSS arithmetic with a shape
-/// the driver would otherwise hide. Marked dead-code-allowed
-/// deliberately rather than removed.
-#[allow(dead_code)]
+/// [`resolve`]'s grow path is inlined against the unmeasured-items
+/// filter (since it interleaves with `layout_item` calls per child);
+/// the shrink path calls back into this helper after Pass 4 to
+/// redistribute deficit across already-measured items.
 pub(crate) fn solve_main_sizes(
     base_sizes: &[f32],
     props: &[Properties],
@@ -484,6 +482,58 @@ where
     }
 
     // ------------------------------------------------------------------
+    // Pass S — shrink overflow.
+    //
+    // CSS `flex-shrink` distributes a main-axis deficit weighted by
+    // each item's `basis * shrink`. Pass 1 commits Basis::Pixels items
+    // to their basis size, so if their total exceeds the container's
+    // main budget we need to redistribute the deficit and re-lay out
+    // the shrunk items. Pass 3's grow path can never produce overflow
+    // (it only allocates leftover), so this only kicks in when items
+    // overflow purely on their bases.
+    //
+    // Skipped when the container is main-compressed — a Shrink-main
+    // container resolves to its intrinsic, so there's no defined
+    // "container main" to shrink against.
+    if !main_compress {
+        let main_after_passes: Vec<f32> =
+            (0..count).map(|i| axis.main(nodes[i].size())).collect();
+        let used: f32 = main_after_passes.iter().sum();
+        let free_space = max_main - total_gap - used;
+        if free_space < 0.0 {
+            // `solve_main_sizes` handles both grow and shrink. Negative
+            // free_space takes the shrink branch, scaling by
+            // `basis * shrink` per CSS.
+            let final_sizes =
+                solve_main_sizes(&main_after_passes, props, free_space);
+            for (i, p) in props.iter().enumerate() {
+                if p.shrink <= 0.0 {
+                    continue;
+                }
+                let delta = main_after_passes[i] - final_sizes[i];
+                if delta.abs() < 0.5 {
+                    continue;
+                }
+                // Re-lay out at the shrunk main size. Cross max stays
+                // at the running `cross` so a stretched item keeps
+                // its cross-axis dimension across the second layout.
+                let cross_max =
+                    if p.fill_cross == 0 { max_cross } else { cross };
+                let (mw, mh) = axis.pack(final_sizes[i], cross_max);
+                let min = axis.pack(final_sizes[i], 0.0);
+                let item_limits = Limits::with_compression(
+                    Size::new(min.0, min.1),
+                    Size::new(mw, mh),
+                    compression,
+                );
+                let node = layout_item(i, &item_limits);
+                nodes[i] = node;
+                cross = cross.max(axis.cross(nodes[i].size()));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Pass 5 — position.
     // ------------------------------------------------------------------
 
@@ -642,6 +692,21 @@ mod tests {
             move |idx, _limits| {
                 self.order.borrow_mut().push(idx);
                 Node::new(self.sizes[idx])
+            }
+        }
+
+        /// Layouter that clamps each fixture size to the limits' max,
+        /// so a re-layout pass at a smaller main constraint yields a
+        /// smaller node — modelling what a real iced container does.
+        fn honest_layouter(&self) -> impl FnMut(usize, &Limits) -> Node + '_ {
+            move |idx, limits| {
+                self.order.borrow_mut().push(idx);
+                let want = self.sizes[idx];
+                let max = limits.max();
+                Node::new(Size::new(
+                    want.width.min(max.width),
+                    want.height.min(max.height),
+                ))
             }
         }
     }
@@ -1267,6 +1332,60 @@ mod tests {
         assert!((kids[2].bounds().x - 100.0).abs() < 1e-3);
         // Container should be intrinsic-sized, not max-sized.
         assert!((node.size().width - 150.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn resolve_basis_pixels_overflow_distributes_shrink() {
+        // Three items with basis=200, 300, 200 and shrink=1 in a
+        // 600px container should distribute the 100px deficit weighted
+        // by `basis * shrink`, per CSS:
+        //   weights = [200, 300, 200], total = 700
+        //   A loses 100*200/700 ≈ 28.57 → 171.43
+        //   B loses 100*300/700 ≈ 42.86 → 257.14
+        //   C loses 100*200/700 ≈ 28.57 → 171.43
+        // Without shrink-distribution at the driver level (engine bug
+        // pre-fix), items keep their basis (200/300/200 = 700) and
+        // overflow the container by 100px — visible in the
+        // flex-shrink demo where C bled past the bottom of the
+        // canvas in column mode.
+        let lim = limits(600.0, 100.0);
+        let fix = Fixture::new(vec![
+            Size::new(200.0, 40.0),
+            Size::new(300.0, 40.0),
+            Size::new(200.0, 40.0),
+        ]);
+        let mut props = props_default(3);
+        props[0].basis = Basis::Pixels(200.0);
+        props[1].basis = Basis::Pixels(300.0);
+        props[2].basis = Basis::Pixels(200.0);
+
+        let node = resolve(
+            Axis::Horizontal,
+            &lim,
+            Length::Fill,
+            Length::Fill,
+            Padding::ZERO,
+            0.0,
+            Justify::Start,
+            AlignItems::Start,
+            false,
+            &props,
+            fix.honest_layouter(),
+        );
+
+        let kids = node.children();
+        let a = kids[0].bounds().width;
+        let b = kids[1].bounds().width;
+        let c = kids[2].bounds().width;
+        assert!((a - 171.43).abs() < 0.5, "A = {a}, expected ≈ 171.43");
+        assert!((b - 257.14).abs() < 0.5, "B = {b}, expected ≈ 257.14");
+        assert!((c - 171.43).abs() < 0.5, "C = {c}, expected ≈ 171.43");
+        // Items must fit the container exactly — no overflow.
+        assert!(
+            (a + b + c - 600.0).abs() < 0.5,
+            "total = {}, expected 600",
+            a + b + c
+        );
     }
 
     #[test]
