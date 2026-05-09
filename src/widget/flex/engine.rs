@@ -35,6 +35,13 @@ use super::child::{Basis, Properties};
 /// **Shrink** scales by `shrink * basis` per CSS — larger items absorb
 /// more of the deficit. Items with `shrink == 0` keep their base size
 /// even when the container overflows.
+///
+/// The [`resolve`] driver inlines its own variant of this distribution
+/// against the as-yet-unmeasured items, so this helper is exercised
+/// purely by the test suite — it pins the CSS arithmetic with a shape
+/// the driver would otherwise hide. Marked dead-code-allowed
+/// deliberately rather than removed.
+#[allow(dead_code)]
 pub(crate) fn solve_main_sizes(
     base_sizes: &[f32],
     props: &[Properties],

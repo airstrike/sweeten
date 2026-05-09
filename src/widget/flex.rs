@@ -11,29 +11,43 @@
 //! is an opt-in parallel namespace, comparable to `tile_grid` and
 //! `transition`.
 //!
-//! # What's here today
+//! # API at a glance
 //!
-//! Phase 1 ships the pure layout engine, the property types, and the
-//! alignment vocabulary. The `Row` / `Column` widgets and their helper
-//! macros come in a follow-up phase. Public surface today:
+//! - [`Row`] / [`Column`] — the widgets, laid out along the horizontal
+//!   or vertical main axis respectively.
+//! - [`FlexChild`] — an [`Element`] paired with `flex-grow`,
+//!   `flex-shrink`, `flex-basis`, and `align-self`. Plain elements
+//!   enter via `From` with CSS defaults.
+//! - [`flex`] — wraps any `Into<Element>` in a [`FlexChild`] so callers
+//!   can chain `.grow(_)`, `.shrink(_)`, `.basis(_)`, `.align_self(_)`.
+//! - [`row`] / [`column`] — free-function constructors that take any
+//!   `IntoIterator<Item = Element>`.
+//! - [`row!`] / [`column!`] — declarative macros mirroring iced's
+//!   `row![...]` / `column![...]`. They live at the canonical path
+//!   `widget::flex::{row, column}`; `#[macro_export]` also lands them
+//!   at the crate root as [`crate::flex_row`] / [`crate::flex_column`].
 //!
-//! - [`Axis`] — main-axis selector
-//! - [`AlignItems`] — container-level cross-axis alignment
-//! - [`AlignSelf`] — per-child cross-axis override
-//! - [`Justify`] — main-axis distribution
-//! - [`FlexChild`] — element wrapper carrying flex properties
-//!
+//! [`Element`]: crate::core::Element
 //! [`widget::row`]: mod@crate::widget::row
 //! [`widget::column`]: mod@crate::widget::column
 
 pub mod alignment;
-// Phase 1 ships the engine and child wrapper standalone; Phase 2 wires
-// the consumer widgets on top, so engine helpers and the
-// `resolved_properties` accessor have no internal callers yet.
-#[allow(dead_code)]
 mod child;
-#[allow(dead_code)]
+pub mod column;
 mod engine;
+mod helpers;
+pub mod row;
 
 pub use alignment::{AlignItems, AlignSelf, Axis, Justify};
 pub use child::FlexChild;
+pub use column::Column;
+pub use helpers::{column, flex, row};
+pub use row::Row;
+
+// Macro namespace — re-aliased from the crate-root macros into the
+// canonical `widget::flex::{row, column}` paths. Rust's three-namespace
+// rule (types / values / macros) lets `flex::row` simultaneously name
+// the module, the helper function, and the macro — exactly the way
+// `iced::widget::column` does for its own three-way collision.
+#[doc(inline)]
+pub use crate::{flex_column as column, flex_row as row};

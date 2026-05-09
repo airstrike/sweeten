@@ -42,6 +42,8 @@
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`fit_text`] — A text widget that auto-scales its font size to fit the
 //!   available bounds, up to a configurable ceiling.
+//! - [`flex`] — CSS-flex `Row` and `Column` widgets with `justify-content`,
+//!   `align-items`, `align-self`, and `flex-grow`/`shrink`/`basis`.
 //! - [`tile_grid`] — A grid-based layout widget inspired by GridStack.js,
 //!   with drag-to-move and drag-to-resize interactions.
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
@@ -75,6 +77,7 @@
 //! [`checkbox`]: mod@widget::checkbox
 //! [`column`]: mod@widget::column
 //! [`fit_text`]: mod@widget::fit_text
+//! [`flex`]: mod@widget::flex
 //! [`tile_grid`]: mod@widget::tile_grid
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
