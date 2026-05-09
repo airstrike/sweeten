@@ -137,6 +137,61 @@ column(items.iter().map(|s| s.as_str().into()))
     .into()
 ```
 
+### Flex layout
+
+A parallel namespace — `sweeten::widget::flex` — that implements the CSS
+Flexbox algorithm faithfully (`justify-content`, `align-items`, `align-self`,
+`flex-grow` / `flex-shrink` / `flex-basis`, `flex-direction: row-reverse`,
+`gap`, `padding`) while staying within `iced`'s O(n) layout budget — at most
+two layout calls per child, no reflow loops. The pitch: **iced ergonomics, CSS
+faithfulness**. Plain elements still work — wrap a child in `flex(...)` only
+when you need per-item flex behaviour.
+
+The existing `widget::row` / `widget::column` (the drag-and-drop ones) are
+unchanged. The flex namespace is opt-in.
+
+```rust
+use iced::Center;
+use sweeten::widget::flex::{flex, flex_row, AlignSelf, Justify};
+
+flex_row![
+    flex(panel).basis(240).shrink(0),       // sidebar pinned at 240px
+    body,                                    // grows into the leftover space
+    flex(actions).align_self(AlignSelf::End),// trailing buttons hugged
+]
+.gap(16)
+.padding(12)
+.align(Center)                               // iced::Center via Into<AlignItems>
+.justify(Justify::SpaceBetween)
+```
+
+CSS-name → builder mapping:
+
+| CSS                                  | sweeten                          |
+|--------------------------------------|----------------------------------|
+| `justify-content`                    | `Row::justify` / `Column::justify` |
+| `align-items`                        | `Row::align` / `Column::align`   |
+| `align-self`                         | `flex(...).align_self`           |
+| `flex-grow`                          | `flex(...).grow`                 |
+| `flex-shrink`                        | `flex(...).shrink`               |
+| `flex-basis`                         | `flex(...).basis`                |
+| `gap`                                | `Row::gap` / `Column::gap`       |
+| `padding`                            | `Row::padding` / `Column::padding` |
+| `flex-direction: row-reverse`        | `Row::reverse(true)`             |
+| `flex-direction: column-reverse`     | `Column::reverse(true)`          |
+
+`flex::row` / `flex::column` are simultaneously a module, a free function, and
+a macro (the macro is also exported at the crate root as `flex_row!` /
+`flex_column!`). All three coexist via Rust's three-namespace rule, the same
+way `iced::widget::column` does.
+
+For a live tour of every property — including a `pick_list` for switching
+between demo cards and sliders for `gap` / `padding` — run:
+
+```bash
+cargo run --example flex
+```
+
 ### `Transition`
 
 A single-slot container that animates a slide transition whenever its child
@@ -255,6 +310,7 @@ Other examples include:
 cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
+cargo run --example flex
 cargo run --example gt
 cargo run --example checkbox
 ```
@@ -267,6 +323,8 @@ The library is organized into modules for each enhanced widget:
   - `button.rs`: Sweetened button with focus/blur callbacks
   - `toggler.rs`: Sweetened toggler with animated state changes
   - `checkbox.rs`: Sweetened checkbox with animated check + `text` style
+  - `flex/`: CSS-flex `Row` / `Column` with `justify-content`, `align-items`,
+    `align-self`, `flex-grow`/`shrink`/`basis`
   - `mouse_area.rs`: Sweetened mouse interaction handling
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling

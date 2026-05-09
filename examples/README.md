@@ -4,6 +4,7 @@
 - [Mouse Area](#mouse-area)
 - [Pick List](#pick-list)
 - [Fit Text](#fit-text)
+- [Flex](#flex)
 
 Run any example using:
 
@@ -64,4 +65,18 @@ binary-searched fit in action.
 
 ```bash
 cargo run --example fit_text
+```
+
+---
+
+## Flex
+
+A live tour of `sweeten`'s CSS-flex `Row` / `Column` — covers every supported
+property in isolation. The sticky sidebar switches between ten demo cards
+(Basic, `justify-content`, `align-items`, `flex-grow`, `flex-shrink`,
+`flex-basis`, `align-self`, `row-reverse`, padding & gap, kitchen-sink
+"Mixed"), and the controls reflow whichever card is active.
+
+```bash
+cargo run --example flex
 ```

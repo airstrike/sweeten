@@ -1,0 +1,989 @@
+//! Live tour of `sweeten`'s CSS-flex [`Row`] / [`Column`] widgets.
+//!
+//! A two-pane layout: a sticky control sidebar on the left, and a
+//! demo canvas on the right. Each demo card shows one feature in
+//! isolation — `justify-content`, `align-items`, `flex-grow`,
+//! `flex-shrink`, `flex-basis`, `align-self`, `flex-direction:
+//! row-reverse`, and a kitchen-sink "real-world" example.
+//!
+//! The sliders and pick lists in the sidebar drive the active card,
+//! so the same demo can be re-rendered with every combination of
+//! axis, justify, align, gap, padding, and reverse.
+//!
+//! Run with: `cargo run --example flex`
+//!
+//! [`Row`]: sweeten::widget::flex::Row
+//! [`Column`]: sweeten::widget::flex::Column
+
+use iced::widget::{column, container, row, scrollable, slider, text};
+use iced::{Center, Element, Fill, Length, Shrink, Theme, color};
+
+use sweeten::widget::flex::{self, AlignItems, Axis, FlexChild, Justify, flex};
+use sweeten::widget::{checkbox, pick_list};
+
+pub fn main() -> iced::Result {
+    iced::application(FlexTour::default, FlexTour::update, FlexTour::view)
+        .title(FlexTour::title)
+        .theme(FlexTour::theme)
+        .window_size((1100.0, 720.0))
+        .run()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Demo {
+    Basic,
+    JustifyContent,
+    AlignItems,
+    Grow,
+    Shrink,
+    Basis,
+    AlignSelf,
+    Reverse,
+    PaddingGap,
+    Mixed,
+}
+
+impl Demo {
+    const ALL: &'static [Self] = &[
+        Self::Basic,
+        Self::JustifyContent,
+        Self::AlignItems,
+        Self::Grow,
+        Self::Shrink,
+        Self::Basis,
+        Self::AlignSelf,
+        Self::Reverse,
+        Self::PaddingGap,
+        Self::Mixed,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Basic => "Basic",
+            Self::JustifyContent => "justify-content",
+            Self::AlignItems => "align-items",
+            Self::Grow => "flex-grow",
+            Self::Shrink => "flex-shrink",
+            Self::Basis => "flex-basis",
+            Self::AlignSelf => "align-self",
+            Self::Reverse => "row-reverse",
+            Self::PaddingGap => "padding & gap",
+            Self::Mixed => "Mixed (kitchen sink)",
+        }
+    }
+
+    fn blurb(self) -> &'static str {
+        match self {
+            Self::Basic => {
+                "Three children with default flex props — \
+                packed at the main-start edge, no grow, no shrink \
+                beyond CSS defaults."
+            }
+            Self::JustifyContent => {
+                "Six rows, one per Justify variant. \
+                The container's main length is fixed, so each leftover \
+                pocket is distributed differently."
+            }
+            Self::AlignItems => {
+                "Four columns, one per AlignItems variant. \
+                Children have varied cross sizes so the alignment is \
+                visible at a glance."
+            }
+            Self::Grow => {
+                "Three items with grow ratios 1 : 2 : 1 — the \
+                middle child takes twice the surplus main-axis space."
+            }
+            Self::Shrink => {
+                "Three fixed-basis items in a too-narrow \
+                container. CSS shrink scales by basis * shrink, so the \
+                largest item absorbs the largest share of the deficit."
+            }
+            Self::Basis => {
+                "Three items with explicit pixel bases (80, \
+                160, 80) plus a fourth that grows into the leftover space."
+            }
+            Self::AlignSelf => {
+                "Container is align-items: Stretch. Two \
+                children opt out via align_self — one to Start, one to \
+                End — overriding the container's choice."
+            }
+            Self::Reverse => {
+                "Same children with reverse(true) — the \
+                first source child renders at the visual end edge."
+            }
+            Self::PaddingGap => {
+                "Padding insets the children from the \
+                container; gap separates adjacent items. Both contribute \
+                to the main-axis budget before grow distributes leftover."
+            }
+            Self::Mixed => {
+                "A real-world layout: a flex_column with a \
+                header bar, a body row with a sidebar (fixed basis) plus \
+                a growing main panel, and a footer."
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Demo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AxisChoice(Axis);
+
+impl AxisChoice {
+    const ALL: &'static [Self] =
+        &[Self(Axis::Horizontal), Self(Axis::Vertical)];
+}
+
+impl std::fmt::Display for AxisChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Axis::Horizontal => f.write_str("Row (horizontal)"),
+            Axis::Vertical => f.write_str("Column (vertical)"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct JustifyChoice(Option<Justify>);
+
+impl JustifyChoice {
+    const ALL: &'static [Self] = &[
+        Self(None),
+        Self(Some(Justify::Start)),
+        Self(Some(Justify::End)),
+        Self(Some(Justify::Center)),
+        Self(Some(Justify::SpaceBetween)),
+        Self(Some(Justify::SpaceAround)),
+        Self(Some(Justify::SpaceEvenly)),
+    ];
+}
+
+impl std::fmt::Display for JustifyChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => f.write_str("Default (per-demo)"),
+            Some(Justify::Start) => f.write_str("Start"),
+            Some(Justify::End) => f.write_str("End"),
+            Some(Justify::Center) => f.write_str("Center"),
+            Some(Justify::SpaceBetween) => f.write_str("SpaceBetween"),
+            Some(Justify::SpaceAround) => f.write_str("SpaceAround"),
+            Some(Justify::SpaceEvenly) => f.write_str("SpaceEvenly"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AlignChoice(Option<AlignItems>);
+
+impl AlignChoice {
+    const ALL: &'static [Self] = &[
+        Self(None),
+        Self(Some(AlignItems::Start)),
+        Self(Some(AlignItems::End)),
+        Self(Some(AlignItems::Center)),
+        Self(Some(AlignItems::Stretch)),
+    ];
+}
+
+impl std::fmt::Display for AlignChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => f.write_str("Default (per-demo)"),
+            Some(AlignItems::Start) => f.write_str("Start"),
+            Some(AlignItems::End) => f.write_str("End"),
+            Some(AlignItems::Center) => f.write_str("Center"),
+            Some(AlignItems::Stretch) => f.write_str("Stretch"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ThemeChoice(usize);
+
+impl ThemeChoice {
+    fn all() -> Vec<Self> {
+        (0..Theme::ALL.len()).map(Self).collect()
+    }
+
+    fn theme(self) -> Theme {
+        Theme::ALL[self.0].clone()
+    }
+}
+
+impl std::fmt::Display for ThemeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Theme::ALL[self.0])
+    }
+}
+
+struct FlexTour {
+    demo: Demo,
+    axis: AxisChoice,
+    gap: f32,
+    padding: f32,
+    justify_override: JustifyChoice,
+    align_override: AlignChoice,
+    reverse: bool,
+    theme_choice: ThemeChoice,
+    themes: Vec<ThemeChoice>,
+}
+
+impl Default for FlexTour {
+    fn default() -> Self {
+        let themes = ThemeChoice::all();
+        // Pick Oxocarbon as the default — it's the sweeten house theme.
+        let oxocarbon = Theme::ALL
+            .iter()
+            .position(|t| matches!(t, Theme::Oxocarbon))
+            .map(ThemeChoice)
+            .unwrap_or(ThemeChoice(0));
+
+        Self {
+            demo: Demo::Basic,
+            axis: AxisChoice(Axis::Horizontal),
+            gap: 12.0,
+            padding: 16.0,
+            justify_override: JustifyChoice(None),
+            align_override: AlignChoice(None),
+            reverse: false,
+            theme_choice: oxocarbon,
+            themes,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    DemoSelected(Demo),
+    AxisSelected(AxisChoice),
+    GapChanged(f32),
+    PaddingChanged(f32),
+    JustifySelected(JustifyChoice),
+    AlignSelected(AlignChoice),
+    ReverseToggled(bool),
+    ThemeSelected(ThemeChoice),
+}
+
+impl FlexTour {
+    fn title(&self) -> String {
+        format!("sweeten • flex tour — {}", self.demo.label())
+    }
+
+    fn theme(&self) -> Theme {
+        self.theme_choice.theme()
+    }
+
+    fn update(&mut self, message: Message) {
+        match message {
+            Message::DemoSelected(demo) => self.demo = demo,
+            Message::AxisSelected(axis) => self.axis = axis,
+            Message::GapChanged(gap) => self.gap = gap,
+            Message::PaddingChanged(padding) => self.padding = padding,
+            Message::JustifySelected(j) => self.justify_override = j,
+            Message::AlignSelected(a) => self.align_override = a,
+            Message::ReverseToggled(r) => self.reverse = r,
+            Message::ThemeSelected(t) => self.theme_choice = t,
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let canvas = container(self.canvas())
+            .padding(20)
+            .width(Fill)
+            .height(Fill)
+            .style(canvas_style);
+
+        row![sidebar(self), canvas].height(Fill).into()
+    }
+
+    fn canvas(&self) -> Element<'_, Message> {
+        let title = text(self.demo.label()).size(22);
+        let blurb = text(self.demo.blurb()).size(13).style(text::secondary);
+
+        let demo: Element<'_, Message> = match self.demo {
+            Demo::Basic => self.demo_basic(),
+            Demo::JustifyContent => self.demo_justify_content(),
+            Demo::AlignItems => self.demo_align_items(),
+            Demo::Grow => self.demo_grow(),
+            Demo::Shrink => self.demo_shrink(),
+            Demo::Basis => self.demo_basis(),
+            Demo::AlignSelf => self.demo_align_self(),
+            Demo::Reverse => self.demo_reverse(),
+            Demo::PaddingGap => self.demo_padding_gap(),
+            Demo::Mixed => self.demo_mixed(),
+        };
+
+        column![title, blurb, demo]
+            .spacing(14)
+            .width(Fill)
+            .height(Fill)
+            .into()
+    }
+
+    // --- Demos ----------------------------------------------------------
+
+    /// Three children, default props. Showcases packing.
+    fn demo_basic(&self) -> Element<'_, Message> {
+        let kids = [
+            cell("alpha", 90.0, 60.0),
+            cell("beta", 120.0, 60.0),
+            cell("gamma", 80.0, 60.0),
+        ];
+        let demo = flex_demo(self.axis.0, kids)
+            .gap(self.gap)
+            .padding(self.padding)
+            .align(self.align_override.0.unwrap_or(AlignItems::Start))
+            .justify(self.justify_override.0.unwrap_or(Justify::Start))
+            .reverse(self.reverse)
+            .width(Fill)
+            .height(Fill);
+        frame(demo.into())
+    }
+
+    /// Six adjacent rows, one per Justify variant.
+    fn demo_justify_content(&self) -> Element<'_, Message> {
+        let variants = [
+            (Justify::Start, "Start"),
+            (Justify::End, "End"),
+            (Justify::Center, "Center"),
+            (Justify::SpaceBetween, "SpaceBetween"),
+            (Justify::SpaceAround, "SpaceAround"),
+            (Justify::SpaceEvenly, "SpaceEvenly"),
+        ];
+
+        let rows =
+            variants
+                .into_iter()
+                .map(|(j, name)| -> Element<'_, Message> {
+                    let inner = flex_demo(
+                        self.axis.0,
+                        [
+                            cell("a", 56.0, 40.0),
+                            cell("b", 56.0, 40.0),
+                            cell("c", 56.0, 40.0),
+                        ],
+                    )
+                    .gap(self.gap)
+                    .padding(8.0)
+                    .align(AlignItems::Center)
+                    .justify(self.justify_override.0.unwrap_or(j))
+                    .reverse(self.reverse)
+                    .width(Fill)
+                    .height(60.0);
+
+                    row![
+                        text(name).size(12).width(110.0),
+                        container(inner).width(Fill).style(track_style),
+                    ]
+                    .spacing(8)
+                    .align_y(Center)
+                    .into()
+                });
+
+        let stack = column(rows).spacing(8).width(Fill);
+        frame(stack.into())
+    }
+
+    /// Four columns, one per AlignItems variant.
+    fn demo_align_items(&self) -> Element<'_, Message> {
+        let variants = [
+            (AlignItems::Start, "Start"),
+            (AlignItems::Center, "Center"),
+            (AlignItems::End, "End"),
+            (AlignItems::Stretch, "Stretch"),
+        ];
+
+        let columns =
+            variants
+                .into_iter()
+                .map(|(a, name)| -> Element<'_, Message> {
+                    // Mixed cross sizes so alignment is visible.
+                    let inner = flex::row([
+                        cell("sm", 36.0, 28.0),
+                        cell("md", 36.0, 56.0),
+                        cell("lg", 36.0, 84.0),
+                    ])
+                    .gap(self.gap)
+                    .padding(8.0)
+                    .align(self.align_override.0.unwrap_or(a))
+                    .justify(Justify::Center)
+                    .reverse(self.reverse)
+                    .width(Fill)
+                    .height(140.0);
+
+                    column![
+                        text(name).size(12),
+                        container(inner).style(track_style),
+                    ]
+                    .spacing(6)
+                    .width(Fill)
+                    .into()
+                });
+
+        let grid = row(columns).spacing(12).width(Fill);
+        frame(grid.into())
+    }
+
+    /// Three growing items with 1 : 2 : 1 ratios.
+    fn demo_grow(&self) -> Element<'_, Message> {
+        let kids = [
+            flex(boxed("grow=1", color!(0x4a90e2))).grow(1.0),
+            flex(boxed("grow=2", color!(0xe2725b))).grow(2.0),
+            flex(boxed("grow=1", color!(0x6ab04c))).grow(1.0),
+        ];
+        frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
+    }
+
+    /// Three fixed-basis items in a too-narrow container.
+    fn demo_shrink(&self) -> Element<'_, Message> {
+        let kids = [
+            flex(boxed("basis=200, shrink=1", color!(0x4a90e2)))
+                .basis(200.0)
+                .shrink(1.0),
+            flex(boxed("basis=300, shrink=1", color!(0xe2725b)))
+                .basis(300.0)
+                .shrink(1.0),
+            flex(boxed("basis=200, shrink=1", color!(0x6ab04c)))
+                .basis(200.0)
+                .shrink(1.0),
+        ];
+        frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
+    }
+
+    /// Three explicit-basis items plus a fourth grower.
+    fn demo_basis(&self) -> Element<'_, Message> {
+        let kids = [
+            flex(boxed("basis=80", color!(0x4a90e2))).basis(80.0),
+            flex(boxed("basis=160", color!(0xe2725b))).basis(160.0),
+            flex(boxed("basis=80", color!(0x6ab04c))).basis(80.0),
+            flex(boxed("grow=1", color!(0xb967ff))).grow(1.0),
+        ];
+        frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
+    }
+
+    /// Container is Stretch; two children override via align_self.
+    fn demo_align_self(&self) -> Element<'_, Message> {
+        use sweeten::widget::flex::AlignSelf;
+
+        let kids = [
+            flex(cell("default", 80.0, 0.0)),
+            flex(cell("self=Start", 80.0, 40.0)).align_self(AlignSelf::Start),
+            flex(cell("default", 80.0, 0.0)),
+            flex(cell("self=End", 80.0, 40.0)).align_self(AlignSelf::End),
+            flex(cell("default", 80.0, 0.0)),
+        ];
+        frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
+    }
+
+    /// Same children with reverse(true).
+    fn demo_reverse(&self) -> Element<'_, Message> {
+        let kids = [
+            cell("first", 90.0, 60.0),
+            cell("second", 90.0, 60.0),
+            cell("third", 90.0, 60.0),
+        ];
+        let demo = flex_demo(self.axis.0, kids)
+            .gap(self.gap)
+            .padding(self.padding)
+            .align(self.align_override.0.unwrap_or(AlignItems::Start))
+            .justify(self.justify_override.0.unwrap_or(Justify::SpaceBetween))
+            .reverse(true)
+            .width(Fill)
+            .height(Fill);
+        frame(demo.into())
+    }
+
+    /// Padding & gap interaction with grow.
+    fn demo_padding_gap(&self) -> Element<'_, Message> {
+        let kids = [
+            flex(boxed("grow=1", color!(0x4a90e2))).grow(1.0),
+            flex(boxed("grow=1", color!(0xe2725b))).grow(1.0),
+            flex(boxed("grow=1", color!(0x6ab04c))).grow(1.0),
+        ];
+        frame(self.shell_with(kids, AlignItems::Stretch, Justify::Start))
+    }
+
+    /// Kitchen-sink: nested flex_row inside flex_column.
+    fn demo_mixed(&self) -> Element<'_, Message> {
+        let header = container(text("HEADER").size(14))
+            .padding([8.0, 12.0])
+            .width(Fill)
+            .style(header_style);
+
+        let sidebar = container(
+            column![
+                text("Sidebar").size(13),
+                text("• item 1").size(11).style(text::secondary),
+                text("• item 2").size(11).style(text::secondary),
+                text("• item 3").size(11).style(text::secondary),
+            ]
+            .spacing(6),
+        )
+        .padding(12)
+        .width(Fill)
+        .height(Fill)
+        .style(sidebar_style);
+
+        let main = container(
+            column![
+                text("Main panel").size(14),
+                text(
+                    "Grows into the leftover main-axis space. The \
+                    sidebar holds a fixed pixel basis."
+                )
+                .size(11)
+                .style(text::secondary),
+            ]
+            .spacing(6),
+        )
+        .padding(12)
+        .width(Fill)
+        .height(Fill)
+        .style(panel_style);
+
+        let body = flex::row([])
+            .push_flex(flex(sidebar).basis(160.0).shrink(0.0))
+            .push_flex(flex(main).grow(1.0))
+            .gap(8.0)
+            .height(Fill);
+
+        let footer = container(
+            text("Footer · last updated just now")
+                .size(11)
+                .style(text::secondary),
+        )
+        .padding([6.0, 12.0])
+        .width(Fill)
+        .style(footer_style);
+
+        let app: Element<'_, Message> = flex::column![
+            flex(header).shrink(0.0),
+            flex(body).grow(1.0),
+            flex(footer).shrink(0.0),
+        ]
+        .gap(self.gap)
+        .padding(self.padding)
+        .width(Fill)
+        .height(Fill)
+        .into();
+
+        frame(app)
+    }
+
+    // --- Helpers --------------------------------------------------------
+
+    /// Builds the active flex container with the current axis, gap,
+    /// padding, and override settings.
+    fn shell_with<'a, I>(
+        &'a self,
+        children: I,
+        default_align: AlignItems,
+        default_justify: Justify,
+    ) -> Element<'a, Message>
+    where
+        I: IntoIterator<Item = FlexChild<'a, Message>>,
+    {
+        flex_demo_flex(self.axis.0, children)
+            .gap(self.gap)
+            .padding(self.padding)
+            .align(self.align_override.0.unwrap_or(default_align))
+            .justify(self.justify_override.0.unwrap_or(default_justify))
+            .reverse(self.reverse)
+            .width(Fill)
+            .height(Fill)
+            .into()
+    }
+}
+
+// --- Free helpers ---------------------------------------------------------
+
+/// Wraps any element in the bordered demo frame.
+fn frame<'a, Message: 'a>(
+    content: Element<'a, Message>,
+) -> Element<'a, Message> {
+    container(content)
+        .padding(8)
+        .width(Fill)
+        .height(Fill)
+        .style(frame_style)
+        .into()
+}
+
+/// Builds a flex container along `axis` from a list of `FlexChild`.
+///
+/// We can't return `flex::Row` or `flex::Column` directly because the
+/// two have distinct types — wrapping into an `Element` at the call
+/// site would lose the builder methods. Instead we construct one and
+/// return an `Element` after applying the shared modifiers.
+fn flex_demo_flex<'a, Message: 'a, I>(
+    axis: Axis,
+    children: I,
+) -> ContainerBuilder<'a, Message>
+where
+    I: IntoIterator<Item = FlexChild<'a, Message>>,
+{
+    match axis {
+        Axis::Horizontal => {
+            ContainerBuilder::Row(flex::Row::with_flex_children(children))
+        }
+        Axis::Vertical => {
+            ContainerBuilder::Column(flex::Column::with_flex_children(children))
+        }
+    }
+}
+
+/// Same as [`flex_demo_flex`] but takes plain elements.
+fn flex_demo<'a, Message: 'a, I, E>(
+    axis: Axis,
+    children: I,
+) -> ContainerBuilder<'a, Message>
+where
+    I: IntoIterator<Item = E>,
+    E: Into<Element<'a, Message>>,
+{
+    let flex_children = children.into_iter().map(|e| FlexChild::from(e.into()));
+    flex_demo_flex(axis, flex_children)
+}
+
+/// A small wrapper that lets the demo functions chain builder methods
+/// once and convert to `Element` at the end, regardless of axis. Each
+/// builder method dispatches to the underlying [`flex::Row`] or
+/// [`flex::Column`].
+enum ContainerBuilder<'a, Message> {
+    Row(flex::Row<'a, Message>),
+    Column(flex::Column<'a, Message>),
+}
+
+impl<'a, Message: 'a> ContainerBuilder<'a, Message> {
+    fn gap(self, amount: f32) -> Self {
+        match self {
+            Self::Row(r) => Self::Row(r.gap(amount)),
+            Self::Column(c) => Self::Column(c.gap(amount)),
+        }
+    }
+
+    fn padding(self, amount: f32) -> Self {
+        match self {
+            Self::Row(r) => Self::Row(r.padding(amount)),
+            Self::Column(c) => Self::Column(c.padding(amount)),
+        }
+    }
+
+    fn align(self, align: AlignItems) -> Self {
+        match self {
+            Self::Row(r) => Self::Row(r.align(align)),
+            Self::Column(c) => Self::Column(c.align(align)),
+        }
+    }
+
+    fn justify(self, j: Justify) -> Self {
+        match self {
+            Self::Row(r) => Self::Row(r.justify(j)),
+            Self::Column(c) => Self::Column(c.justify(j)),
+        }
+    }
+
+    fn reverse(self, r: bool) -> Self {
+        match self {
+            Self::Row(row) => Self::Row(row.reverse(r)),
+            Self::Column(col) => Self::Column(col.reverse(r)),
+        }
+    }
+
+    fn width(self, w: impl Into<Length>) -> Self {
+        let w = w.into();
+        match self {
+            Self::Row(r) => Self::Row(r.width(w)),
+            Self::Column(c) => Self::Column(c.width(w)),
+        }
+    }
+
+    fn height(self, h: impl Into<Length>) -> Self {
+        let h = h.into();
+        match self {
+            Self::Row(r) => Self::Row(r.height(h)),
+            Self::Column(c) => Self::Column(c.height(h)),
+        }
+    }
+}
+
+impl<'a, Message: 'a> From<ContainerBuilder<'a, Message>>
+    for Element<'a, Message>
+{
+    fn from(b: ContainerBuilder<'a, Message>) -> Self {
+        match b {
+            ContainerBuilder::Row(r) => r.into(),
+            ContainerBuilder::Column(c) => c.into(),
+        }
+    }
+}
+
+/// A labelled cell with a fixed cross-axis size — used by demos that
+/// just need to show packing.
+fn cell<'a, Message: 'a>(
+    label: &'a str,
+    width: f32,
+    height: f32,
+) -> Element<'a, Message> {
+    let mut c = container(text(label).size(12))
+        .padding([6.0, 10.0])
+        .style(cell_style);
+
+    if width > 0.0 {
+        c = c.width(width);
+    }
+
+    if height > 0.0 {
+        c = c.height(height);
+    } else {
+        c = c.height(Shrink);
+    }
+
+    c.into()
+}
+
+/// A flexible coloured box used by grow/shrink/basis demos. Sized
+/// `Fill x Fill` so the flex container can resize it freely.
+fn boxed<'a, Message: 'a>(
+    label: &'a str,
+    accent: iced::Color,
+) -> Element<'a, Message> {
+    container(text(label).size(12))
+        .padding(10)
+        .width(Fill)
+        .height(Fill)
+        .style(move |theme: &Theme| boxed_style(theme, accent))
+        .into()
+}
+
+// --- Sidebar --------------------------------------------------------------
+
+fn sidebar(app: &FlexTour) -> Element<'_, Message> {
+    let label = |s: &'static str| text(s).size(11).style(text::secondary);
+
+    let demo_picker = pick_list(Some(app.demo), Demo::ALL, Demo::to_string)
+        .on_select(Message::DemoSelected)
+        .width(Fill);
+
+    let axis_picker =
+        pick_list(Some(app.axis), AxisChoice::ALL, AxisChoice::to_string)
+            .on_select(Message::AxisSelected)
+            .width(Fill);
+
+    let justify_picker = pick_list(
+        Some(app.justify_override),
+        JustifyChoice::ALL,
+        JustifyChoice::to_string,
+    )
+    .on_select(Message::JustifySelected)
+    .width(Fill);
+
+    let align_picker = pick_list(
+        Some(app.align_override),
+        AlignChoice::ALL,
+        AlignChoice::to_string,
+    )
+    .on_select(Message::AlignSelected)
+    .width(Fill);
+
+    let theme_picker = pick_list(
+        Some(app.theme_choice),
+        app.themes.clone(),
+        ThemeChoice::to_string,
+    )
+    .on_select(Message::ThemeSelected)
+    .width(Fill);
+
+    let gap_slider = column![
+        row![
+            label("gap"),
+            text(format!("{:.0}px", app.gap)).size(11).width(Fill),
+        ]
+        .align_y(Center),
+        slider(0.0..=48.0, app.gap, Message::GapChanged).step(1.0),
+    ]
+    .spacing(4);
+
+    let padding_slider = column![
+        row![
+            label("padding"),
+            text(format!("{:.0}px", app.padding)).size(11).width(Fill),
+        ]
+        .align_y(Center),
+        slider(0.0..=32.0, app.padding, Message::PaddingChanged).step(1.0),
+    ]
+    .spacing(4);
+
+    let reverse_box: Element<'_, Message> = checkbox(app.reverse)
+        .label("reverse")
+        .on_toggle(Message::ReverseToggled)
+        .into();
+
+    let body = column![
+        text("Flex tour").size(20),
+        text("CSS Flexbox for iced").size(11).style(text::secondary),
+        section("Demo", demo_picker.into()),
+        section("Axis", axis_picker.into()),
+        section("justify-content", justify_picker.into()),
+        section("align-items", align_picker.into()),
+        gap_slider,
+        padding_slider,
+        reverse_box,
+        section("Theme", theme_picker.into()),
+    ]
+    .spacing(14)
+    .padding(20)
+    .width(280.0);
+
+    container(scrollable(body))
+        .width(280.0)
+        .height(Fill)
+        .style(sidebar_chrome_style)
+        .into()
+}
+
+fn section<'a>(
+    title: &'static str,
+    body: Element<'a, Message>,
+) -> Element<'a, Message> {
+    column![text(title).size(11).style(text::secondary), body,]
+        .spacing(4)
+        .into()
+}
+
+// --- Styling --------------------------------------------------------------
+
+fn sidebar_chrome_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weak.color.into()),
+        border: iced::Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn canvas_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weakest.color.into()),
+        ..container::Style::default()
+    }
+}
+
+fn frame_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.base.color.into()),
+        border: iced::Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn track_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weakest.color.into()),
+        border: iced::Border {
+            color: palette.background.weak.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn cell_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.primary.weak.color.into()),
+        text_color: Some(palette.primary.weak.text),
+        border: iced::Border {
+            color: palette.primary.base.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn boxed_style(theme: &Theme, accent: iced::Color) -> container::Style {
+    let palette = theme.palette();
+    let tint = accent.scale_alpha(if palette.is_dark { 0.35 } else { 0.55 });
+
+    container::Style {
+        background: Some(tint.into()),
+        text_color: Some(palette.background.base.text),
+        border: iced::Border {
+            color: accent,
+            width: 1.5,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn header_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.primary.base.color.into()),
+        text_color: Some(palette.primary.base.text),
+        border: iced::Border {
+            color: palette.primary.strong.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn footer_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weak.color.into()),
+        border: iced::Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn sidebar_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weak.color.into()),
+        border: iced::Border {
+            color: palette.background.strong.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+fn panel_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weakest.color.into()),
+        border: iced::Border {
+            color: palette.background.weak.color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
