@@ -172,6 +172,18 @@ impl<'a, Message, Theme, Renderer> FlexChild<'a, Message, Theme, Renderer> {
         props.fill_main = fill_main;
         props.fill_cross = fill_cross;
 
+        // Explicit Basis::Pixels means the user has stated the
+        // main-axis size. The inner widget's Length::Fill hint is
+        // consulted only as a basis-Auto fallback below; a pixel basis
+        // overrides it and pins the item to the fixed-main bucket.
+        // Without this, an item like `flex(boxed).basis(80)` whose
+        // inner widget has Length::Fill width drops into Pass 3's
+        // fluid bucket, gets share_main=0 alongside a sibling with
+        // grow=1, and renders at zero width.
+        if matches!(props.basis, Basis::Pixels(_)) {
+            props.fill_main = 0;
+        }
+
         // Fluid-fallback: a Length::Fill item with no explicit grow and
         // an Auto basis behaves as `(grow=fill_factor, basis=0)` so the
         // engine's grow-distribution path handles it in one layout
@@ -233,5 +245,35 @@ mod tests {
             ..Properties::default()
         };
         assert_eq!(p.basis, Basis::Pixels(120.0));
+    }
+
+    #[test]
+    fn resolved_properties_explicit_basis_pixels_overrides_inner_fill_main() {
+        // Regression: when a child's inner widget has Length::Fill in
+        // the main axis but the user has set an explicit basis(N), the
+        // engine must classify the item as fixed-main (fill_main=0),
+        // not fluid.
+        //
+        // Otherwise, a sibling with grow=1 swallows all the available
+        // space because the basis item falls into Pass 3's fluid
+        // bucket with grow=0 and gets share_main=0 — rendering at
+        // zero width. Reported via the flex-basis and kitchen-sink
+        // example demos.
+        use crate::core::{Length, Theme};
+        use iced_widget::{Renderer, Space};
+
+        let fluid: crate::core::Element<'_, (), Theme, Renderer> =
+            Space::new().width(Length::Fill).height(Length::Fill).into();
+
+        let child = FlexChild::new(fluid).basis(80.0);
+        let props = child.resolved_properties(Axis::Horizontal);
+
+        assert_eq!(
+            props.fill_main, 0,
+            "explicit Basis::Pixels must override the inner widget's \
+             Length::Fill main hint"
+        );
+        assert_eq!(props.basis, Basis::Pixels(80.0));
+        assert_eq!(props.grow, 0.0);
     }
 }
