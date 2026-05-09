@@ -16,15 +16,34 @@
 //! [`Column`]: sweeten::widget::flex::Column
 
 use iced::widget::{column, container, row, rule, scrollable, slider, text};
-use iced::{Center, Element, Fill, Length, Shrink, Theme};
+use iced::{
+    Center, Element, Fill, Length, Shrink, Subscription, Theme, keyboard,
+};
 
 use sweeten::widget::flex::{self, AlignItems, Axis, FlexChild, Justify, flex};
 use sweeten::widget::{checkbox, pick_list};
+
+/// Cycle forward (or backward) through a static list, wrapping at
+/// either end. Returns the input unchanged for empty slices.
+fn cycle<T: PartialEq + Copy>(items: &[T], current: T, forward: bool) -> T {
+    let n = items.len();
+    if n == 0 {
+        return current;
+    }
+    let pos = items.iter().position(|x| *x == current).unwrap_or(0);
+    let next = if forward {
+        (pos + 1) % n
+    } else {
+        (pos + n - 1) % n
+    };
+    items[next]
+}
 
 pub fn main() -> iced::Result {
     iced::application(FlexTour::default, FlexTour::update, FlexTour::view)
         .title(FlexTour::title)
         .theme(FlexTour::theme)
+        .subscription(FlexTour::subscription)
         .window_size((1100.0, 720.0))
         .run()
 }
@@ -235,6 +254,20 @@ enum Message {
     JustifySelected(JustifyChoice),
     AlignSelected(AlignChoice),
     ReverseToggled(bool),
+    // Keyboard-driven actions. Direct messages so the keyboard
+    // subscription stays a thin mapping layer.
+    NextDemo,
+    PrevDemo,
+    ToggleAxis,
+    ForceRowAxis,
+    ForceColumnAxis,
+    JustifyNext,
+    JustifyPrev,
+    AlignNext,
+    AlignPrev,
+    GapDelta(f32),
+    PaddingDelta(f32),
+    ToggleReverse,
 }
 
 impl FlexTour {
@@ -255,7 +288,98 @@ impl FlexTour {
             Message::JustifySelected(j) => self.justify_override = j,
             Message::AlignSelected(a) => self.align_override = a,
             Message::ReverseToggled(r) => self.reverse = r,
+            Message::NextDemo => {
+                self.demo = cycle(Demo::ALL, self.demo, true);
+            }
+            Message::PrevDemo => {
+                self.demo = cycle(Demo::ALL, self.demo, false);
+            }
+            Message::ToggleAxis => {
+                self.axis = AxisChoice(match self.axis.0 {
+                    Axis::Horizontal => Axis::Vertical,
+                    Axis::Vertical => Axis::Horizontal,
+                });
+            }
+            Message::ForceRowAxis => {
+                self.axis = AxisChoice(Axis::Horizontal);
+            }
+            Message::ForceColumnAxis => {
+                self.axis = AxisChoice(Axis::Vertical);
+            }
+            Message::JustifyNext => {
+                self.justify_override =
+                    cycle(JustifyChoice::ALL, self.justify_override, true);
+            }
+            Message::JustifyPrev => {
+                self.justify_override =
+                    cycle(JustifyChoice::ALL, self.justify_override, false);
+            }
+            Message::AlignNext => {
+                self.align_override =
+                    cycle(AlignChoice::ALL, self.align_override, true);
+            }
+            Message::AlignPrev => {
+                self.align_override =
+                    cycle(AlignChoice::ALL, self.align_override, false);
+            }
+            Message::GapDelta(d) => {
+                self.gap = (self.gap + d).clamp(0.0, 48.0);
+            }
+            Message::PaddingDelta(d) => {
+                self.padding = (self.padding + d).clamp(0.0, 32.0);
+            }
+            Message::ToggleReverse => {
+                self.reverse = !self.reverse;
+            }
         }
+    }
+
+    /// Global keybindings, mirroring `~/projects/hyozu/examples/
+    /// gauge_chart.rs`'s subscription pattern.
+    ///
+    /// - `PageUp` / `PageDown`: previous / next demo
+    /// - `X`: toggle row ↔ column
+    /// - `R` / `C`: force-set Row / Column axis
+    /// - `V`: toggle reverse
+    /// - `J` / `Shift+J`: cycle justify-content forward / backward
+    /// - `A` / `Shift+A`: cycle align-items forward / backward
+    /// - `←` / `→`: gap −2 / +2
+    /// - `↑` / `↓`: padding +2 / −2
+    fn subscription(&self) -> Subscription<Message> {
+        use keyboard::key::{Key, Named};
+
+        keyboard::listen().filter_map(|event| {
+            let keyboard::Event::KeyPressed { key, modifiers, .. } = event
+            else {
+                return None;
+            };
+
+            match key.as_ref() {
+                Key::Named(Named::PageDown) => Some(Message::NextDemo),
+                Key::Named(Named::PageUp) => Some(Message::PrevDemo),
+                Key::Named(Named::ArrowLeft) => Some(Message::GapDelta(-2.0)),
+                Key::Named(Named::ArrowRight) => Some(Message::GapDelta(2.0)),
+                Key::Named(Named::ArrowUp) => Some(Message::PaddingDelta(2.0)),
+                Key::Named(Named::ArrowDown) => {
+                    Some(Message::PaddingDelta(-2.0))
+                }
+                Key::Character(c) => {
+                    let lower = c.to_lowercase();
+                    match (lower.as_str(), modifiers.shift()) {
+                        ("x", _) => Some(Message::ToggleAxis),
+                        ("r", _) => Some(Message::ForceRowAxis),
+                        ("c", _) => Some(Message::ForceColumnAxis),
+                        ("v", _) => Some(Message::ToggleReverse),
+                        ("j", true) => Some(Message::JustifyPrev),
+                        ("j", false) => Some(Message::JustifyNext),
+                        ("a", true) => Some(Message::AlignPrev),
+                        ("a", false) => Some(Message::AlignNext),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        })
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -323,7 +447,10 @@ impl FlexTour {
         frame(demo.into())
     }
 
-    /// Six adjacent rows, one per Justify variant.
+    /// Six tracks, one per Justify variant. In Row mode they stack
+    /// vertically as wide-and-thin strips; in Column mode they sit
+    /// side-by-side as narrow-and-tall strips so each variant has a
+    /// generous main-axis budget for its leftover-distribution.
     fn demo_justify_content(&self) -> Element<'_, Message> {
         let variants = [
             (Justify::Start, "Start"),
@@ -334,11 +461,13 @@ impl FlexTour {
             (Justify::SpaceEvenly, "SpaceEvenly"),
         ];
 
-        let rows =
+        let is_horizontal = matches!(self.axis.0, Axis::Horizontal);
+
+        let tracks =
             variants
                 .into_iter()
                 .map(|(j, name)| -> Element<'_, Message> {
-                    let inner = flex_demo(
+                    let inner_builder = flex_demo(
                         self.axis.0,
                         [
                             cell("A", "", 56.0, 40.0),
@@ -350,24 +479,50 @@ impl FlexTour {
                     .padding(8.0)
                     .align(AlignItems::Center)
                     .justify(self.justify_override.0.unwrap_or(j))
-                    .reverse(self.reverse)
-                    .width(Fill)
-                    .height(60.0);
+                    .reverse(self.reverse);
 
-                    row![
-                        text(name).size(12).width(110.0),
-                        container(inner).width(Fill).style(track_style),
-                    ]
-                    .spacing(8)
-                    .align_y(Center)
-                    .into()
+                    let inner: Element<'_, Message> = if is_horizontal {
+                        // Wide horizontal strip — main = width.
+                        inner_builder.width(Fill).height(60.0).into()
+                    } else {
+                        // Narrow vertical strip — main = height. 220px
+                        // gives 3*40 + 2*gap (~24) + padding(16) = ~160
+                        // intrinsic plus ~60 leftover for the
+                        // SpaceBetween/Around/Evenly cases to spread.
+                        inner_builder.width(84.0).height(220.0).into()
+                    };
+
+                    if is_horizontal {
+                        row![
+                            text(name).size(12).width(110.0),
+                            container(inner).width(Fill).style(track_style),
+                        ]
+                        .spacing(8)
+                        .align_y(Center)
+                        .into()
+                    } else {
+                        column![
+                            text(name).size(12),
+                            container(inner).style(track_style),
+                        ]
+                        .spacing(4)
+                        .align_x(Center)
+                        .into()
+                    }
                 });
 
-        let stack = column(rows).spacing(8).width(Fill);
-        frame(stack.into())
+        let stack: Element<'_, Message> = if is_horizontal {
+            column(tracks).spacing(8).width(Fill).into()
+        } else {
+            row(tracks).spacing(8).height(Fill).into()
+        };
+        frame(stack)
     }
 
-    /// Four columns, one per AlignItems variant.
+    /// Four variants of AlignItems, one per column. Cells have varied
+    /// cross-axis sizes so the alignment is visible at a glance — that
+    /// means varying *heights* in Row mode (h=28/56/84) and varying
+    /// *widths* in Column mode (w=28/56/84).
     fn demo_align_items(&self) -> Element<'_, Message> {
         let variants = [
             (AlignItems::Start, "Start"),
@@ -376,23 +531,43 @@ impl FlexTour {
             (AlignItems::Stretch, "Stretch"),
         ];
 
+        let is_horizontal = matches!(self.axis.0, Axis::Horizontal);
+
         let columns =
             variants
                 .into_iter()
                 .map(|(a, name)| -> Element<'_, Message> {
-                    // Mixed cross sizes so alignment is visible.
-                    let inner = flex::row([
-                        cell("A", "h=28", 36.0, 28.0),
-                        cell("B", "h=56", 36.0, 56.0),
-                        cell("C", "h=84", 36.0, 84.0),
-                    ])
-                    .gap(self.gap)
-                    .padding(8.0)
-                    .align(self.align_override.0.unwrap_or(a))
-                    .justify(Justify::Center)
-                    .reverse(self.reverse)
-                    .width(Fill)
-                    .height(140.0);
+                    let cells = if is_horizontal {
+                        // Cross = height; vary it.
+                        [
+                            cell("A", "h=28", 36.0, 28.0),
+                            cell("B", "h=56", 36.0, 56.0),
+                            cell("C", "h=84", 36.0, 84.0),
+                        ]
+                    } else {
+                        // Cross = width; vary it.
+                        [
+                            cell("A", "w=28", 28.0, 36.0),
+                            cell("B", "w=56", 56.0, 36.0),
+                            cell("C", "w=84", 84.0, 36.0),
+                        ]
+                    };
+
+                    let inner_builder = flex_demo(self.axis.0, cells)
+                        .gap(self.gap)
+                        .padding(8.0)
+                        .align(self.align_override.0.unwrap_or(a))
+                        .justify(Justify::Center)
+                        .reverse(self.reverse);
+
+                    let inner: Element<'_, Message> = if is_horizontal {
+                        inner_builder.width(Fill).height(140.0).into()
+                    } else {
+                        // Cross budget needs to fit the widest cell
+                        // (84) plus padding plus a little headroom so
+                        // Stretch is distinguishable from Start/End.
+                        inner_builder.width(140.0).height(220.0).into()
+                    };
 
                     column![
                         text(name).size(12),
