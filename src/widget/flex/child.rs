@@ -16,7 +16,7 @@ use super::alignment::{AlignSelf, Axis};
 /// directly — they build it through [`FlexChild`] builder methods. The
 /// engine takes a `&[Properties]` slice when laying items out.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Properties {
+pub struct Properties {
     /// CSS `flex-grow` — non-negative scale factor for distributing
     /// surplus main-axis space.
     pub grow: f32,
@@ -59,7 +59,7 @@ impl Default for Properties {
 /// the engine measures it). `Pixels(p)` forces a specific basis and
 /// skips Pass 1 for that item.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Basis {
+pub enum Basis {
     /// Use the widget's intrinsic main size as the basis.
     Auto,
     /// Force a specific main-size basis in pixels.

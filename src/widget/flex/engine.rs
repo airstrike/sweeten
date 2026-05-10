@@ -40,7 +40,7 @@ use super::child::{Basis, Properties};
 /// filter (since it interleaves with `layout_item` calls per child);
 /// the shrink path calls back into this helper after Pass 4 to
 /// redistribute deficit across already-measured items.
-pub(crate) fn solve_main_sizes(
+pub fn solve_main_sizes(
     base_sizes: &[f32],
     props: &[Properties],
     free_space: f32,
@@ -119,7 +119,7 @@ pub(crate) fn solve_main_sizes(
 ///
 /// Returns `(0.0, 0.0)` when `count == 0` or `leftover <= 0` (both
 /// degenerate cases — there is nothing to distribute).
-pub(crate) fn justify_offsets(
+pub fn justify_offsets(
     count: usize,
     leftover: f32,
     justify: Justify,
@@ -163,7 +163,7 @@ pub(crate) fn justify_offsets(
 /// `Stretch` returns 0.0 (the item has been laid out to the full
 /// `container_cross` already, so no offset is needed). The driver is
 /// responsible for actually stretching.
-pub(crate) fn cross_offset(
+pub fn cross_offset(
     cross_size: f32,
     container_cross: f32,
     container_align: AlignItems,
@@ -210,7 +210,7 @@ pub(crate) fn cross_offset(
 /// Worst case is one layout call per child (Pass 1 and Pass 3 are
 /// disjoint sets), matching iced's existing upper bound.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve<F>(
+pub fn resolve<F>(
     axis: Axis,
     limits: &Limits,
     width: Length,

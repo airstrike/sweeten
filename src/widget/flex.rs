@@ -136,3 +136,18 @@ pub use row::Row;
 // `iced::widget::column` does for its own three-way collision.
 #[doc(inline)]
 pub use crate::{flex_column as column, flex_row as row};
+
+/// Internal engine API exposed for benchmarking only.
+///
+/// This module is `#[doc(hidden)]` and not part of the stable surface;
+/// it exists so the `flex_vs_iced` benchmark in `benches/` can drive
+/// [`engine::resolve`] without going through the iced widget tree. Do
+/// not depend on it from application code — it may change or vanish
+/// without notice.
+#[doc(hidden)]
+pub mod __bench {
+    pub use super::child::{Basis, Properties};
+    pub use super::engine::{
+        cross_offset, justify_offsets, resolve, solve_main_sizes,
+    };
+}
