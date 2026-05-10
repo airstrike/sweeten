@@ -31,6 +31,19 @@ unicode-segmentation = "1.11.0"
 iced.version = "0.15.0-dev"
 iced.features = ["advanced", "markdown"]
 iced_test.version = "0.15.0-dev"
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "flex_vs_iced"
+harness = false
+
+# The flex_vs_iced bench uses `&()` as the iced renderer, which only
+# implements `iced_core::Renderer` under `cfg(debug_assertions)`
+# (`core/src/renderer/null.rs` is `#[cfg(debug_assertions)] mod null;`).
+# Enable debug-assertions for the bench profile so the null renderer
+# stays in scope while we still get release-level optimization.
+[profile.bench]
+debug-assertions = true
 
 [patch.crates-io]
 iced = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
