@@ -17,7 +17,7 @@
 
 use iced::widget::{column, container, row, rule, scrollable, slider, text};
 use iced::{
-    Center, Element, Fill, Length, Shrink, Subscription, Theme, keyboard,
+    Center, Element, Fill, Font, Length, Shrink, Subscription, Theme, keyboard,
 };
 
 use sweeten::widget::flex::{self, AlignItems, Axis, FlexChild, Justify, flex};
@@ -990,16 +990,17 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     // right-aligns itself within that space.
     let gap_slider = column![
         flex::row![
-            label("gap"),
+            flex::row![
+                label("gap"),
+                text(format!("{:.0}px", app.gap)).size(11),
+            ]
+            .gap(6.0)
+            .align(AlignItems::Center),
             hotkey("← →"),
-            flex(
-                text(format!("{:.0}px", app.gap))
-                    .size(11)
-                    .align_x(iced::Right)
-            )
-            .grow(1.0),
         ]
+        .justify(Justify::SpaceBetween)
         .align(AlignItems::Center)
+        .gap(6.0)
         .width(Fill),
         slider(0.0..=48.0, app.gap, Message::GapChanged)
             .step(1.0)
@@ -1009,16 +1010,17 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
 
     let padding_slider = column![
         flex::row![
-            label("padding"),
+            flex::row![
+                label("padding"),
+                text(format!("{:.0}px", app.padding)).size(11),
+            ]
+            .gap(6.0)
+            .align(AlignItems::Center),
             hotkey("↑ ↓"),
-            flex(
-                text(format!("{:.0}px", app.padding))
-                    .size(11)
-                    .align_x(iced::Right)
-            )
-            .grow(1.0),
         ]
+        .justify(Justify::SpaceBetween)
         .align(AlignItems::Center)
+        .gap(6.0)
         .width(Fill),
         slider(0.0..=32.0, app.padding, Message::PaddingChanged)
             .step(1.0)
@@ -1035,12 +1037,12 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     ]
     .justify(Justify::SpaceBetween)
     .align(AlignItems::Center)
+    .gap(6.0)
     .width(Fill)
     .into();
 
     let body = column![
         text("Flex tour").size(20),
-        text("CSS Flexbox for iced").size(11).style(text::secondary),
         section("demo", "PgUp / PgDn", demo_picker.into()),
         section("axis", "X · R / C", axis_picker.into()),
         section("justify-content", "J / ⇧J", justify_picker.into()),
@@ -1068,6 +1070,7 @@ fn section<'a>(
         ]
         .justify(Justify::SpaceBetween)
         .align(AlignItems::Center)
+        .gap(6.0)
         .width(Fill),
         body,
     ]
@@ -1075,14 +1078,23 @@ fn section<'a>(
     .into()
 }
 
-/// Tiny dimmed label for keyboard-shortcut hints next to section
-/// titles. Smaller and more muted than the secondary text around it
-/// so the hotkey reads as ancillary metadata rather than a peer of
-/// the section title.
-fn hotkey<'a>(s: &'a str) -> iced::widget::Text<'a, Theme> {
-    text(s).size(10).style(|theme: &Theme| text::Style {
-        color: Some(theme.palette().background.base.text.scale_alpha(0.45)),
-    })
+/// Monospace keyboard-shortcut chip rendered next to section titles.
+/// A muted background fill plus rounded corners makes the hint read
+/// as ancillary metadata distinct from the surrounding label text.
+fn hotkey<'a, Message: 'a>(s: &'a str) -> Element<'a, Message> {
+    container(
+        text(s)
+            .size(10)
+            .font(Font::MONOSPACE)
+            .style(|theme: &Theme| text::Style {
+                color: Some(
+                    theme.palette().background.base.text.scale_alpha(0.7),
+                ),
+            }),
+    )
+    .padding([1.0, 5.0])
+    .style(hotkey_style)
+    .into()
 }
 
 // --- Styling --------------------------------------------------------------
@@ -1091,6 +1103,19 @@ fn canvas_style(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
         background: Some(palette.background.weakest.color.into()),
+        ..container::Style::default()
+    }
+}
+
+fn hotkey_style(theme: &Theme) -> container::Style {
+    let palette = theme.palette();
+    container::Style {
+        background: Some(palette.background.weak.color.into()),
+        border: iced::Border {
+            color: iced::Color::TRANSPARENT,
+            width: 0.0,
+            radius: 3.0.into(),
+        },
         ..container::Style::default()
     }
 }
