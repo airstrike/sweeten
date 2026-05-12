@@ -24,8 +24,6 @@ use crate::core::{
     Widget,
 };
 
-use smallvec::SmallVec;
-
 use super::alignment::{AlignItems, Axis, Justify};
 use super::child::FlexChild;
 use super::engine;
@@ -287,12 +285,15 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        // Materialise the per-child Properties up front. The buffer is
+        // Materialise the per-child Properties up front. The Vec is
         // owned, so passing `&props` to `engine::resolve` does not
         // borrow `self.children` — the layouter closure below is then
-        // free to mutably borrow each child by index. A SmallVec keeps
-        // the common small-N case off the heap.
-        let props: SmallVec<[_; 8]> = self
+        // free to mutably borrow each child by index. Kept as `Vec`
+        // (not `SmallVec`) because this is a one-shot allocation per
+        // layout call — `engine::resolve` consumes it as `&[_]`, so
+        // the inline-vs-heap discriminator on the SmallVec access
+        // path would be pure overhead for any non-trivial N.
+        let props: Vec<_> = self
             .children
             .iter()
             .map(|c| c.resolved_properties(Axis::Horizontal))

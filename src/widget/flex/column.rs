@@ -24,8 +24,6 @@ use crate::core::{
     Widget,
 };
 
-use smallvec::SmallVec;
-
 use super::alignment::{AlignItems, Axis, Justify};
 use super::child::FlexChild;
 use super::engine;
@@ -288,7 +286,9 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        let props: SmallVec<[_; 8]> = self
+        // See `row.rs::layout` for the rationale on keeping this as
+        // `Vec` rather than `SmallVec`.
+        let props: Vec<_> = self
             .children
             .iter()
             .map(|c| c.resolved_properties(Axis::Vertical))

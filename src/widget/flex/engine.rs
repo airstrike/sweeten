@@ -19,11 +19,14 @@ use crate::core::{Length, Padding, Point, Size};
 use super::alignment::{AlignItems, AlignSelf, Axis, Justify};
 use super::child::{Basis, Properties};
 
-/// Inline capacity for engine scratch buffers. 8 covers the common
-/// row/column layouts (button bars, form columns, nav items) and the
-/// fanout-3 deep-nested case lives entirely on the stack. Counts
-/// beyond this spill to the heap, behaving identically to a `Vec`.
-const SV: usize = 8;
+/// Inline capacity for engine scratch buffers. 16 covers nearly
+/// every realistic row/column (toolbars, form fields, list rows up
+/// to a screenful) and the fanout-3 deep-nested case lives entirely
+/// on the stack. Counts beyond this spill to the heap and behave
+/// identically to a `Vec`. Stack cost is bounded: with three buffers
+/// of `f32`/`bool`/`f32` × 16 inline, each `resolve` call adds about
+/// 144 bytes to its frame — safe to nest deeply.
+const SV: usize = 16;
 
 /// Solves CSS flex-grow / flex-shrink given each item's resolved base
 /// main size.
