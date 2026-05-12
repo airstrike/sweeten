@@ -11,11 +11,19 @@
 //! The driver mirrors `iced_core::layout::flex::resolve` pass-for-pass
 //! — see the inline comments on [`resolve`] for the bucket structure.
 
+use smallvec::{SmallVec, smallvec};
+
 use crate::core::layout::{Limits, Node};
 use crate::core::{Length, Padding, Point, Size};
 
 use super::alignment::{AlignItems, AlignSelf, Axis, Justify};
 use super::child::{Basis, Properties};
+
+/// Inline capacity for engine scratch buffers. 8 covers the common
+/// row/column layouts (button bars, form columns, nav items) and the
+/// fanout-3 deep-nested case lives entirely on the stack. Counts
+/// beyond this spill to the heap, behaving identically to a `Vec`.
+const SV: usize = 8;
 
 /// Solves CSS flex-grow / flex-shrink given each item's resolved base
 /// main size.
@@ -82,7 +90,7 @@ pub fn solve_main_sizes(
         }
     } else {
         // Shrink distribution. CSS scales by shrink * basis.
-        let weights: Vec<f32> = props
+        let weights: SmallVec<[f32; SV]> = props
             .iter()
             .zip(base_sizes.iter())
             .map(|(p, base)| p.shrink * base)
@@ -253,11 +261,15 @@ where
         Size::new(cx, cy)
     };
 
+    // `nodes` is the layout output, returned via `Node::with_children`
+    // which needs a `Vec<Node>` — so it stays a Vec. The two scratch
+    // buffers below never escape `resolve`, so they stack-allocate
+    // inline for the common small-N case.
     let mut nodes: Vec<Node> = (0..count).map(|_| Node::default()).collect();
-    let mut base_sizes: Vec<f32> = vec![0.0; count];
+    let mut base_sizes: SmallVec<[f32; SV]> = smallvec![0.0; count];
     // Pass 1 sets `measured[i] = true` when an item's final layout has
     // already been recorded in `nodes[i]`. Pass 3 must skip them.
-    let mut measured: Vec<bool> = vec![false; count];
+    let mut measured: SmallVec<[bool; SV]> = smallvec![false; count];
 
     let mut cross = if cross_compress { 0.0 } else { max_cross };
     let mut available = max_main - total_gap;
@@ -503,7 +515,7 @@ where
             // free_space takes the shrink branch, scaling by
             // `basis * shrink` per CSS. Materialise the size Vec only
             // here — the non-shrink path doesn't need it.
-            let main_after_passes: Vec<f32> =
+            let main_after_passes: SmallVec<[f32; SV]> =
                 (0..count).map(|i| axis.main(nodes[i].size())).collect();
             let final_sizes =
                 solve_main_sizes(&main_after_passes, props, free_space);
