@@ -496,14 +496,15 @@ where
     // container resolves to its intrinsic, so there's no defined
     // "container main" to shrink against.
     if !main_compress {
-        let main_after_passes: Vec<f32> =
-            (0..count).map(|i| axis.main(nodes[i].size())).collect();
-        let used: f32 = main_after_passes.iter().sum();
+        let used: f32 = (0..count).map(|i| axis.main(nodes[i].size())).sum();
         let free_space = max_main - total_gap - used;
         if free_space < 0.0 {
             // `solve_main_sizes` handles both grow and shrink. Negative
             // free_space takes the shrink branch, scaling by
-            // `basis * shrink` per CSS.
+            // `basis * shrink` per CSS. Materialise the size Vec only
+            // here — the non-shrink path doesn't need it.
+            let main_after_passes: Vec<f32> =
+                (0..count).map(|i| axis.main(nodes[i].size())).collect();
             let final_sizes =
                 solve_main_sizes(&main_after_passes, props, free_space);
             for (i, p) in props.iter().enumerate() {
@@ -576,16 +577,12 @@ where
     let pad = axis.pack(padding.left, padding.top);
     let mut main_cursor = pad.0 + initial;
 
-    // Order to iterate the *positions* in. The items themselves stay
-    // in source order in the returned `nodes` Vec — only the
-    // assignment of position-slots changes when reversed.
-    let order: Vec<usize> = if reverse {
-        (0..count).rev().collect()
-    } else {
-        (0..count).collect()
-    };
-
-    for (slot, &i) in order.iter().enumerate() {
+    // Walk position slots 0..count and map each slot to a source
+    // index: forward is identity; reverse mirrors. The returned `nodes`
+    // Vec stays in source order — only the position-slot assignment
+    // changes. Computed inline so we don't allocate an `order` Vec.
+    for slot in 0..count {
+        let i = if reverse { count - 1 - slot } else { slot };
         if slot > 0 {
             main_cursor += gap + gap_extra;
         }
@@ -619,6 +616,7 @@ impl Properties {
     /// classification. Non-zero `grow` overrides the implicit
     /// `fill_main` hint — a child with explicit grow is always
     /// considered main-fluid regardless of its inner widget's `Length`.
+    #[inline]
     fn fill_main_factor(&self) -> u16 {
         if self.grow > 0.0 {
             self.fill_main.max(1)
