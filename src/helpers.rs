@@ -9,6 +9,7 @@ use crate::widget::checkbox::{self, Checkbox};
 use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
+use crate::widget::progress::{self, ProgressBar};
 use crate::widget::row::{self, Row};
 use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
@@ -238,6 +239,26 @@ where
     Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
+}
+
+/// Creates a new [`ProgressBar`] over the given range with the given
+/// current value.
+///
+/// This is a sweetened version of [`iced`'s `progress_bar`] that owns
+/// its own value-easing animation: every render whose `value` differs
+/// from the currently-displayed value triggers a 150ms cubic-bezier
+/// ease toward the new target — the same `transition-all` default
+/// shadcn's `<Progress>` indicator inherits.
+///
+/// [`iced`'s `progress_bar`]: https://docs.iced.rs/iced/widget/progress_bar/index.html
+pub fn progress_bar<'a, Message, Theme>(
+    range: std::ops::RangeInclusive<f32>,
+    value: f32,
+) -> ProgressBar<'a, Message, Theme>
+where
+    Theme: progress::Catalog,
+{
+    ProgressBar::new(range, value)
 }
 
 /// Creates a new [`FitText`] from the given content.
