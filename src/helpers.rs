@@ -9,7 +9,7 @@ use crate::widget::checkbox::{self, Checkbox};
 use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
-use crate::widget::progress::{self, ProgressBar};
+use crate::widget::progress_bar::{self, ProgressBar};
 use crate::widget::row::{self, Row};
 use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
@@ -256,7 +256,7 @@ pub fn progress_bar<'a, Message, Theme>(
     value: f32,
 ) -> ProgressBar<'a, Message, Theme>
 where
-    Theme: progress::Catalog,
+    Theme: progress_bar::Catalog,
 {
     ProgressBar::new(range, value)
 }

@@ -83,7 +83,7 @@
 //! [`tile_grid`]: mod@widget::tile_grid
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
-//! [`progress_bar`]: mod@widget::progress
+//! [`progress_bar`]: mod@widget::progress_bar
 //! [`row`]: mod@widget::row
 //! [`table`]: mod@widget::table
 //! [`text_input`]: mod@widget::text_input
