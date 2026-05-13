@@ -11,6 +11,7 @@ name = "tile_grid"
 sweeten = { path = "../.." }
 iced.workspace = true
 fount = { git = "https://github.com/airstrike/fount" }
+tokio = { version = "1", features = ["time"] }
 
 [build-dependencies]
 iced_lucide = { git = "https://github.com/airstrike/iced_lucide" }

@@ -16,6 +16,8 @@
 #[allow(dead_code)]
 mod icon;
 
+use std::time::Duration;
+
 use iced::keyboard;
 use iced::widget::{
     button, center_y, column, container, row, rule, scrollable, space, text,
@@ -24,6 +26,7 @@ use iced::{
     Center, Element, Fill, Font, Shrink, Size, Subscription, Task, window,
 };
 
+use sweeten::widget::progress_bar;
 use sweeten::widget::tile_grid::{self, grid_content, title_bar};
 
 fn main() -> iced::Result {
@@ -38,8 +41,33 @@ fn main() -> iced::Result {
 }
 
 enum App {
-    Loading,
+    Loading(Loading),
     Loaded(Example),
+}
+
+/// Splash-screen state — paces the progress bar through 0 → 50 → 100
+/// over 200ms + 300ms while the font request flies. We only swap to
+/// [`App::Loaded`] once *both* the bar has settled at 100% and the
+/// font has loaded; whichever lands last triggers the transition.
+struct Loading {
+    progress: f32,
+    font_loaded: bool,
+    bar_settled: bool,
+}
+
+impl Loading {
+    fn new() -> Self {
+        Self {
+            progress: 0.0,
+            font_loaded: false,
+            bar_settled: false,
+        }
+    }
+
+    /// Are we ready to transition into [`App::Loaded`]?
+    fn is_ready(&self) -> bool {
+        self.font_loaded && self.bar_settled
+    }
 }
 
 struct Example {
@@ -58,6 +86,8 @@ struct Item {
 #[derive(Debug, Clone, Copy)]
 enum Message {
     FontLoaded,
+    LoadingTick(f32),
+    LoadingSettled(f32),
     GridAction(tile_grid::Action),
     AddItem,
     AddTen,
@@ -69,35 +99,65 @@ enum Message {
 
 impl App {
     fn new() -> (Self, Task<Message>) {
-        (
-            App::Loading,
-            Task::future(fount::google::load_variants(
-                "Geist",
-                &["400", "700"],
-            ))
-            .then(|result| match result {
-                Ok(bytes_list) => {
-                    Task::batch(bytes_list.into_iter().map(|bytes| {
-                        iced::font::load(bytes).map(|_| Message::FontLoaded)
-                    }))
-                }
-                Err(e) => {
-                    eprintln!("Failed to load font: {e}");
-                    Task::done(Message::FontLoaded)
-                }
-            }),
-        )
+        let font_load = Task::future(fount::google::load_variants(
+            "Geist",
+            &["400", "700"],
+        ))
+        .then(|result| match result {
+            Ok(bytes_list) => {
+                Task::batch(bytes_list.into_iter().map(|bytes| {
+                    iced::font::load(bytes).map(|_| Message::FontLoaded)
+                }))
+            }
+            Err(e) => {
+                eprintln!("Failed to load font: {e}");
+                Task::done(Message::FontLoaded)
+            }
+        });
+
+        // Splash pacing: 200ms → 50%, then another 300ms → 100%. The
+        // bar's internal 150ms cubic-bezier ease tweens between the
+        // discrete steps, so the user sees a smooth fill rather than two
+        // jumps. Total visible reveal: ~650ms (500ms of waits + 150ms of
+        // final ease).
+        let pace = Task::future(async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Message::LoadingTick(50.0)
+        });
+
+        (App::Loading(Loading::new()), Task::batch([font_load, pace]))
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::FontLoaded => {
-                if matches!(self, App::Loading) {
-                    *self = App::Loaded(Example::new());
-
-                    return window::latest().and_then(|id| {
-                        window::resize(id, Size::new(900.0, 700.0))
-                    });
+                if let App::Loading(loading) = self {
+                    loading.font_loaded = true;
+                    return self.maybe_enter_loaded();
+                }
+                Task::none()
+            }
+            Message::LoadingTick(value) => {
+                if let App::Loading(loading) = self {
+                    loading.progress = value;
+                    // First tick (50%) chains into the second wait; the
+                    // second tick (100%) is the terminal step.
+                    if value < 100.0 {
+                        return Task::future(async {
+                            tokio::time::sleep(Duration::from_millis(300))
+                                .await;
+                            Message::LoadingTick(100.0)
+                        });
+                    }
+                }
+                Task::none()
+            }
+            Message::LoadingSettled(value) => {
+                if let App::Loading(loading) = self
+                    && value >= 100.0
+                {
+                    loading.bar_settled = true;
+                    return self.maybe_enter_loaded();
                 }
                 Task::none()
             }
@@ -110,12 +170,36 @@ impl App {
         }
     }
 
+    /// Swap to [`App::Loaded`] iff both gates (font + bar settle) are
+    /// satisfied. Called from whichever message lands last.
+    fn maybe_enter_loaded(&mut self) -> Task<Message> {
+        let App::Loading(loading) = self else {
+            return Task::none();
+        };
+        if !loading.is_ready() {
+            return Task::none();
+        }
+        *self = App::Loaded(Example::new());
+        window::latest()
+            .and_then(|id| window::resize(id, Size::new(900.0, 700.0)))
+    }
+
     fn view(&self) -> Element<'_, Message> {
         match self {
-            App::Loading => container(text("TileGrid").size(32).font(Font {
-                weight: iced::font::Weight::Bold,
-                ..Font::DEFAULT
-            }))
+            App::Loading(loading) => container(
+                column![
+                    text("TileGrid").size(32).font(Font {
+                        weight: iced::font::Weight::Bold,
+                        ..Font::DEFAULT
+                    }),
+                    progress_bar(0.0..=100.0, loading.progress)
+                        .girth(4.0)
+                        .length(200.0)
+                        .on_idle(Message::LoadingSettled),
+                ]
+                .spacing(16)
+                .align_x(Center),
+            )
             .center(Fill)
             .into(),
             App::Loaded(example) => example.view(),
@@ -124,7 +208,7 @@ impl App {
 
     fn subscription(&self) -> Subscription<Message> {
         match self {
-            App::Loading => Subscription::none(),
+            App::Loading(_) => Subscription::none(),
             App::Loaded(example) => example.subscription(),
         }
     }
@@ -225,7 +309,9 @@ impl Example {
             Message::ToggleLockAll => {
                 self.locked_all = !self.locked_all;
             }
-            Message::FontLoaded => {}
+            Message::FontLoaded
+            | Message::LoadingTick(_)
+            | Message::LoadingSettled(_) => {}
         }
     }
 

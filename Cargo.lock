@@ -3855,6 +3855,7 @@ dependencies = [
  "iced",
  "iced_lucide",
  "sweeten",
+ "tokio",
 ]
 
 [[package]]
