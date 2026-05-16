@@ -23,6 +23,7 @@ unicode-segmentation = "1.11.0"
 [dev-dependencies]
 iced.version = "0.15.0-dev"
 iced.features = ["advanced", "markdown"]
+tokio = { version = "1", features = ["time"] }
 
 [patch.crates-io]
 iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
