@@ -46,6 +46,8 @@
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
 //!   disabling items.
+//! - [`progress_bar`] — A progress bar that self-animates between value
+//!   changes (150ms cubic-bezier ease).
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
@@ -75,6 +77,7 @@
 //! [`fit_text`]: mod@widget::fit_text
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
+//! [`progress_bar`]: mod@widget::progress_bar
 //! [`row`]: mod@widget::row
 //! [`text_input`]: mod@widget::text_input
 //! [`toggler`]: mod@widget::toggler

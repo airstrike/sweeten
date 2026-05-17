@@ -81,6 +81,25 @@ follows one rule across states (Active = `<swatch>.base`, Hovered =
 `<swatch>.strong`, Disabled fades much further toward the page background)
 so they're visually consistent.
 
+### `ProgressBar`
+
+A sweetened version of `iced`'s `progress_bar` widget that owns its value
+animation: every render whose `value` differs from the currently-displayed
+value triggers a 150ms `cubic-bezier(0.4, 0, 0.2, 1)` ease toward the new
+target — the same `transition-all` default shadcn's `<Progress>` indicator
+inherits, so stepping the bar through discrete checkpoints (e.g. a paced
+splash screen) reveals a smooth fill instead of jumps.
+
+```rust
+progress_bar(0.0..=100.0, self.progress)
+    .girth(4.0)
+    .on_idle(Message::LoadingSettled)
+```
+
+The optional `.on_idle(f32)` callback fires once the easing animation
+settles at its target, useful for gating follow-up actions (dismissing
+a splash, navigating, etc.) on the bar reaching a specific value.
+
 ### `MouseArea`
 
 A sweetened version of `iced`'s `mouse_area` widget with an additional
@@ -196,6 +215,7 @@ cargo run --example text_input
 cargo run --example fit_text
 cargo run --example transition
 cargo run --example checkbox
+cargo run --example progress_bar
 ```
 
 ## Code Structure
@@ -206,6 +226,7 @@ The library is organized into modules for each enhanced widget:
   - `button.rs`: Sweetened button with focus/blur callbacks
   - `toggler.rs`: Sweetened toggler with animated state changes
   - `checkbox.rs`: Sweetened checkbox with animated check + `text` style
+  - `progress_bar.rs`: Sweetened progress bar with 150ms value easing and `on_idle`
   - `mouse_area.rs`: Sweetened mouse interaction handling
   - `pick_list.rs`: Sweetened pick list with item disabling
   - `text_input.rs`: Sweetened text input with focus handling
