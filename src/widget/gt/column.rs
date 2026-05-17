@@ -21,6 +21,10 @@ pub struct Column {
     /// Optional horizontal alignment override. `None` falls back to the
     /// kind default (`Numeric` → right, `Text` → left).
     pub align: Option<alignment::Horizontal>,
+    /// Whether cell/header text in this column can wrap to multiple
+    /// lines. Defaults to `true`; set `false` for stub columns where row
+    /// labels should remain scannable on one line.
+    pub wrap: bool,
 }
 
 /// Whether a [`Column`] holds numeric or text data.
@@ -42,6 +46,7 @@ impl Column {
             kind: ColumnKind::Numeric,
             width: Length::Shrink,
             align: None,
+            wrap: true,
         }
     }
 
@@ -53,6 +58,7 @@ impl Column {
             kind: ColumnKind::Text,
             width: Length::Shrink,
             align: None,
+            wrap: true,
         }
     }
 
@@ -68,6 +74,13 @@ impl Column {
     #[must_use]
     pub fn align(mut self, align: alignment::Horizontal) -> Self {
         self.align = Some(align);
+        self
+    }
+
+    /// Sets whether this column's text may wrap.
+    #[must_use]
+    pub fn wrap(mut self, wrap: bool) -> Self {
+        self.wrap = wrap;
         self
     }
 }

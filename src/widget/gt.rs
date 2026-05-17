@@ -884,6 +884,9 @@ where
         .unwrap_or(column_align);
     t = t.align_x(align);
     t = apply_text_style::<Theme, Renderer>(t, style);
+    if !column.wrap {
+        t = t.wrapping(text::Wrapping::None);
+    }
     Element::new(t)
 }
 
