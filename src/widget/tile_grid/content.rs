@@ -50,6 +50,7 @@ pub struct Content<
     draggable: bool,
     resizable: bool,
     held: bool,
+    hug_height: bool,
 }
 
 impl<'a, Message, Theme, Renderer> Content<'a, Message, Theme, Renderer>
@@ -68,6 +69,7 @@ where
             draggable: true,
             resizable: true,
             held: false,
+            hug_height: false,
         }
     }
 
@@ -123,6 +125,19 @@ where
     #[must_use]
     pub fn held(mut self, held: bool) -> Self {
         self.held = held;
+        self
+    }
+
+    /// Shrinks the painted content height to the title bar plus the
+    /// body's natural height, capped by the grid cell allocation.
+    ///
+    /// The parent grid coordinates remain fixed; this only changes the
+    /// visual/content bounds inside the allocated item slot. It is
+    /// useful for bottom-anchored table/report tiles whose authored
+    /// grid span is an upper bound rather than a desired card height.
+    #[must_use]
+    pub fn hug_height(mut self) -> Self {
+        self.hug_height = true;
         self
     }
 }
@@ -276,21 +291,27 @@ where
             );
 
             let title_bar_size = title_bar_layout.size();
+            let body_max_height =
+                (max_size.height - title_bar_size.height).max(0.0);
 
             let body_layout = self.body.as_widget_mut().layout(
                 &mut tree.children[0],
                 renderer,
                 &layout::Limits::new(
                     Size::ZERO,
-                    Size::new(
-                        max_size.width,
-                        max_size.height - title_bar_size.height,
-                    ),
+                    Size::new(max_size.width, body_max_height),
                 ),
             );
 
+            let height = if self.hug_height {
+                (title_bar_size.height + body_layout.size().height)
+                    .min(max_size.height)
+            } else {
+                max_size.height
+            };
+
             layout::Node::with_children(
-                max_size,
+                Size::new(max_size.width, height),
                 vec![
                     title_bar_layout,
                     body_layout.move_to(Point::new(0.0, title_bar_size.height)),
