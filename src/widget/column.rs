@@ -737,6 +737,8 @@ where
                 } => {
                     shell.request_redraw();
 
+                    let cursor = cursor.land();
+
                     if let Some(cursor_position) = cursor.position() {
                         animations.with_capacity(self.children.len());
 
@@ -821,6 +823,8 @@ where
                         let current_now = *now;
 
                         animations.with_capacity(self.children.len());
+
+                        let cursor = cursor.land();
 
                         if let Some(cursor_position) = cursor.position() {
                             let target_index = self
@@ -950,6 +954,8 @@ where
                 animations,
                 ..
             } => {
+                let cursor = cursor.land();
+
                 let child_count = self.children.len();
 
                 let target_index = if cursor.position().is_some() {
