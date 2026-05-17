@@ -6,12 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- `FitText` widget that auto-scales font size to fit its bounds via binary search. [#13](https://github.com/airstrike/sweeten/pull/13)
-- `Transition` widget — single-slot container that animates a slide between values when its `T` changes (Compose `AnimatedContent` / Android `ViewSwitcher` shape). Built around a `Mode` dispatch so future styles (crossfade, fade, wipe, …) drop in as variants.
-- README sections for `Button`, `Toggler`, and `Transition`.
+- `fit_text` widget that auto-scales font size to fit its bounds. [#13](https://github.com/airstrike/sweeten/pull/13)
+- `transition` widget that animates a slide between values when its data changes.
+- Animated `checkbox` widget. [#16](https://github.com/airstrike/sweeten/pull/16)
+- Self-animating `progress_bar` widget. [#17](https://github.com/airstrike/sweeten/pull/17)
+- README sections for `button`, `toggler`, and `transition`.
 
 ### Changed
-- Crossfade `Toggler` fill colors during toggle animation instead of snapping.
+- Crossfaded `toggler` fill colors during toggle animation.
 
 ### Fixed
-- `pick_list`: collapse a nested `if` inside the wheel-scroll match arm into a guard (Clippy hygiene; no behavior change).
+- Dragged item rendering below items shifted past it during `column` and `row` reorder. [#11](https://github.com/airstrike/sweeten/pull/11)
+- Drag reorder canceling when the cursor enters a layer above, such as a `scrollable`, in `column` and `row`. [#15](https://github.com/airstrike/sweeten/pull/15)
+- Nested `if` in the `pick_list` wheel-scroll match arm.
