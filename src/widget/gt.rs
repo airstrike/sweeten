@@ -204,6 +204,7 @@ where
     separator_x: f32,
     separator_y: f32,
     border: f32,
+    radius: core::border::Radius,
     sticky_header: bool,
     animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
@@ -243,6 +244,7 @@ where
             separator_x: 0.0,
             separator_y: 1.0,
             border: 0.0,
+            radius: core::border::Radius::default(),
             sticky_header: false,
             animate_on_load: false,
             class: <Theme as Catalog>::default(),
@@ -410,6 +412,16 @@ where
         self
     }
 
+    /// Sets the radius used when row/cell fills touch the outer table
+    /// bounds. Interior cells stay square so adjacent filled cells
+    /// meet cleanly; only the corners that coincide with the table's
+    /// outer corners inherit this radius.
+    #[must_use]
+    pub fn radius(mut self, radius: impl Into<core::border::Radius>) -> Self {
+        self.radius = radius.into();
+        self
+    }
+
     /// Animates body rows in on first display, revealing each row in
     /// place via a height-clip mask with a per-row stagger. Matches
     /// framer-motion's default `motion.tr` entry timing — a
@@ -488,6 +500,7 @@ where
             separator_x,
             separator_y,
             border,
+            radius,
             sticky_header,
             animate_on_load,
             class,
@@ -798,6 +811,7 @@ where
             separator_x,
             separator_y,
             border,
+            radius,
             sticky_header,
             animate_on_load,
             class,
@@ -1029,6 +1043,7 @@ where
     separator_x: f32,
     separator_y: f32,
     border: f32,
+    radius: core::border::Radius,
     sticky_header: bool,
     animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
@@ -1917,6 +1932,10 @@ where
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: fill_rect,
+                        border: core::Border {
+                            radius: self.outer_fill_radius(fill_rect, bounds),
+                            ..core::Border::default()
+                        },
                         snap: true,
                         ..renderer::Quad::default()
                     },
@@ -1987,6 +2006,47 @@ where
                     height: cell_rect.height,
                 });
             }
+        }
+    }
+
+    fn outer_fill_radius(
+        &self,
+        fill_rect: Rectangle,
+        bounds: Rectangle,
+    ) -> core::border::Radius {
+        if self.radius == core::border::Radius::default() {
+            return core::border::Radius::default();
+        }
+
+        let epsilon = 0.5;
+        let touches_left = fill_rect.x <= bounds.x + epsilon;
+        let touches_top = fill_rect.y <= bounds.y + epsilon;
+        let touches_right =
+            fill_rect.x + fill_rect.width >= bounds.x + bounds.width - epsilon;
+        let touches_bottom = fill_rect.y + fill_rect.height
+            >= bounds.y + bounds.height - epsilon;
+
+        core::border::Radius {
+            top_left: if touches_left && touches_top {
+                self.radius.top_left
+            } else {
+                0.0
+            },
+            top_right: if touches_right && touches_top {
+                self.radius.top_right
+            } else {
+                0.0
+            },
+            bottom_right: if touches_right && touches_bottom {
+                self.radius.bottom_right
+            } else {
+                0.0
+            },
+            bottom_left: if touches_left && touches_bottom {
+                self.radius.bottom_left
+            } else {
+                0.0
+            },
         }
     }
 
