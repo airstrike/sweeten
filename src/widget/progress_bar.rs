@@ -8,7 +8,7 @@
 //! `cubic-bezier(0.4, 0, 0.2, 1)` — Tailwind's `transition-all` default,
 //! the same easing shadcn's `<Progress>` indicator inherits.
 //!
-//! An optional [`on_idle`] callback fires when the easing animation
+//! An optional [`on_idle`] message fires when the easing animation
 //! settles at its target, useful for gating follow-up actions (dismissing
 //! a splash, navigating, etc.) on the bar reaching a specific value.
 //!
@@ -157,8 +157,8 @@ where
         self
     }
 
-    /// Sets a callback to fire when the easing animation finishes. The
-    /// callback receives the at-rest target value. Useful for gating
+    /// Sets the message to emit when the easing animation finishes. The
+    /// closure receives the at-rest target value. Useful for gating
     /// follow-up actions (dismiss splash, navigate, etc.) on the bar
     /// reaching a particular value.
     #[must_use]

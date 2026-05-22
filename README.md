@@ -13,10 +13,9 @@
 
 ## Overview
 
-`sweeten` provides sweetened versions of common `iced` widgets with additional
-functionality for more complex use cases. It aims to maintain the simplicity and
-elegance of `iced` while offering "sweetened" variants with extended
-capabilities.
+`sweeten` provides drop-in replacements for common `iced` widgets with extra
+features for more complex use cases. Each widget is designed to feel like the
+upstream version with extra capabilities layered on top.
 
 ## Installation
 
@@ -32,23 +31,22 @@ If you're tracking `iced` from git, add this to your `Cargo.toml`:
 sweeten = { git = "https://github.com/airstrike/sweeten", branch = "master" }
 ```
 
-## Current Features
+## Widgets
 
 ### `Button`
 
-A sweetened version of `iced`'s `button` widget with focus-related callbacks:
+Adds focus and blur methods:
 
 - `.on_focus(Message)` fires when the button gains keyboard focus
 - `.on_blur(Message)` fires when it loses focus
 
 Pairs with `sweeten::widget::operation::{focus_next, focus_previous}` to build
-keyboard-navigable forms where any kind of widget can be focused.
+keyboard-navigable forms across any focusable widget.
 
 ### `Toggler`
 
-A sweetened version of `iced`'s `toggler` widget that smoothly animates state
-changes — the handle slides between positions and the fill color crossfades
-between the off- and on-state styles.
+Animates state changes. The handle slides between positions and the fill
+color crossfades between the off and on styles.
 
 ```rust
 toggler(self.is_on)
@@ -58,15 +56,8 @@ toggler(self.is_on)
 
 ### `Checkbox`
 
-A sweetened version of `iced`'s `checkbox` widget. Toggling fades and scales
-the checkmark in or out while the box's fill and border crossfade between
-the off- and on-state styles, on Tailwind v4's `--ease-out` curve (the same
-one the `Toggler` uses, so the two boolean widgets feel like siblings).
-
-The press/release gesture is the standard one: pressing inside *arms* the
-checkbox; releasing inside *fires* the toggle. Press outside and drag in,
-or press inside and drag out before release, and nothing happens — matches
-how native checkboxes behave.
+Animated checkmark with fade and scale on toggle, and a crossfaded fill and
+border.
 
 ```rust
 checkbox(self.is_checked)
@@ -74,21 +65,21 @@ checkbox(self.is_checked)
     .on_toggle(Message::Toggled)
 ```
 
+The press and release gesture matches native checkboxes: pressing inside arms
+the checkbox and releasing inside fires the toggle. Pressing outside and
+dragging in, or pressing inside and dragging out before release, cancels.
+
 Five built-in styles ship: `primary`, `secondary`, `success`, `danger`, and
-`text` — the last is a monochrome variant that uses the theme's body text
-color for the fill, pairing naturally with text-only buttons. Each variant
-follows one rule across states (Active = `<swatch>.base`, Hovered =
-`<swatch>.strong`, Disabled fades much further toward the page background)
-so they're visually consistent.
+`text` (a monochrome variant that uses the theme's body text color for the
+fill, pairing naturally with text-only buttons). Each variant uses
+`<swatch>.base` for the active state, `<swatch>.strong` for hovered, and
+fades toward the page background when disabled.
 
 ### `ProgressBar`
 
-A sweetened version of `iced`'s `progress_bar` widget that owns its value
-animation: every render whose `value` differs from the currently-displayed
-value triggers a 150ms `cubic-bezier(0.4, 0, 0.2, 1)` ease toward the new
-target — the same `transition-all` default shadcn's `<Progress>` indicator
-inherits, so stepping the bar through discrete checkpoints (e.g. a paced
-splash screen) reveals a smooth fill instead of jumps.
+Animates between values. Each render whose `value` differs from the
+currently-displayed value eases toward the new target over 150ms, so stepping
+the bar through discrete checkpoints reveals a smooth fill instead of jumps.
 
 ```rust
 progress_bar(0.0..=100.0, self.progress)
@@ -96,15 +87,13 @@ progress_bar(0.0..=100.0, self.progress)
     .on_idle(Message::LoadingSettled)
 ```
 
-The optional `.on_idle(f32)` callback fires once the easing animation
-settles at its target, useful for gating follow-up actions (dismissing
-a splash, navigating, etc.) on the bar reaching a specific value.
+The optional `.on_idle(f32)` fires once the easing animation settles
+at its target, making it useful for gating follow-up actions (dismissing a
+splash, navigating, etc.) on the bar reaching a specific value.
 
 ### `MouseArea`
 
-A sweetened version of `iced`'s `mouse_area` widget with an additional
-`on_press_with` method for capturing the click position with a closure. Use it
-like:
+Adds `on_press_with` for capturing the click position via a closure:
 
 ```rust
 mouse_area("Click me and I'll tell you where!",)
@@ -113,8 +102,7 @@ mouse_area("Click me and I'll tell you where!",)
 
 ### `PickList`
 
-A sweetened version of `iced`'s `PickList` which accepts an optional closure to
-disable some items. Use it like:
+Accepts an optional closure to disable some items:
 
 ```rust
 pick_list(
@@ -131,20 +119,20 @@ pick_list(
 .placeholder("Choose a language...");
 ```
 
-> Note that the compiler is not currently able to infer the type of the closure,
-> so you may need to specify it explicitly as shown above.
+> Note that the compiler cannot currently infer the type of the closure, so
+> you may need to specify it explicitly as shown above.
 
 ### `TextInput`
 
-A sweetened version of `iced`'s `text_input` widget with additional focus-related features:
+Adds focus-related features:
 
 - `.on_focus` and `.on_blur` methods for handling focus events
-- Sweetened `focus_next` and `focus_previous` focus management functions, which return the ID of the focused element
+- Sweetened `focus_next` and `focus_previous` focus management functions,
+  which return the ID of the focused element
 
 ### `Row` and `Column`
 
-Sweetened versions of `iced`'s `Row` and `Column` with drag-and-drop reordering
-support via `.on_drag`:
+Adds drag-and-drop reordering of children via `.on_drag`:
 
 ```rust
 use sweeten::widget::column;
@@ -158,10 +146,10 @@ column(items.iter().map(|s| s.as_str().into()))
 
 ### `FitText`
 
-A text widget that auto-scales its font size to fit the bounds it is laid out
-into. Think CSS' `clamp(min, ideal, max)`, but the "ideal" is solved for
-instead of specified — `sweeten` binary-searches the size range and picks the
-largest font that still fits. Use it like:
+A text widget that auto-scales its font size to fit the bounds it is laid
+out into. Like CSS' `clamp(min, ideal, max)`, but the "ideal" is solved for
+instead of specified: `sweeten` binary-searches the size range and picks the
+largest font that still fits.
 
 ```rust
 use iced::Fill;
@@ -175,16 +163,15 @@ fit_text("Big headline")
     .center()
 ```
 
-Both `min_size` and `max_size` are optional — call neither and the font scales
-within `[1.0, 1024.0]` pixels by default.
+Both `min_size` and `max_size` are optional; call neither and the font
+scales within `[1.0, 1024.0]` pixels by default.
 
 ### `Transition`
 
-A single-slot container that animates a slide transition whenever its child
-value changes — like Compose's `AnimatedContent` or Android's `ViewSwitcher`.
-The new content slides into the canonical position from the edge opposite the
-configured `Direction`, while the previous content slides off the same-side
-edge.
+A single-slot container that animates a slide whenever its child value
+changes. The new content slides into the canonical position from the edge
+opposite the configured `Direction`, while the previous content slides off
+the same-side edge.
 
 ```rust
 use sweeten::widget::transition::{self, Direction};
@@ -196,20 +183,15 @@ transition::transition(self.phrase.clone(), |s: &String| {
 .into()
 ```
 
-Direction is sugar for the more general `Mode` knob (`.mode(Mode::Slide(d))`),
-which is where future transition styles (crossfade, fade, wipe, …) will land
-as additional variants.
+`Direction` is sugar for the more general `Mode` knob
+(`.mode(Mode::Slide(d))`).
 
 ## Examples
 
-For complete examples, see [`examples/`](examples/) or run an example like this:
+See [`examples/`](examples/) for the full list, or run one directly:
 
 ```bash
 cargo run --example mouse_area
-```
-
-Other examples include:
-```bash
 cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
@@ -218,30 +200,10 @@ cargo run --example checkbox
 cargo run --example progress_bar
 ```
 
-## Code Structure
-
-The library is organized into modules for each enhanced widget:
-
-- `widget/`: Contains all widget implementations
-  - `button.rs`: Sweetened button with focus/blur callbacks
-  - `toggler.rs`: Sweetened toggler with animated state changes
-  - `checkbox.rs`: Sweetened checkbox with animated check + `text` style
-  - `progress_bar.rs`: Sweetened progress bar with 150ms value easing and `on_idle`
-  - `mouse_area.rs`: Sweetened mouse interaction handling
-  - `pick_list.rs`: Sweetened pick list with item disabling
-  - `text_input.rs`: Sweetened text input with focus handling
-  - `fit_text.rs`: Auto-scaling text that fits its bounds
-  - `transition.rs`: Animated single-slot container that slides between values
-  - (more widgets coming soon!)
-
 ## Contributing
 
-Contributions are welcome! If you have ideas for new widgets or enhancements:
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement your changes with tests
-4. Submit a PR
+Contributions are welcome. Fork the repository, create a feature branch,
+implement your changes with tests, and submit a PR.
 
 ## License
 

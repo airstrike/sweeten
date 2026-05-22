@@ -221,7 +221,7 @@ pub struct Transition<
     horizontal_alignment: alignment::Horizontal,
     vertical_alignment: alignment::Vertical,
     /// The live current child, materialized exactly once per frame in
-    /// the first [`Widget`] callback that runs ([`Widget::layout`]) and
+    /// the first [`Widget`] method that runs ([`Widget::layout`]) and
     /// reused in [`Widget::update`], [`Widget::draw`],
     /// [`Widget::mouse_interaction`], [`Widget::operate`], and
     /// [`Widget::overlay`]. Sharing the instance is essential for
@@ -233,8 +233,8 @@ pub struct Transition<
     /// and would be lost if we re-materialized a fresh element in
     /// between.
     ///
-    /// The slot is `None` until the first frame callback runs; freshly
-    /// reset every frame when iced rebuilds the widget tree via
+    /// The slot is `None` until the first per-frame method runs;
+    /// freshly reset every frame when iced rebuilds the widget tree via
     /// `view()`.
     current_element: Option<Element<'a, Message, Theme, Renderer>>,
 }
@@ -514,7 +514,7 @@ where
         let state = tree.state.downcast_mut::<State<T>>();
 
         // Stash the materialized current child on `self` so every
-        // subsequent callback reaches the same instance. Required
+        // subsequent Widget method reaches the same instance. Required
         // for child widgets that persist state on `self` rather
         // than in `tree::State` — e.g. iced's `button.status` and
         // `toggler.last_status`, set in the child's `update` and
