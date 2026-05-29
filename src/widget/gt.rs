@@ -206,6 +206,7 @@ where
     border: f32,
     radius: core::border::Radius,
     sticky_header: bool,
+    show_header: bool,
     animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
     _phantom: std::marker::PhantomData<(Message, Renderer)>,
@@ -246,6 +247,7 @@ where
             border: 0.0,
             radius: core::border::Radius::default(),
             sticky_header: false,
+            show_header: true,
             animate_on_load: false,
             class: <Theme as Catalog>::default(),
             _phantom: std::marker::PhantomData,
@@ -458,6 +460,15 @@ where
         self
     }
 
+    /// Whether to render the column-labels header row. Defaults to
+    /// `true`; set `false` for header-less data (e.g. a spreadsheet
+    /// range with no header row) so a blank label strip isn't drawn.
+    #[must_use]
+    pub fn show_header(mut self, show: bool) -> Self {
+        self.show_header = show;
+        self
+    }
+
     /// Sets the table-level style class.
     #[must_use]
     pub fn class(
@@ -502,6 +513,7 @@ where
             border,
             radius,
             sticky_header,
+            show_header,
             animate_on_load,
             class,
             _phantom,
@@ -660,7 +672,7 @@ where
             );
         }
 
-        if !columns.is_empty() {
+        if show_header && !columns.is_empty() {
             let labels: Vec<Cell> = columns
                 .iter()
                 .map(|col| Cell::Text(col.label.clone()))
@@ -1541,16 +1553,11 @@ where
                 continue;
             }
             if progress >= 1.0 {
-                self.draw_cell_chrome(
-                    renderer,
-                    &self.cell_meta[i],
-                    rect,
-                    bounds,
-                );
+                self.draw_cell_fill(renderer, &self.cell_meta[i], rect, bounds);
             } else {
                 let clip = row_clip_rect(rect, progress);
                 renderer.with_layer(clip, |renderer| {
-                    self.draw_cell_chrome(
+                    self.draw_cell_fill(
                         renderer,
                         &self.cell_meta[i],
                         rect,
@@ -1566,6 +1573,44 @@ where
         }
         if self.separator_x > 0.0 {
             self.draw_column_separators(renderer, bounds, metrics, table_style);
+        }
+
+        // Explicit per-cell borders, drawn AFTER the separator lattice so
+        // a `Sides::*` border wins over the table separators at every
+        // intersection — e.g. a header underline / top rule reads as one
+        // continuous line instead of being notched by the vertical
+        // column separators crossing it.
+        for i in 0..self.cells.len() {
+            if sticky_active && i < sticky_cell_count {
+                continue;
+            }
+            let rect = self.absolute_cell_rect(metrics, bounds, i);
+            let progress = row_progress
+                .as_ref()
+                .zip(cell_row.as_ref())
+                .map(|(p, cr)| p[cr[i] as usize])
+                .unwrap_or(1.0);
+            if progress <= 0.0 {
+                continue;
+            }
+            if progress >= 1.0 {
+                self.draw_cell_border(
+                    renderer,
+                    &self.cell_meta[i],
+                    rect,
+                    bounds,
+                );
+            } else {
+                let clip = row_clip_rect(rect, progress);
+                renderer.with_layer(clip, |renderer| {
+                    self.draw_cell_border(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                });
+            }
         }
 
         // Cell content.
@@ -1904,7 +1949,26 @@ where
         }
     }
 
+    /// Paint a cell's fill then its borders. Used by the sticky strip,
+    /// which draws its floating header on a layer above the separators
+    /// and so wants both passes together. The non-sticky body draws the
+    /// two passes separately ([`draw_cell_fill`] before the table
+    /// separators, [`draw_cell_border`] after) so explicit per-cell
+    /// borders win over the separator lattice at every intersection —
+    /// the "border-collapse: collapse" model the per-side border math
+    /// below assumes.
     fn draw_cell_chrome(
+        &self,
+        renderer: &mut Renderer,
+        meta: &CellMeta,
+        cell_rect: Rectangle,
+        bounds: Rectangle,
+    ) {
+        self.draw_cell_fill(renderer, meta, cell_rect, bounds);
+        self.draw_cell_border(renderer, meta, cell_rect, bounds);
+    }
+
+    fn draw_cell_fill(
         &self,
         renderer: &mut Renderer,
         meta: &CellMeta,
@@ -1943,7 +2007,15 @@ where
                 );
             }
         }
+    }
 
+    fn draw_cell_border(
+        &self,
+        renderer: &mut Renderer,
+        meta: &CellMeta,
+        cell_rect: Rectangle,
+        bounds: Rectangle,
+    ) {
         if let Some(border) = meta.style.borders {
             let color = border
                 .color
@@ -1974,19 +2046,34 @@ where
                     );
                 }
             };
+            // Horizontal rules bridge half the inter-column separator gap
+            // on each side — mirroring the fill bridge — so adjacent cells'
+            // top/bottom borders meet at the gridline midpoint and the rule
+            // reads as one continuous line across the table width instead of
+            // being interrupted by the vertical column separator at every
+            // column boundary. (Cell strides abut with exactly a
+            // `separator_x` gap between them.)
+            let bridge = self.separator_x;
             if border.sides.top {
+                // Centered on the cell's top edge, except when that edge is
+                // the table's top: there the upper half would clip away and
+                // leave a thin, half-height rule with the full-height column
+                // separators poking past it. Pin it flush to `bounds.y` so
+                // the top rule renders at full width AND covers the
+                // separators' top edge.
+                let y = (cell_rect.y - width / 2.0).max(bounds.y);
                 draw_border(Rectangle {
-                    x: cell_rect.x,
-                    y: cell_rect.y - width / 2.0,
-                    width: cell_rect.width,
+                    x: cell_rect.x - bridge / 2.0,
+                    y,
+                    width: cell_rect.width + bridge,
                     height: width,
                 });
             }
             if border.sides.bottom {
                 draw_border(Rectangle {
-                    x: cell_rect.x,
+                    x: cell_rect.x - bridge / 2.0,
                     y: cell_rect.y + cell_rect.height - width / 2.0,
-                    width: cell_rect.width,
+                    width: cell_rect.width + bridge,
                     height: width,
                 });
             }
