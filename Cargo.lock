@@ -1506,7 +1506,7 @@ dependencies = [
 [[package]]
 name = "iced"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_core",
  "iced_debug",
@@ -1521,7 +1521,7 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
@@ -1529,6 +1529,7 @@ dependencies = [
  "lilt",
  "log",
  "num-traits",
+ "raw-window-handle",
  "rustc-hash 2.1.2",
  "smol_str 0.2.2",
  "thiserror 2.0.18",
@@ -1538,7 +1539,7 @@ dependencies = [
 [[package]]
 name = "iced_debug"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1548,7 +1549,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "futures",
  "iced_core",
@@ -1562,7 +1563,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1592,7 +1593,7 @@ dependencies = [
 [[package]]
 name = "iced_program"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_graphics",
  "iced_runtime",
@@ -1601,7 +1602,7 @@ dependencies = [
 [[package]]
 name = "iced_renderer"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_graphics",
  "iced_tiny_skia",
@@ -1613,19 +1614,18 @@ dependencies = [
 [[package]]
 name = "iced_runtime"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "bytes",
  "iced_core",
  "iced_futures",
- "raw-window-handle",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "iced_selector"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_core",
 ]
@@ -1633,7 +1633,7 @@ dependencies = [
 [[package]]
 name = "iced_test"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_futures",
  "iced_program",
@@ -1649,7 +1649,7 @@ dependencies = [
 [[package]]
 name = "iced_tiny_skia"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -1665,7 +1665,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1684,7 +1684,7 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "iced_renderer",
  "log",
@@ -1698,7 +1698,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.15.0-dev"
-source = "git+https://github.com/airstrike/iced.git?branch=dev#6c19a8ba94c26ee39d3cddfdde6692b30de0a90a"
+source = "git+https://github.com/airstrike/iced.git?branch=dev#63fa09738f525d3f9c7dab114b5540e4055cf7c1"
 dependencies = [
  "arboard",
  "iced_debug",
@@ -3726,7 +3726,7 @@ version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "842f3cd369c2ba38966204f983eaa5e54a8e84a7d7159ed36ade2b6c335aae64"
 dependencies = [
- "skrifa 0.40.0",
+ "skrifa 0.37.0",
  "yazi",
  "zeno",
 ]
