@@ -1,6 +1,6 @@
 // Generated automatically by iced_lucide at build time.
 // Do not edit manually.
-// 2369d602b36934e82dd8d8279f0ad22e42aaeb90b16715d28cdea54629828c8a
+// 073ecea5586e380687a1fdd25f1dee7c9e3cc2ff3f4a841bb8175d396735c029
 use iced::widget::text::{self, Text};
 
 pub const FONT: &[u8] = include_bytes!("../fonts/lucide.ttf");
@@ -9,62 +9,46 @@ pub const FONT: &[u8] = include_bytes!("../fonts/lucide.ttf");
 /// Use this to populate an icon-picker widget.
 #[allow(dead_code)]
 pub const ALL_ICONS: &[(&str, &str)] = &[
-    ("grip", "\u{E3B1}"),
-    ("lock", "\u{E10B}"),
-    ("lock_open", "\u{E10C}"),
-    ("move_diagonal_2", "\u{E1C5}"),
-    ("pin", "\u{E259}"),
-    ("pin_off", "\u{E2B6}"),
-    ("x", "\u{E1B2}"),
+    ("check", "\u{E06C}"),
+    ("pencil", "\u{E1F9}"),
+    ("plus", "\u{E13D}"),
+    ("square_pen", "\u{E172}"),
+    ("trash", "\u{E18E}"),
 ];
 
-pub fn grip<'a, Theme>() -> Text<'a, Theme>
+pub fn check<'a, Theme>() -> Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
 {
-    icon("\u{E3B1}")
+    icon("\u{E06C}")
 }
 
-pub fn lock<'a, Theme>() -> Text<'a, Theme>
+pub fn pencil<'a, Theme>() -> Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
 {
-    icon("\u{E10B}")
+    icon("\u{E1F9}")
 }
 
-pub fn lock_open<'a, Theme>() -> Text<'a, Theme>
+pub fn plus<'a, Theme>() -> Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
 {
-    icon("\u{E10C}")
+    icon("\u{E13D}")
 }
 
-pub fn move_diagonal_2<'a, Theme>() -> Text<'a, Theme>
+pub fn square_pen<'a, Theme>() -> Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
 {
-    icon("\u{E1C5}")
+    icon("\u{E172}")
 }
 
-pub fn pin<'a, Theme>() -> Text<'a, Theme>
+pub fn trash<'a, Theme>() -> Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
 {
-    icon("\u{E259}")
-}
-
-pub fn pin_off<'a, Theme>() -> Text<'a, Theme>
-where
-    Theme: text::Catalog + 'a,
-{
-    icon("\u{E2B6}")
-}
-
-pub fn x<'a, Theme>() -> Text<'a, Theme>
-where
-    Theme: text::Catalog + 'a,
-{
-    icon("\u{E1B2}")
+    icon("\u{E18E}")
 }
 
 /// Render any Lucide icon by its codepoint string.

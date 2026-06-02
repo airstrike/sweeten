@@ -12,7 +12,7 @@
 //! turns into a red check); the second confirms. Groups are sized to their
 //! children, so adding/removing/dragging tiles reflows the layout.
 //!
-//! Run with: `cargo run -p tile_grid --bin grouped`
+//! Run with: `cargo run -p grouped`
 
 #[allow(dead_code)]
 mod icon;
@@ -27,7 +27,7 @@ use sweeten::widget::tile_grid::{
     Action, CellHeight, ItemId, State, grid_content, title_bar,
 };
 
-pub fn main() -> iced::Result {
+fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title("sweeten • grouped tile_grid")
         .theme(theme)

@@ -1,0 +1,8 @@
+module = "icon"
+
+[icons]
+square_pen = "square-pen"
+plus       = "plus"
+trash      = "trash-2"
+pencil     = "pencil"
+check      = "check"

@@ -1326,6 +1326,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "grouped"
+version = "0.1.0"
+dependencies = [
+ "iced",
+ "iced_lucide",
+ "sweeten",
+]
+
+[[package]]
 name = "guillotiere"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
