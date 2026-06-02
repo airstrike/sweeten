@@ -947,6 +947,49 @@ impl Internal {
         id
     }
 
+    /// Adds a new item using a caller-supplied [`ItemId`].
+    ///
+    /// Unlike [`add_item`](Self::add_item), the id is not minted by this
+    /// engine. This lets an owning [`State`](super::State) allocate ids
+    /// from a single global counter shared across every nested grid, so
+    /// ids stay unique across the whole tree (and a node keeps its id when
+    /// it moves between grids). The engine's internal counter is advanced
+    /// past `id` to avoid a future collision if [`add_item`](Self::add_item)
+    /// is also used.
+    ///
+    /// Collisions are resolved and gravity is applied just like
+    /// [`add_item`](Self::add_item).
+    pub fn add_item_with_id(
+        &mut self,
+        id: ItemId,
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    ) {
+        self.next_id = self.next_id.max(id.0 + 1);
+
+        let mut item = Node {
+            id,
+            x,
+            y,
+            w,
+            h,
+            min_w: None,
+            max_w: None,
+            min_h: None,
+            max_h: None,
+        };
+
+        self.node_bound_fix(&mut item, false);
+        self.items.push(item);
+        self.fix_collisions(id, &[], MoveMode::Swap);
+
+        if !self.float {
+            self.pack_nodes();
+        }
+    }
+
     /// Adds a new item with auto-placement: the engine finds the first
     /// empty position that fits.
     ///

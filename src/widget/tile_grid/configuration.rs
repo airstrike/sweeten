@@ -115,12 +115,19 @@ pub struct Item<T> {
     pub max_h: Option<u16>,
     /// User data associated with the item.
     pub state: T,
+    /// Number of columns for this item's child grid, when it is a
+    /// container. `None` inherits the parent grid's column count.
+    pub inner_columns: Option<u16>,
+    /// Child items. A non-empty list (or a set `inner_columns`) makes this
+    /// item a *container* (a "group") whose body hosts a nested grid.
+    pub children: Vec<Item<T>>,
 }
 
 impl<T> Item<T> {
     /// Creates a new [`Item`] at the given position and size.
     ///
-    /// All constraints default to `None`.
+    /// All constraints default to `None` and the item is a leaf (no
+    /// children).
     #[must_use]
     pub fn new(x: u16, y: u16, w: u16, h: u16, state: T) -> Self {
         Self {
@@ -133,7 +140,37 @@ impl<T> Item<T> {
             min_h: None,
             max_h: None,
             state,
+            inner_columns: None,
+            children: Vec::new(),
         }
+    }
+
+    /// Returns `true` if this item is a container (has children or a
+    /// declared child-grid column count).
+    #[must_use]
+    pub fn is_group(&self) -> bool {
+        !self.children.is_empty() || self.inner_columns.is_some()
+    }
+
+    /// Sets the number of columns for this item's child grid, marking it
+    /// as a container.
+    #[must_use]
+    pub fn inner_columns(mut self, columns: u16) -> Self {
+        self.inner_columns = Some(columns);
+        self
+    }
+
+    /// Appends a child item, marking this item as a container.
+    #[must_use]
+    pub fn child(mut self, child: Item<T>) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    /// Appends a child item at the given position and size.
+    #[must_use]
+    pub fn with_child(self, x: u16, y: u16, w: u16, h: u16, state: T) -> Self {
+        self.child(Item::new(x, y, w, h, state))
     }
 
     /// Sets the minimum width constraint.

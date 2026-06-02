@@ -44,6 +44,7 @@ pub mod configuration;
 pub mod content;
 pub mod engine;
 pub mod item_id;
+mod shared;
 pub mod state;
 pub mod title_bar;
 mod widget;
