@@ -99,6 +99,17 @@ fn grouped_layout_renders_without_panic() {
     let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
         std::time::Instant::now(),
     ))]);
+
+    // Redraw mid-drag too, so the group-outline + floating-tile draw paths
+    // run while a node is picked up.
+    ui.point_at(Point::new(30.0, 12.0));
+    let _ = ui.simulate([press()]);
+    ui.point_at(Point::new(700.0, 60.0));
+    let _ = ui.simulate([moved(Point::new(700.0, 60.0))]);
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+        std::time::Instant::now(),
+    ))]);
+
     // No assertion beyond "did not panic".
     let _ = ui.into_messages().count();
 }

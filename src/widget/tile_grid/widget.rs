@@ -1424,6 +1424,7 @@ where
             interaction,
             animations,
             drag_target,
+            group_bodies,
             ..
         } = tree.state.downcast_ref();
         let now = animations.now.unwrap_or_else(Instant::now);
@@ -1502,8 +1503,31 @@ where
             }
         }
 
-        // Resize grip indicator on hovered, resizable leaves.
         let grid_style = Catalog::style(theme, &self.class);
+
+        // While a drag is in progress, outline every container body to
+        // hint at the available drop zones.
+        if picked_item.is_some()
+            && let Some(outline) = grid_style.group_outline
+        {
+            let offset = layout.bounds().position();
+            for body in group_bodies.values() {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: body.x + offset.x,
+                            y: body.y + offset.y,
+                            ..*body
+                        },
+                        border: outline,
+                        ..renderer::Quad::default()
+                    },
+                    Background::Color(Color::TRANSPARENT),
+                );
+            }
+        }
+
+        // Resize grip indicator on hovered, resizable leaves.
 
         if self.on_action.is_some()
             && !self.locked
@@ -1960,6 +1984,9 @@ pub struct Style {
     ///
     /// Set to `None` to disable the resize grip.
     pub resize_grip: Option<ResizeGrip>,
+    /// The outline drawn around every container's body while a drag is in
+    /// progress, hinting at the available drop zones. `None` disables it.
+    pub group_outline: Option<Border>,
 }
 
 /// A highlight region appearance.
@@ -2036,6 +2063,14 @@ pub fn default_style(_theme: &Theme) -> Style {
                 a: 0.25,
             },
             dot_size: 2.0,
+        }),
+        group_outline: Some(Border {
+            width: 1.0,
+            color: Color {
+                a: 0.2,
+                ..Color::BLACK
+            },
+            radius: 8.0.into(),
         }),
     }
 }
