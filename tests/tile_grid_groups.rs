@@ -182,3 +182,80 @@ fn intra_group_drag_emits_move() {
     // The moved tile is `a`, and `b` is untouched.
     let _ = app.b;
 }
+
+// ── Content::controls overlay ───────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Grid(Action) is required by on_action but unread here
+enum CtrlMessage {
+    Grid(Action),
+    Edit(ItemId),
+}
+
+struct CtrlApp {
+    state: State<&'static str>,
+    tile: ItemId,
+}
+
+impl CtrlApp {
+    fn new() -> Self {
+        let mut state: State<&'static str> = State::new(12);
+        let group = state.add_group(0, 0, 12, 6, "G", 12);
+        let tile = state.add_child(group, 0, 0, 3, 3, "t").unwrap();
+        Self { state, tile }
+    }
+
+    fn view(&self) -> Element<'_, CtrlMessage> {
+        let tile = self.tile;
+        sweeten::tile_grid(&self.state, move |id, data| {
+            let content = grid_content(iced::widget::text(*data))
+                .title_bar(title_bar(iced::widget::text(*data)));
+            if id == tile {
+                content.controls(
+                    iced::widget::button(iced::widget::text("E"))
+                        .padding(10)
+                        .width(40)
+                        .on_press(CtrlMessage::Edit(id)),
+                )
+            } else {
+                content
+            }
+        })
+        .width(Fill)
+        .height(Fill)
+        .spacing(0)
+        .cell_height(CellHeight::Fixed(50.0))
+        .group_header(0)
+        .on_action(CtrlMessage::Grid)
+        .into()
+    }
+}
+
+#[test]
+fn controls_overlay_receives_click() {
+    // The tile sits at (0,0,300,150); its controls overlay is anchored to
+    // the top-right corner (x∈[254,294]), lifted to straddle the top edge
+    // (clamped to y=0 for the top row). Clicking it must reach the button.
+    let app = CtrlApp::new();
+    let messages = {
+        let mut ui = iced_test::Simulator::with_size(
+            Default::default(),
+            iced::Size::new(W, H),
+            app.view(),
+        );
+        // Lay out the overlay first.
+        let _ = ui.simulate([Event::Window(
+            iced::window::Event::RedrawRequested(std::time::Instant::now()),
+        )]);
+        ui.point_at(Point::new(274.0, 18.0));
+        let _ = ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect::<Vec<_>>()
+    };
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, CtrlMessage::Edit(id) if *id == app.tile)),
+        "clicking the controls overlay should emit Edit; got {messages:?}"
+    );
+}

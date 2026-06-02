@@ -175,9 +175,9 @@ impl App {
                 Cell::Tile { title, value } => {
                     let is_focused = focus == Some(id);
 
-                    // The edit control sits in the title bar's controls slot,
-                    // pinned to the tile's top-right corner (and excluded from
-                    // the drag pick area, so clicking it never starts a drag).
+                    // The edit control is a Content-level overlay pinned to
+                    // the tile's top-right corner: it straddles the top
+                    // border and is never clipped by the tile.
                     let edit = button(text("Edit").size(10))
                         .on_press(Message::StartEdit(id))
                         .padding([1, 6])
@@ -188,10 +188,9 @@ impl App {
                     )
                     .title_bar(
                         title_bar(text(title.clone()).size(12).style(muted))
-                            .controls(edit)
-                            .always_show_controls()
                             .padding([6, 8]),
                     )
+                    .controls(edit)
                     .style(if is_focused {
                         tile_focused
                     } else {

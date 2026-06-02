@@ -46,6 +46,7 @@ pub struct Content<
 {
     title_bar: Option<TitleBar<'a, Message, Theme, Renderer>>,
     body: Element<'a, Message, Theme, Renderer>,
+    controls: Option<Element<'a, Message, Theme, Renderer>>,
     class: Theme::Class<'a>,
     draggable: bool,
     resizable: bool,
@@ -65,6 +66,7 @@ where
         Self {
             title_bar: None,
             body: body.into(),
+            controls: None,
             class: Theme::default(),
             draggable: true,
             resizable: true,
@@ -79,6 +81,23 @@ where
         title_bar: TitleBar<'a, Message, Theme, Renderer>,
     ) -> Self {
         self.title_bar = Some(title_bar);
+        self
+    }
+
+    /// Sets a controls element pinned to the item's top-right corner.
+    ///
+    /// Unlike [`TitleBar::controls`], which lay out *inside* the title bar,
+    /// these are rendered as an **overlay** — like a [`pick_list`] menu — so
+    /// they can straddle the item's top edge (the card's top border passes
+    /// through their vertical center) and are never clipped by the item.
+    ///
+    /// [`TitleBar::controls`]: super::TitleBar::controls
+    /// [`pick_list`]: crate::widget::pick_list
+    pub fn controls(
+        mut self,
+        controls: impl Into<Element<'a, Message, Theme, Renderer>>,
+    ) -> Self {
+        self.controls = Some(controls.into());
         self
     }
 
@@ -168,22 +187,32 @@ where
     }
 
     pub(super) fn state(&self) -> Tree {
-        let children = if let Some(title_bar) = self.title_bar.as_ref() {
-            vec![Tree::new(&self.body), title_bar.state()]
-        } else {
-            vec![Tree::new(&self.body), Tree::empty()]
-        };
+        let title_bar_state = self
+            .title_bar
+            .as_ref()
+            .map_or_else(Tree::empty, TitleBar::state);
+        let controls_state = self
+            .controls
+            .as_ref()
+            .map_or_else(Tree::empty, |controls| Tree::new(controls));
 
         Tree {
-            children,
+            children: vec![
+                Tree::new(&self.body),
+                title_bar_state,
+                controls_state,
+            ],
             ..Tree::empty()
         }
     }
 
     pub(super) fn diff(&self, tree: &mut Tree) {
-        if tree.children.len() == 2 {
+        if tree.children.len() == 3 {
             if let Some(title_bar) = self.title_bar.as_ref() {
                 title_bar.diff(&mut tree.children[1]);
+            }
+            if let Some(controls) = self.controls.as_ref() {
+                tree.children[2].diff(controls);
             }
             tree.children[0].diff(&self.body);
         } else {
@@ -505,39 +534,158 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        if let Some(title_bar) = self.title_bar.as_mut() {
+        let bounds = layout.bounds();
+
+        let mut states = tree.children.iter_mut();
+        let body_state = states.next().unwrap();
+        let title_bar_state = states.next().unwrap();
+        let controls_state = states.next().unwrap();
+
+        let mut group: Vec<overlay::Element<'b, Message, Theme, Renderer>> =
+            Vec::new();
+
+        // Overlays bubbling up from the title bar or body (e.g. a menu).
+        let inner = if let Some(title_bar) = self.title_bar.as_mut() {
             let mut children = layout.children();
-            let title_bar_layout = children.next()?;
+            let title_bar_layout = children.next();
+            let body_layout = children.next();
 
-            let mut states = tree.children.iter_mut();
-            let body_state = states.next().unwrap();
-            let title_bar_state = states.next().unwrap();
-
-            match title_bar.overlay(
-                title_bar_state,
-                title_bar_layout,
-                renderer,
-                viewport,
-                translation,
-            ) {
-                Some(overlay) => Some(overlay),
-                None => self.body.as_widget_mut().overlay(
-                    body_state,
-                    children.next()?,
+            title_bar_layout.and_then(|title_bar_layout| {
+                match title_bar.overlay(
+                    title_bar_state,
+                    title_bar_layout,
                     renderer,
                     viewport,
                     translation,
-                ),
-            }
+                ) {
+                    Some(overlay) => Some(overlay),
+                    None => body_layout.and_then(|body_layout| {
+                        self.body.as_widget_mut().overlay(
+                            body_state,
+                            body_layout,
+                            renderer,
+                            viewport,
+                            translation,
+                        )
+                    }),
+                }
+            })
         } else {
             self.body.as_widget_mut().overlay(
-                &mut tree.children[0],
+                body_state,
                 layout,
                 renderer,
                 viewport,
                 translation,
             )
+        };
+        if let Some(inner) = inner {
+            group.push(inner);
         }
+
+        // Controls overlay, anchored straddling the item's top edge so the
+        // card's top border passes through its vertical center.
+        if let Some(controls) = self.controls.as_mut() {
+            let anchor = Rectangle {
+                x: bounds.x + translation.x,
+                y: bounds.y + translation.y,
+                ..bounds
+            };
+            group.push(overlay::Element::new(Box::new(ControlsOverlay {
+                element: controls,
+                tree: controls_state,
+                anchor,
+            })));
+        }
+
+        if group.is_empty() {
+            None
+        } else {
+            Some(overlay::Group::with_children(group).overlay())
+        }
+    }
+}
+
+/// An [`overlay`] that renders a [`Content`]'s controls element anchored to
+/// the top-right of the item, lifted so the item's top edge bisects it.
+struct ControlsOverlay<'a, 'b, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+{
+    element: &'b mut Element<'a, Message, Theme, Renderer>,
+    tree: &'b mut Tree,
+    anchor: Rectangle,
+}
+
+impl<Message, Theme, Renderer> core::Overlay<Message, Theme, Renderer>
+    for ControlsOverlay<'_, '_, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+{
+    fn layout(&mut self, renderer: &Renderer, bounds: Size) -> layout::Node {
+        let node = self.element.as_widget_mut().layout(
+            self.tree,
+            renderer,
+            &layout::Limits::new(Size::ZERO, bounds),
+        );
+        let size = node.size();
+
+        const MARGIN: f32 = 6.0;
+        let x =
+            (self.anchor.x + self.anchor.width - size.width - MARGIN).max(0.0);
+        let y = (self.anchor.y - size.height / 2.0).max(0.0);
+
+        node.move_to(Point::new(x, y))
+    }
+
+    fn update(
+        &mut self,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let bounds = layout.bounds();
+        self.element
+            .as_widget_mut()
+            .update(self.tree, event, layout, cursor, renderer, shell, &bounds);
+    }
+
+    fn draw(
+        &self,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        defaults: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+    ) {
+        let bounds = layout.bounds();
+        self.element.as_widget().draw(
+            &*self.tree,
+            renderer,
+            theme,
+            defaults,
+            layout,
+            cursor,
+            &bounds,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &Renderer,
+    ) -> mouse::Interaction {
+        let bounds = layout.bounds();
+        self.element.as_widget().mouse_interaction(
+            &*self.tree,
+            layout,
+            cursor,
+            &bounds,
+            renderer,
+        )
     }
 }
 
