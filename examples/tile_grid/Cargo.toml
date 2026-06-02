@@ -7,6 +7,10 @@ publish = false
 [[bin]]
 name = "tile_grid"
 
+[[bin]]
+name = "grouped"
+path = "src/grouped.rs"
+
 [dependencies]
 sweeten = { path = "../.." }
 iced.workspace = true
