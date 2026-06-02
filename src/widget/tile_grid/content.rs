@@ -162,6 +162,11 @@ where
         self.held
     }
 
+    /// Returns whether this content has a title bar.
+    pub(crate) fn has_title_bar(&self) -> bool {
+        self.title_bar.is_some()
+    }
+
     pub(super) fn state(&self) -> Tree {
         let children = if let Some(title_bar) = self.title_bar.as_ref() {
             vec![Tree::new(&self.body), title_bar.state()]

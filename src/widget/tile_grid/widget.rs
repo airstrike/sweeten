@@ -2,6 +2,18 @@
 //!
 //! This module contains the main [`TileGrid`] widget, event types, and the
 //! [`Catalog`] trait for theming.
+//!
+//! `TileGrid` renders a [`State`](super::State) — a recursive tree of grids.
+//! A node with children is a *container* (a "group"): its label is drawn in a
+//! header strip and the widget lays its child grid out in the body below.
+//! Because every node's [`Content`] occupies a disjoint rectangle (a group's
+//! header strip never overlaps its children's body cells), the widget can
+//! drive layout, drawing and events over one flat, id-sorted list — the
+//! recursion lives only in *position* computation and the cross-group drag
+//! hit-test. A single drag state machine owns the whole tree, which is what
+//! lets a drag gesture move a tile continuously from one group into another.
+
+use std::collections::HashMap;
 
 use iced_widget::container;
 
@@ -105,7 +117,7 @@ pub enum DragPhase {
 pub enum Action {
     /// An item was clicked.
     Click(ItemId),
-    /// An item move operation (drag by title bar).
+    /// An item move operation within its current grid (drag by title bar).
     Move {
         /// The item being moved.
         id: ItemId,
@@ -189,12 +201,59 @@ impl Action {
     }
 }
 
+/// A node collected from the [`State`](super::State) tree while building
+/// the widget. Flattened into the parallel `items`/`contents`/… arrays.
+struct NodeBuild<'a, Message, Theme, Renderer>
+where
+    Theme: container::Catalog,
+    Renderer: core::Renderer,
+{
+    id: ItemId,
+    parent: Option<ItemId>,
+    depth: usize,
+    held: bool,
+    child_engine: Option<&'a Internal>,
+    content: Content<'a, Message, Theme, Renderer>,
+}
+
+/// Recursively flattens a [`Grid`](super::state::Grid) into `out`, calling
+/// `view` once per node and recording its parent, depth and (for
+/// containers) child engine.
+fn collect_nodes<'a, T, Message, Theme, Renderer>(
+    grid: &'a state::Grid<T>,
+    parent: Option<ItemId>,
+    depth: usize,
+    view: &impl Fn(ItemId, &'a T) -> Content<'a, Message, Theme, Renderer>,
+    out: &mut Vec<NodeBuild<'a, Message, Theme, Renderer>>,
+) where
+    Theme: container::Catalog,
+    Renderer: core::Renderer,
+{
+    for (id, node) in grid.iter() {
+        let content = view(id, &node.data);
+        let held = content.is_held();
+        let child_engine = node.children.as_ref().map(state::Grid::engine);
+        out.push(NodeBuild {
+            id,
+            parent,
+            depth,
+            held,
+            child_engine,
+            content,
+        });
+        if let Some(child) = node.children.as_ref() {
+            collect_nodes(child, Some(id), depth + 1, view, out);
+        }
+    }
+}
+
 /// A grid-based layout widget inspired by [GridStack.js](https://gridstackjs.com/).
 ///
 /// Items are placed on a discrete grid with a fixed number of columns. Each item
 /// occupies an integer-sized rectangle `(x, y, w, h)` in grid coordinates.
 /// Users can drag items by their title bars to move them, or drag the bottom-right
-/// edges to resize them.
+/// edges to resize them. A node with children is rendered as a *group*: a header
+/// strip with its label, and a nested grid below.
 ///
 /// Unlike [`PaneGrid`], which uses recursive binary splits, `TileGrid` uses
 /// explicit integer coordinates. This allows arbitrary layouts including
@@ -227,18 +286,30 @@ pub struct TileGrid<
     Theme: Catalog,
     Renderer: core::Renderer,
 {
-    internal: &'a Internal,
+    /// The root grid's engine.
+    root_engine: &'a Internal,
+    /// All nodes in the tree, sorted by [`ItemId`].
     items: Vec<ItemId>,
+    /// Per-node content, aligned with `items`.
     contents: Vec<Content<'a, Message, Theme, Renderer>>,
+    /// Per-node parent container (`None` = root), aligned with `items`.
+    parents: Vec<Option<ItemId>>,
+    /// Per-node child engine (`Some` = container), aligned with `items`.
+    child_engines: Vec<Option<&'a Internal>>,
+    /// Per-node nesting depth (0 = root level), aligned with `items`.
+    depths: Vec<usize>,
+    /// Per-node held flag, aligned with `items`.
+    held: Vec<bool>,
+    /// Maps an [`ItemId`] to its index in the parallel arrays.
+    index_of: HashMap<ItemId, usize>,
     width: Length,
     height: Length,
     spacing: f32,
     cell_height: CellHeight,
+    /// Pixel height reserved for a labeled group's header strip.
+    group_header: f32,
     on_action: Option<Box<dyn Fn(Action) -> Message + 'a>>,
     locked: bool,
-    /// Item IDs that are pinned/held and should not be displaced
-    /// during drag preview collision resolution.
-    held_ids: Vec<ItemId>,
     swap_mode: SwapMode,
     class: <Theme as Catalog>::Class<'a>,
     last_mouse_interaction: Option<mouse::Interaction>,
@@ -251,8 +322,10 @@ where
 {
     /// Creates a [`TileGrid`] with the given [`State`] and view function.
     ///
-    /// The view function is called once for each item in the grid, receiving
-    /// the item's [`ItemId`] and a reference to its user data.
+    /// The view function is called once for **every** node in the tree (at
+    /// any depth), receiving the node's [`ItemId`] and a reference to its
+    /// user data. For a container node, the returned [`Content`]'s title bar
+    /// is the group's header; the widget renders the child grid in the body.
     ///
     /// Prefer the [`tile_grid`](super::super::tile_grid) helper function.
     ///
@@ -261,29 +334,46 @@ where
         state: &'a state::State<T>,
         view: impl Fn(ItemId, &'a T) -> Content<'a, Message, Theme, Renderer>,
     ) -> Self {
-        let items: Vec<ItemId> = state.iter().map(|(id, _)| id).collect();
-        let contents: Vec<_> =
-            state.iter().map(|(id, data)| view(id, data)).collect();
+        let mut builds: Vec<NodeBuild<'a, Message, Theme, Renderer>> =
+            Vec::new();
+        collect_nodes(state.root(), None, 0, &view, &mut builds);
+        builds.sort_by_key(|b| b.id);
 
-        // Derive held IDs from the Content builders — users express
-        // held intent per-item via `Content::held(bool)`.
-        let held_ids: Vec<ItemId> = items
-            .iter()
-            .zip(&contents)
-            .filter_map(|(&id, content)| content.is_held().then_some(id))
-            .collect();
+        let len = builds.len();
+        let mut items = Vec::with_capacity(len);
+        let mut contents = Vec::with_capacity(len);
+        let mut parents = Vec::with_capacity(len);
+        let mut child_engines = Vec::with_capacity(len);
+        let mut depths = Vec::with_capacity(len);
+        let mut held = Vec::with_capacity(len);
+        let mut index_of = HashMap::with_capacity(len);
+
+        for (i, build) in builds.into_iter().enumerate() {
+            index_of.insert(build.id, i);
+            items.push(build.id);
+            contents.push(build.content);
+            parents.push(build.parent);
+            child_engines.push(build.child_engine);
+            depths.push(build.depth);
+            held.push(build.held);
+        }
 
         Self {
-            internal: state.engine(),
+            root_engine: state.engine(),
             items,
             contents,
+            parents,
+            child_engines,
+            depths,
+            held,
+            index_of,
             width: Length::Fill,
             height: Length::Shrink,
             spacing: 0.0,
             cell_height: CellHeight::default(),
+            group_header: 0.0,
             on_action: None,
             locked: false,
-            held_ids,
             swap_mode: SwapMode::default(),
             class: <Theme as Catalog>::default(),
             last_mouse_interaction: None,
@@ -314,6 +404,17 @@ where
     /// - [`CellHeight::Fixed`] — each row has a fixed pixel height
     pub fn cell_height(mut self, cell_height: CellHeight) -> Self {
         self.cell_height = cell_height;
+        self
+    }
+
+    /// Sets the pixel height reserved for a labeled group's header strip.
+    ///
+    /// A container node whose [`Content`] has a title bar reserves this
+    /// many pixels at the top for the label; its child grid fills the
+    /// remaining body. Containers without a title bar reserve nothing.
+    /// Defaults to `0.0`, which leaves flat (group-less) grids unchanged.
+    pub fn group_header(mut self, height: impl Into<Pixels>) -> Self {
+        self.group_header = height.into().0;
         self
     }
 
@@ -374,10 +475,79 @@ where
         self
     }
 
-    /// Computes the cell dimensions from the given total width.
-    fn cell_dimensions(&self, total_width: f32) -> (f32, f32) {
-        let cols = f32::from(self.internal.columns());
-        let cell_w = (total_width - (cols - 1.0) * self.spacing) / cols;
+    // ── tree lookups ───────────────────────────────────────────
+
+    fn idx(&self, id: ItemId) -> usize {
+        self.index_of[&id]
+    }
+
+    fn parent_of(&self, id: ItemId) -> Option<ItemId> {
+        self.parents[self.idx(id)]
+    }
+
+    fn child_engine_of(&self, id: ItemId) -> Option<&'a Internal> {
+        self.child_engines[self.idx(id)]
+    }
+
+    fn is_group(&self, id: ItemId) -> bool {
+        self.child_engine_of(id).is_some()
+    }
+
+    fn depth_of(&self, id: ItemId) -> usize {
+        self.depths[self.idx(id)]
+    }
+
+    fn has_title_bar(&self, id: ItemId) -> bool {
+        self.contents[self.idx(id)].has_title_bar()
+    }
+
+    /// Returns the engine governing the grid owned by `owner` (`None` =
+    /// root).
+    fn owner_engine(&self, owner: Option<ItemId>) -> &Internal {
+        match owner {
+            None => self.root_engine,
+            Some(group) => {
+                self.child_engine_of(group).expect("owner is a container")
+            }
+        }
+    }
+
+    /// Returns the size (in cells) of `id` from its grid's engine.
+    fn size_of(&self, id: ItemId) -> (u16, u16) {
+        self.owner_engine(self.parent_of(id))
+            .get(id)
+            .map_or((1, 1), |node| (node.w, node.h))
+    }
+
+    /// Collects the held ids that live directly in the grid owned by
+    /// `owner` (collisions resolve within a single grid).
+    fn held_in(&self, owner: Option<ItemId>) -> Vec<ItemId> {
+        self.items
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.parent_of(id) == owner && self.held[self.idx(id)]
+            })
+            .collect()
+    }
+
+    /// Returns `true` if `ancestor` is an ancestor of `id` in the tree.
+    fn is_ancestor(&self, ancestor: ItemId, id: ItemId) -> bool {
+        let mut parent = self.parent_of(id);
+        while let Some(p) = parent {
+            if p == ancestor {
+                return true;
+            }
+            parent = self.parent_of(p);
+        }
+        false
+    }
+
+    /// Computes `(cell_width, cell_height)` for a grid of `columns` columns
+    /// laid out across `width` pixels.
+    fn grid_cell_dims(&self, columns: u16, width: f32) -> (f32, f32) {
+        let cols = f32::from(columns.max(1));
+        let cell_w = (width - (cols - 1.0) * self.spacing) / cols;
         let cell_h = match self.cell_height {
             CellHeight::Auto => cell_w,
             CellHeight::Fixed(h) => h,
@@ -385,13 +555,156 @@ where
         (cell_w, cell_h)
     }
 
-    /// Computes the total grid height from the engine state and cell dimensions.
-    fn grid_height(&self, cell_h: f32) -> f32 {
-        let rows = f32::from(self.internal.get_row());
+    /// Total root-grid height, for `Length::Shrink` resolution.
+    fn root_height(&self, cell_h: f32) -> f32 {
+        let rows = f32::from(self.root_engine.get_row());
         if rows == 0.0 {
             0.0
         } else {
             rows * cell_h + (rows - 1.0) * self.spacing
+        }
+    }
+
+    // ── recursive positioning ──────────────────────────────────
+
+    /// Computes the relative pixel rect for every node's [`Content`] (the
+    /// header strip for a container, the full cell for a leaf) and the body
+    /// rect for every container, applying any in-flight drag/resize preview.
+    fn positions(
+        &self,
+        total_width: f32,
+        drag: Option<DragMove>,
+        resize: Option<ResizeTarget>,
+    ) -> (HashMap<ItemId, Rectangle>, HashMap<ItemId, Rectangle>) {
+        let mut content_rects = HashMap::new();
+        let mut bodies = HashMap::new();
+        let area = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: total_width,
+            height: 0.0,
+        };
+        self.place_grid(
+            None,
+            area,
+            drag,
+            resize,
+            &mut content_rects,
+            &mut bodies,
+        );
+        (content_rects, bodies)
+    }
+
+    /// Builds the (possibly preview-mutated) engine for the grid owned by
+    /// `owner`, or `None` if this grid is unaffected by the active drag /
+    /// resize and the committed engine can be used directly.
+    fn preview_engine(
+        &self,
+        owner: Option<ItemId>,
+        drag: Option<DragMove>,
+        resize: Option<ResizeTarget>,
+    ) -> Option<Internal> {
+        if let Some(d) = drag {
+            if d.source_owner == owner && d.dest_owner == owner {
+                // Within-grid move.
+                let mut engine = self.owner_engine(owner).clone();
+                engine.save_snapshot();
+                engine.move_item_held(
+                    d.id,
+                    d.x,
+                    d.y,
+                    &self.held_in(owner),
+                    d.mode,
+                );
+                return Some(engine);
+            }
+            if d.source_owner == owner {
+                // Reparent: remove from the source grid (gravity closes up).
+                let mut engine = self.owner_engine(owner).clone();
+                engine.remove_item(d.id);
+                return Some(engine);
+            }
+            if d.dest_owner == owner {
+                // Reparent: insert into the destination grid.
+                let mut engine = self.owner_engine(owner).clone();
+                engine.add_item_with_id(d.id, d.x, d.y, d.w, d.h);
+                return Some(engine);
+            }
+        }
+        if let Some(r) = resize
+            && self.parent_of(r.id) == owner
+        {
+            let mut engine = self.owner_engine(owner).clone();
+            engine.resize_item_held(r.id, r.w, r.h, &self.held_in(owner));
+            return Some(engine);
+        }
+        None
+    }
+
+    fn place_grid(
+        &self,
+        owner: Option<ItemId>,
+        area: Rectangle,
+        drag: Option<DragMove>,
+        resize: Option<ResizeTarget>,
+        content_rects: &mut HashMap<ItemId, Rectangle>,
+        bodies: &mut HashMap<ItemId, Rectangle>,
+    ) {
+        let preview = self.preview_engine(owner, drag, resize);
+        let engine: &Internal =
+            preview.as_ref().unwrap_or_else(|| self.owner_engine(owner));
+
+        let (cell_w, cell_h) =
+            self.grid_cell_dims(engine.columns(), area.width);
+        let regions = shared::compute_regions_for(
+            engine,
+            area.width,
+            cell_w,
+            cell_h,
+            self.spacing,
+        );
+
+        for (id, (px, py, pw, ph)) in regions {
+            let rect = Rectangle {
+                x: area.x + px,
+                y: area.y + py,
+                width: pw,
+                height: ph,
+            };
+
+            // A node only acts as a container if it is known to this widget
+            // (it always is) and has a child engine.
+            if self.index_of.contains_key(&id) && self.is_group(id) {
+                let header = if self.has_title_bar(id) {
+                    self.group_header.min(rect.height)
+                } else {
+                    0.0
+                };
+                content_rects.insert(
+                    id,
+                    Rectangle {
+                        height: header,
+                        ..rect
+                    },
+                );
+                let body = Rectangle {
+                    x: rect.x,
+                    y: rect.y + header,
+                    width: rect.width,
+                    height: (rect.height - header).max(0.0),
+                };
+                bodies.insert(id, body);
+                self.place_grid(
+                    Some(id),
+                    body,
+                    drag,
+                    resize,
+                    content_rects,
+                    bodies,
+                );
+            } else {
+                content_rects.insert(id, rect);
+            }
         }
     }
 }
@@ -402,34 +715,34 @@ enum Interaction {
     /// No interaction in progress.
     #[default]
     Idle,
-    /// The user is dragging an item to move it.
+    /// The user is dragging a node to move it (within its grid or into
+    /// another).
     Moving {
-        /// The item being moved.
+        /// The node being moved.
         id: ItemId,
         /// The cursor position when the drag started.
         origin: Point,
-        /// Offset from the item's top-left corner to the grab point.
-        /// Used to render the item freely under the cursor during drag.
+        /// Offset from the node's top-left corner to the grab point.
         grab_offset: Vector,
-        /// The item's grid position when the drag started.
+        /// The node's grid position when the drag started.
         start_x: u16,
         start_y: u16,
-        /// Cell dimensions at drag start (for pixel-to-grid conversion).
+        /// Cell dimensions of the node's source grid at drag start.
         cell_w: f32,
         cell_h: f32,
         /// Whether a `DragPhase::Started` event has already been emitted.
         started: bool,
     },
-    /// The user is dragging an edge to resize an item.
+    /// The user is dragging an edge to resize a node.
     Resizing {
-        /// The item being resized.
+        /// The node being resized.
         id: ItemId,
         /// The cursor position when the drag started.
         origin: Point,
-        /// The item's grid size when the drag started.
+        /// The node's grid size when the drag started.
         start_w: u16,
         start_h: u16,
-        /// Cell dimensions at drag start.
+        /// Cell dimensions of the node's grid at drag start.
         cell_w: f32,
         cell_h: f32,
         /// Whether a `DragPhase::Started` event has already been emitted.
@@ -437,18 +750,23 @@ enum Interaction {
     },
 }
 
-/// The drag target + resolved engine mode for an active drag.
+/// The tentative target of an active drag, used to build the preview layout.
+///
+/// When `source_owner == dest_owner` this is a within-grid move; otherwise
+/// it is a cross-group reparent.
 #[derive(Debug, Clone, Copy)]
-struct DragTarget {
+struct DragMove {
     id: ItemId,
+    source_owner: Option<ItemId>,
+    dest_owner: Option<ItemId>,
     x: u16,
     y: u16,
     mode: MoveMode,
+    w: u16,
+    h: u16,
 }
 
-/// The resize target during an active resize. When set, the layout
-/// method clones the engine and applies this resize to compute a
-/// preview — the committed engine state is untouched.
+/// The resize target during an active resize.
 #[derive(Debug, Clone, Copy)]
 struct ResizeTarget {
     id: ItemId,
@@ -462,17 +780,15 @@ struct Memory {
     order: Vec<ItemId>,
     last_hovered: Option<usize>,
     animations: ItemAnimations,
-    /// Tentative grid target during an active drag. When set, the
-    /// layout method clones the engine and applies this move to
-    /// compute a preview — the committed engine state is untouched.
-    drag_target: Option<DragTarget>,
-    /// Tentative resize dimensions during an active resize. When set,
-    /// the layout method clones the engine and applies this resize to
-    /// compute a preview — the committed engine state is untouched.
+    /// Tentative drag target during an active drag. Drives the preview
+    /// layout (computed in `layout`); the committed engine is untouched.
+    drag_target: Option<DragMove>,
+    /// Tentative resize dimensions during an active resize.
     resize_target: Option<ResizeTarget>,
-    /// Most recently seen keyboard modifiers. Kept in sync by the
-    /// `ModifiersChanged` event; read during drag to decide whether
-    /// Shift is forcing Place mode.
+    /// Body rects of container nodes from the last layout pass, in
+    /// widget-relative coordinates. Used to hit-test the reparent target.
+    group_bodies: HashMap<ItemId, Rectangle>,
+    /// Most recently seen keyboard modifiers.
     modifiers: keyboard::Modifiers,
 }
 
@@ -497,9 +813,9 @@ where
     fn diff(&self, tree: &mut Tree) {
         let Memory { order, .. } = tree.state.downcast_ref();
 
-        // ItemId is monotonically increasing and iterated by Ord (BTreeMap),
-        // so new states always appear at the end. We can remove states for
-        // items that no longer exist, then diff_children_custom will reconcile.
+        // ItemId is monotonically increasing and the flat list is sorted by
+        // id, so new nodes always appear at the end. Remove states for nodes
+        // that no longer exist, then diff_children_custom reconciles.
         let mut i = 0;
         let mut j = 0;
         tree.children.retain(|_| {
@@ -535,18 +851,17 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         let max = limits.max();
-        // Resolve the width first. The height depends on cell dimensions
-        // which depend on width.
         #[allow(unreachable_patterns)]
         let resolved_width = match self.width {
             Length::Fill | Length::FillPortion(_) => max.width,
-            Length::Shrink => max.width, // grid fills available width
+            Length::Shrink => max.width,
             Length::Fixed(w) => w.min(max.width),
             _ => max.width,
         };
 
-        let (cell_w, cell_h) = self.cell_dimensions(resolved_width);
-        let grid_h = self.grid_height(cell_h);
+        let (_, root_cell_h) =
+            self.grid_cell_dims(self.root_engine.columns(), resolved_width);
+        let grid_h = self.root_height(root_cell_h);
 
         #[allow(unreachable_patterns)]
         let resolved_height = match self.height {
@@ -558,56 +873,20 @@ where
 
         let bounds = Size::new(resolved_width, resolved_height);
 
-        // Update animation state with the new positions.
         let memory = tree.state.downcast_mut::<Memory>();
+        let drag = memory.drag_target;
+        let resize = memory.resize_target;
 
-        // Compute item regions. During an active drag, clone the engine
-        // and apply the tentative move so we get a *preview* layout
-        // without modifying the committed engine state.
-        let regions = if let Some(target) = memory.drag_target {
-            // The preview must match the drop exactly: no batch mode
-            // (so gravity runs), and the mover is NOT added to held
-            // (so it can float up to fill gaps). Otherwise the ghost
-            // shows a pre-gravity position and the drop teleports
-            // the item elsewhere.
-            let mut preview = self.internal.clone();
-            preview.save_snapshot();
-            preview.move_item_held(
-                target.id,
-                target.x,
-                target.y,
-                &self.held_ids,
-                target.mode,
-            );
-            shared::compute_regions_for(
-                &preview,
-                resolved_width,
-                cell_w,
-                cell_h,
-                self.spacing,
-            )
-        } else if let Some(resize) = memory.resize_target {
-            // No save_snapshot() needed: resize_item_held uses
-            // fix_collisions → try_swap_pack, which early-returns
-            // when there's no snapshot. Swap-pack is only relevant
-            // for moves, not resizes.
-            let mut preview = self.internal.clone();
-            preview.resize_item_held(
-                resize.id,
-                resize.w,
-                resize.h,
-                &self.held_ids,
-            );
-            shared::compute_regions_for(
-                &preview,
-                resolved_width,
-                cell_w,
-                cell_h,
-                self.spacing,
-            )
-        } else {
-            self.compute_regions(resolved_width, cell_w, cell_h)
-        };
+        // Compute relative node rects + container bodies, applying the
+        // in-flight drag/resize preview against cloned engines.
+        let (content_rects, bodies) =
+            self.positions(resolved_width, drag, resize);
+
+        let regions: Vec<(ItemId, (f32, f32, f32, f32))> = content_rects
+            .iter()
+            .map(|(&id, r)| (id, (r.x, r.y, r.width, r.height)))
+            .collect();
+
         let dragged_id = match &memory.interaction {
             Interaction::Moving { id, .. }
             | Interaction::Resizing { id, .. } => Some(*id),
@@ -628,19 +907,16 @@ where
             );
         }
 
+        memory.group_bodies = bodies;
+
         let children = self
             .items
             .iter()
             .zip(&mut self.contents)
             .zip(tree.children.iter_mut())
             .map(|((id, content), tree)| {
-                let region =
-                    regions.iter().find(|(rid, _)| rid == id).map(|(_, r)| *r);
-
-                if let Some(region) = region {
-                    let rect = shared::pixel_rect(region);
+                if let Some(rect) = content_rects.get(id) {
                     let size = Size::new(rect.width, rect.height);
-
                     let node = content.layout(
                         tree,
                         renderer,
@@ -693,7 +969,7 @@ where
             Interaction::Idle => None,
         };
 
-        // Propagate events to contents
+        // Propagate events to contents.
         for ((id, content), (tree, layout)) in self
             .items
             .iter()
@@ -714,13 +990,12 @@ where
             animations,
             drag_target,
             resize_target,
+            group_bodies,
             modifiers,
             ..
         } = tree.state.downcast_mut();
 
         match event {
-            // Keep modifiers fresh — other branches read them to
-            // decide whether Shift is forcing Place mode.
             Event::Keyboard(keyboard::Event::ModifiersChanged(m)) => {
                 *modifiers = *m;
                 if let Some(target) = drag_target {
@@ -728,8 +1003,6 @@ where
                     shell.request_redraw();
                 }
             }
-            // Reset modifiers on window unfocus — we may have missed
-            // release events while the window was backgrounded.
             Event::Window(window::Event::Unfocused) => {
                 *modifiers = keyboard::Modifiers::empty();
                 if let Some(target) = drag_target {
@@ -740,12 +1013,10 @@ where
             Event::Window(window::Event::RedrawRequested(now)) => {
                 animations.now = Some(*now);
 
-                // Request another frame if animations are still in progress.
                 if animations.is_animating(*now) {
                     shell.request_redraw();
                 }
 
-                // Manage ghost animation based on drag state.
                 match interaction {
                     Interaction::Moving { id, origin, .. } => {
                         if cursor.position().is_some_and(|pos| {
@@ -764,23 +1035,30 @@ where
                 if let Some(cursor_position) = cursor.position_over(bounds) {
                     shell.capture_event();
 
-                    let (cell_w, cell_h) = self.cell_dimensions(bounds.width);
-
-                    // Check for resize first (bottom-right edge detection)
+                    // Resize first (bottom-right edge of a leaf).
                     if self.on_action.is_some()
                         && !self.locked
-                        && let Some(resize_id) = self.find_resize_target(
-                            layout,
-                            cursor_position,
-                            bounds,
-                        )
-                        && let Some(item) = self.internal.get(resize_id)
+                        && let Some(resize_id) =
+                            self.find_resize_target(layout, cursor_position)
+                        && let Some((w, h)) = self
+                            .owner_engine(self.parent_of(resize_id))
+                            .get(resize_id)
+                            .map(|n| (n.w, n.h))
                     {
+                        let (cell_w, cell_h) = self.grid_cell_dims(
+                            self.owner_engine(self.parent_of(resize_id))
+                                .columns(),
+                            self.owner_width(
+                                self.parent_of(resize_id),
+                                group_bodies,
+                                bounds,
+                            ),
+                        );
                         *interaction = Interaction::Resizing {
                             id: resize_id,
                             origin: cursor_position,
-                            start_w: item.w,
-                            start_h: item.h,
+                            start_w: w,
+                            start_h: h,
                             cell_w,
                             cell_h,
                             started: false,
@@ -788,14 +1066,13 @@ where
                         return;
                     }
 
-                    // Check for click/drag on an item
                     self.click_item(
                         interaction,
                         layout,
                         cursor_position,
                         shell,
-                        cell_w,
-                        cell_h,
+                        group_bodies,
+                        bounds,
                     );
                 }
             }
@@ -803,49 +1080,30 @@ where
             | Event::Touch(touch::Event::FingerLifted { .. })
             | Event::Touch(touch::Event::FingerLost { .. }) => {
                 match interaction {
-                    Interaction::Moving {
-                        id,
-                        origin,
-                        start_x,
-                        start_y,
-                        cell_w,
-                        cell_h,
-                        started,
-                        ..
-                    } if *started => {
+                    Interaction::Moving { id, started, .. } if *started => {
                         if let Some(on_action) = &self.on_action
-                            && let Some(cursor_position) = cursor.position()
+                            && let Some(target) = *drag_target
                         {
-                            let dx = cursor_position.x - origin.x;
-                            let dy = cursor_position.y - origin.y;
-                            let step_w = *cell_w + self.spacing;
-                            let step_h = *cell_h + self.spacing;
-                            let grid_dx = (dx / step_w).round() as i32;
-                            let grid_dy = (dy / step_h).round() as i32;
-                            let new_x =
-                                (*start_x as i32 + grid_dx).max(0) as u16;
-                            let new_y =
-                                (*start_y as i32 + grid_dy).max(0) as u16;
-
-                            // Resolve mode from the current drag
-                            // target (which was kept in sync with
-                            // modifiers on every CursorMoved /
-                            // ModifiersChanged tick). Fall back to
-                            // computing from live modifiers if no
-                            // target was ever set.
-                            let mode = drag_target
-                                .map(|t| t.mode)
-                                .unwrap_or_else(|| {
-                                    self.swap_mode.resolve(modifiers.shift())
-                                });
-
-                            shell.publish(on_action(Action::Move {
-                                id: *id,
-                                x: new_x,
-                                y: new_y,
-                                phase: DragPhase::Ended,
-                                mode,
-                            }));
+                            let action =
+                                if target.dest_owner == target.source_owner {
+                                    Action::Move {
+                                        id: *id,
+                                        x: target.x,
+                                        y: target.y,
+                                        phase: DragPhase::Ended,
+                                        mode: target.mode,
+                                    }
+                                } else {
+                                    Action::Reparent {
+                                        node: *id,
+                                        new_parent: target.dest_owner,
+                                        x: target.x,
+                                        y: target.y,
+                                        phase: DragPhase::Ended,
+                                        mode: target.mode,
+                                    }
+                                };
+                            shell.publish(on_action(action));
                         }
                     }
                     Interaction::Resizing {
@@ -892,62 +1150,108 @@ where
                     Interaction::Moving {
                         id,
                         origin,
+                        grab_offset,
                         start_x,
                         start_y,
                         cell_w,
                         cell_h,
                         started,
-                        ..
                     } => {
                         if let Some(on_action) = &self.on_action
                             && let Some(cursor_position) = cursor.position()
                             && cursor_position.distance(*origin)
                                 > DRAG_DEADBAND_DISTANCE
                         {
-                            let dx = cursor_position.x - origin.x;
-                            let dy = cursor_position.y - origin.y;
-                            let step_w = *cell_w + self.spacing;
-                            let step_h = *cell_h + self.spacing;
-                            let grid_dx = (dx / step_w).round() as i32;
-                            let grid_dy = (dy / step_h).round() as i32;
-                            let new_x =
-                                (*start_x as i32 + grid_dx).max(0) as u16;
-                            let new_y =
-                                (*start_y as i32 + grid_dy).max(0) as u16;
-
-                            // Start ghost animation when drag begins
                             let now =
                                 animations.now.unwrap_or_else(Instant::now);
                             animations.show_ghost(*id, now);
 
-                            // Resolve the engine mode from the current
-                            // swap policy + live modifier state.
                             let mode =
                                 self.swap_mode.resolve(modifiers.shift());
+                            let source_owner = self.parent_of(*id);
+                            let dest_owner = self.reparent_target(
+                                group_bodies,
+                                origin_offset(bounds),
+                                cursor_position,
+                                *id,
+                            );
 
-                            // Store tentative grid position + mode for
-                            // the preview layout (computed in layout()).
-                            *drag_target = Some(DragTarget {
-                                id: *id,
-                                x: new_x,
-                                y: new_y,
-                                mode,
-                            });
-
-                            let phase = if *started {
-                                DragPhase::Ongoing
+                            let (action, target) = if dest_owner == source_owner
+                            {
+                                // Within-grid move: snap by delta.
+                                let step_w = *cell_w + self.spacing;
+                                let step_h = *cell_h + self.spacing;
+                                let grid_dx = ((cursor_position.x - origin.x)
+                                    / step_w)
+                                    .round()
+                                    as i32;
+                                let grid_dy = ((cursor_position.y - origin.y)
+                                    / step_h)
+                                    .round()
+                                    as i32;
+                                let new_x =
+                                    (*start_x as i32 + grid_dx).max(0) as u16;
+                                let new_y =
+                                    (*start_y as i32 + grid_dy).max(0) as u16;
+                                let (w, h) = self.size_of(*id);
+                                (
+                                    Action::Move {
+                                        id: *id,
+                                        x: new_x,
+                                        y: new_y,
+                                        phase: phase_of(started),
+                                        mode,
+                                    },
+                                    DragMove {
+                                        id: *id,
+                                        source_owner,
+                                        dest_owner,
+                                        x: new_x,
+                                        y: new_y,
+                                        mode,
+                                        w,
+                                        h,
+                                    },
+                                )
                             } else {
-                                *started = true;
-                                DragPhase::Started
+                                // Cross-group: land at the cursor's cell in
+                                // the destination grid.
+                                let node_top_left = Point::new(
+                                    cursor_position.x - grab_offset.x,
+                                    cursor_position.y - grab_offset.y,
+                                );
+                                let (dx, dy) = self.dest_cell(
+                                    dest_owner,
+                                    group_bodies,
+                                    bounds.position(),
+                                    bounds,
+                                    node_top_left,
+                                );
+                                let (w, h) = self.size_of(*id);
+                                (
+                                    Action::Reparent {
+                                        node: *id,
+                                        new_parent: dest_owner,
+                                        x: dx,
+                                        y: dy,
+                                        phase: phase_of(started),
+                                        mode,
+                                    },
+                                    DragMove {
+                                        id: *id,
+                                        source_owner,
+                                        dest_owner,
+                                        x: dx,
+                                        y: dy,
+                                        mode,
+                                        w,
+                                        h,
+                                    },
+                                )
                             };
 
-                            shell.publish(on_action(Action::Move {
-                                id: *id,
-                                x: new_x,
-                                y: new_y,
-                                phase,
-                                mode,
-                            }));
+                            *drag_target = Some(target);
+                            shell.publish(on_action(action));
                         }
                         shell.request_redraw();
                     }
@@ -974,26 +1278,17 @@ where
                             let new_h =
                                 (*start_h as i32 + grid_dh).max(1) as u16;
 
-                            // Store tentative size for the preview
-                            // layout (computed in layout()).
                             *resize_target = Some(ResizeTarget {
                                 id: *id,
                                 w: new_w,
                                 h: new_h,
                             });
 
-                            let phase = if *started {
-                                DragPhase::Ongoing
-                            } else {
-                                *started = true;
-                                DragPhase::Started
-                            };
-
                             shell.publish(on_action(Action::Resize {
                                 id: *id,
                                 w: new_w,
                                 h: new_h,
-                                phase,
+                                phase: phase_of(started),
                             }));
                         }
                         shell.request_redraw();
@@ -1004,8 +1299,8 @@ where
             _ => {}
         }
 
-        // Track which item the cursor hovers so we can request redraws when it
-        // changes.  This keeps show/hide of title-bar controls in sync.
+        // Track which node the cursor hovers so we request redraws when it
+        // changes (keeps title-bar controls in sync).
         {
             let hovered_index = cursor.position_over(bounds).and_then(|pos| {
                 layout
@@ -1022,8 +1317,7 @@ where
             }
         }
 
-        // Detect mouse interaction changes (cursor type) so we request redraws
-        // for hover effects like the resize cursor or grab cursor.
+        // Detect mouse interaction (cursor type) changes for hover effects.
         if shell.redraw_request() != window::RedrawRequest::NextFrame {
             let current_interaction =
                 &tree.state.downcast_ref::<Memory>().interaction;
@@ -1087,18 +1381,14 @@ where
 
         let bounds = layout.bounds();
 
-        // Check for resize cursor on edges
         if self.on_action.is_some()
             && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
-            && self
-                .find_resize_target(layout, cursor_position, bounds)
-                .is_some()
+            && self.find_resize_target(layout, cursor_position).is_some()
         {
             return mouse::Interaction::ResizingDiagonallyDown;
         }
 
-        // Check content interactions
         let drag_enabled = self.on_action.is_some() && !self.locked;
 
         self.items
@@ -1164,22 +1454,15 @@ where
 
         let mut render_picked = None;
 
-        for (((id, content), tree), item_layout) in self
-            .items
-            .iter()
-            .copied()
-            .zip(&self.contents)
-            .zip(&tree.children)
-            .zip(layout.children())
-        {
+        // Draw nodes in parent-before-child order so a container's chrome
+        // sits behind the tiles it holds.
+        for (id, content, tree, item_layout) in self.draw_order(tree, layout) {
             match picked_item {
                 Some((dragging, grab_offset)) if id == dragging => {
                     render_picked =
                         Some(((content, tree), item_layout, grab_offset));
                 }
                 _ => {
-                    // When resizing an item, force its controls to stay
-                    // visible by providing a cursor over its bounds.
                     let draw_cursor = if resizing_id == Some(id) {
                         let b = item_layout.bounds();
                         mouse::Cursor::Available(Point::new(
@@ -1190,7 +1473,6 @@ where
                         item_cursor
                     };
 
-                    // Apply animated offset for smooth transitions.
                     let offset = animations.get_offset(id, now);
 
                     if offset.x != 0.0 || offset.y != 0.0 {
@@ -1220,8 +1502,7 @@ where
             }
         }
 
-        // Draw resize grip indicator on hovered, resizable items when
-        // resize is enabled and the style provides a grip appearance.
+        // Resize grip indicator on hovered, resizable leaves.
         let grid_style = Catalog::style(theme, &self.class);
 
         if self.on_action.is_some()
@@ -1242,17 +1523,13 @@ where
                 {
                     continue;
                 }
-                if !content.is_resizable() {
+                if self.is_group(id) || !content.is_resizable() {
                     continue;
                 }
                 if picked_item.is_some_and(|(pid, _)| pid == id) {
                     continue;
                 }
 
-                // Draw a triangular grip pattern at the bottom-right:
-                //       .
-                //     . .
-                //   . . .
                 let margin = 6.0;
                 let gap = 4.0;
                 let anchor_x = item_bounds.x + item_bounds.width - margin;
@@ -1284,17 +1561,10 @@ where
             }
         }
 
-        // Render the picked item last, floating freely under the cursor.
-        // The item follows the mouse exactly (organic feel) while the engine
-        // handles snapped grid positions for other items underneath.
+        // Render the picked node last, floating under the cursor.
         if let Some(((content, tree), item_layout, grab_offset)) = render_picked
             && let Some(cursor_position) = cursor.position()
         {
-            // Draw a translucent ghost rectangle at the engine's snap position
-            // (where the item would land if released now), with animated opacity.
-            // The ghost slides smoothly between snap positions via an offset
-            // animation, and is clipped to avoid overlapping items that are
-            // still animating away from the ghost area.
             let snap_bounds = item_layout.bounds();
             let ghost_pos_offset = animations.ghost_offset(now);
             let ghost_target = Rectangle {
@@ -1327,10 +1597,6 @@ where
                 &animating,
             );
 
-            // Pick the highlight for the current drag mode. When
-            // dragging in Place (Shift held, or SwapMode::Never), use
-            // `place_region` if set. Otherwise fall back to
-            // `hovered_region`.
             let highlight = match drag_target.map(|t| t.mode) {
                 Some(MoveMode::Place) => grid_style
                     .place_region
@@ -1351,9 +1617,6 @@ where
                 highlight.background.scale_alpha(ghost_alpha),
             );
 
-            // Draw the floating item under the cursor.
-            // Use the un-offset snap_bounds for translation so the floating
-            // item follows the cursor freely regardless of ghost animation.
             let layout_pos = snap_bounds.position();
             let target = Point::new(
                 cursor_position.x - grab_offset.x,
@@ -1405,66 +1668,155 @@ where
     Theme: Catalog,
     Renderer: core::Renderer,
 {
-    /// Compute item regions using the cell_height setting.
-    fn compute_regions(
-        &self,
-        total_width: f32,
-        cell_w: f32,
-        cell_h: f32,
-    ) -> Vec<(ItemId, (f32, f32, f32, f32))> {
-        shared::compute_regions_for(
-            self.internal,
-            total_width,
-            cell_w,
-            cell_h,
-            self.spacing,
-        )
+    /// Yields `(id, content, tree, layout)` in parent-before-child order
+    /// (DFS pre-order from the root), so container chrome draws beneath the
+    /// tiles it holds.
+    #[allow(clippy::type_complexity)]
+    fn draw_order<'b>(
+        &'b self,
+        tree: &'b Tree,
+        layout: Layout<'b>,
+    ) -> Vec<(
+        ItemId,
+        &'b Content<'a, Message, Theme, Renderer>,
+        &'b Tree,
+        Layout<'b>,
+    )> {
+        let layouts: Vec<Layout<'b>> = layout.children().collect();
+        let mut out = Vec::with_capacity(self.items.len());
+        self.push_draw_order(None, tree, &layouts, &mut out);
+        out
     }
 
-    /// Find an item whose right or bottom edge is near the cursor for resizing.
-    fn find_resize_target(
-        &self,
-        _layout: Layout<'_>,
-        cursor_position: Point,
-        bounds: Rectangle,
-    ) -> Option<ItemId> {
-        let (cell_w, cell_h) = self.cell_dimensions(bounds.width);
-        let regions = self.compute_regions(bounds.width, cell_w, cell_h);
-
-        for (id, region) in &regions {
-            // Look up the content for this item to check resizability.
-            let content_idx =
-                self.items.iter().position(|item_id| item_id == id);
-            if let Some(idx) = content_idx
-                && !self.contents[idx].is_resizable()
-            {
+    #[allow(clippy::type_complexity)]
+    fn push_draw_order<'b>(
+        &'b self,
+        parent: Option<ItemId>,
+        tree: &'b Tree,
+        layouts: &[Layout<'b>],
+        out: &mut Vec<(
+            ItemId,
+            &'b Content<'a, Message, Theme, Renderer>,
+            &'b Tree,
+            Layout<'b>,
+        )>,
+    ) {
+        for (i, &id) in self.items.iter().enumerate() {
+            if self.parents[i] != parent {
                 continue;
             }
-
-            let rect = shared::pixel_rect(*region);
-            // Translate to absolute coordinates
-            let abs_rect = Rectangle {
-                x: rect.x + bounds.x,
-                y: rect.y + bounds.y,
-                width: rect.width,
-                height: rect.height,
-            };
-
-            // Triangular wedge anchored at the bottom-right corner,
-            // matching the visible grip's shape: dx + dy < L.
-            let dx = (abs_rect.x + abs_rect.width) - cursor_position.x;
-            let dy = (abs_rect.y + abs_rect.height) - cursor_position.y;
-
-            if dx >= 0.0 && dy >= 0.0 && dx + dy < RESIZE_CORNER_REACH {
-                return Some(*id);
+            out.push((id, &self.contents[i], &tree.children[i], layouts[i]));
+            if self.is_group(id) {
+                self.push_draw_order(Some(id), tree, layouts, out);
             }
         }
+    }
 
+    /// The pixel width of the grid owned by `owner` (root or a container's
+    /// body), from the last layout's body rects.
+    fn owner_width(
+        &self,
+        owner: Option<ItemId>,
+        bodies: &HashMap<ItemId, Rectangle>,
+        bounds: Rectangle,
+    ) -> f32 {
+        match owner {
+            None => bounds.width,
+            Some(group) => bodies.get(&group).map_or(bounds.width, |b| b.width),
+        }
+    }
+
+    /// The deepest valid container whose body contains the cursor, or
+    /// `None` for the root grid. Excludes the dragged node and its own
+    /// subtree (which would create a cycle).
+    fn reparent_target(
+        &self,
+        bodies: &HashMap<ItemId, Rectangle>,
+        widget_origin: Vector,
+        cursor: Point,
+        dragged: ItemId,
+    ) -> Option<ItemId> {
+        let mut best: Option<(usize, ItemId)> = None;
+        for &id in &self.items {
+            if !self.is_group(id) || id == dragged {
+                continue;
+            }
+            if self.is_ancestor(dragged, id) {
+                continue;
+            }
+            if let Some(body) = bodies.get(&id) {
+                let abs = Rectangle {
+                    x: body.x + widget_origin.x,
+                    y: body.y + widget_origin.y,
+                    ..*body
+                };
+                if abs.contains(cursor) {
+                    let depth = self.depth_of(id);
+                    if best.is_none_or(|(bd, _)| depth > bd) {
+                        best = Some((depth, id));
+                    }
+                }
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// Converts a floating node's top-left pixel to a cell in the
+    /// destination grid (root or a container body).
+    fn dest_cell(
+        &self,
+        dest_owner: Option<ItemId>,
+        bodies: &HashMap<ItemId, Rectangle>,
+        widget_origin: Point,
+        bounds: Rectangle,
+        node_top_left: Point,
+    ) -> (u16, u16) {
+        let (body_x, body_y, width) = match dest_owner {
+            None => (widget_origin.x, widget_origin.y, bounds.width),
+            Some(group) => match bodies.get(&group) {
+                Some(b) => {
+                    (b.x + widget_origin.x, b.y + widget_origin.y, b.width)
+                }
+                None => (widget_origin.x, widget_origin.y, bounds.width),
+            },
+        };
+        let (cell_w, cell_h) =
+            self.grid_cell_dims(self.owner_engine(dest_owner).columns(), width);
+        let step_w = cell_w + self.spacing;
+        let step_h = cell_h + self.spacing;
+        let x = ((node_top_left.x - body_x) / step_w).round().max(0.0) as u16;
+        let y = ((node_top_left.y - body_y) / step_h).round().max(0.0) as u16;
+        (x, y)
+    }
+
+    /// Finds a resizable leaf whose bottom-right corner is near the cursor.
+    fn find_resize_target(
+        &self,
+        layout: Layout<'_>,
+        cursor_position: Point,
+    ) -> Option<ItemId> {
+        for ((id, content), item_layout) in self
+            .items
+            .iter()
+            .copied()
+            .zip(&self.contents)
+            .zip(layout.children())
+        {
+            if self.is_group(id) || !content.is_resizable() {
+                continue;
+            }
+            let rect = item_layout.bounds();
+            let dx = (rect.x + rect.width) - cursor_position.x;
+            let dy = (rect.y + rect.height) - cursor_position.y;
+            if dx >= 0.0 && dy >= 0.0 && dx + dy < RESIZE_CORNER_REACH {
+                return Some(id);
+            }
+        }
         None
     }
 
-    /// Computes the current mouse interaction based on the action state and
-    /// cursor position, without consulting child widgets.
+    /// Computes the cursor interaction from the drag state, without
+    /// consulting child widgets.
     fn grid_interaction(
         &self,
         current_interaction: &Interaction,
@@ -1491,9 +1843,7 @@ where
         if self.on_action.is_some()
             && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
-            && self
-                .find_resize_target(layout, cursor_position, bounds)
-                .is_some()
+            && self.find_resize_target(layout, cursor_position).is_some()
         {
             return Some(mouse::Interaction::ResizingDiagonallyDown);
         }
@@ -1501,15 +1851,15 @@ where
         None
     }
 
-    /// Handles a click on an item, potentially starting a drag.
+    /// Handles a click on a node, potentially starting a drag.
     fn click_item(
         &self,
         interaction: &mut Interaction,
         layout: Layout<'_>,
         cursor_position: Point,
         shell: &mut Shell<'_, Message>,
-        cell_w: f32,
-        cell_h: f32,
+        bodies: &HashMap<ItemId, Rectangle>,
+        bounds: Rectangle,
     ) {
         let clicked = self
             .items
@@ -1530,12 +1880,19 @@ where
 
             if self.on_action.is_some()
                 && in_drag_zone
-                && let Some(item) = self.internal.get(id)
+                && let Some(item) =
+                    self.owner_engine(self.parent_of(id)).get(id)
             {
                 let item_pos = item_layout.bounds().position();
                 let grab_offset = Vector::new(
                     cursor_position.x - item_pos.x,
                     cursor_position.y - item_pos.y,
+                );
+
+                let owner = self.parent_of(id);
+                let (cell_w, cell_h) = self.grid_cell_dims(
+                    self.owner_engine(owner).columns(),
+                    self.owner_width(owner, bodies, bounds),
                 );
 
                 *interaction = Interaction::Moving {
@@ -1551,6 +1908,21 @@ where
             }
         }
     }
+}
+
+/// The drag phase implied by whether a `Started` event has been emitted.
+fn phase_of(started: &mut bool) -> DragPhase {
+    if *started {
+        DragPhase::Ongoing
+    } else {
+        *started = true;
+        DragPhase::Started
+    }
+}
+
+/// The widget's absolute origin as a [`Vector`].
+fn origin_offset(bounds: Rectangle) -> Vector {
+    Vector::new(bounds.x, bounds.y)
 }
 
 impl<'a, Message, Theme, Renderer> From<TileGrid<'a, Message, Theme, Renderer>>

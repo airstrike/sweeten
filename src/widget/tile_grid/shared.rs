@@ -19,17 +19,6 @@ pub(crate) const DRAG_DEADBAND_DISTANCE: f32 = 10.0;
 /// Reach (in pixels) of the bottom-right resize wedge.
 pub(crate) const RESIZE_CORNER_REACH: f32 = 20.0;
 
-/// Converts a pixel rectangle from an `item_regions`-style tuple to a
-/// [`Rectangle`].
-pub(crate) fn pixel_rect(region: (f32, f32, f32, f32)) -> Rectangle {
-    Rectangle {
-        x: region.0,
-        y: region.1,
-        width: region.2,
-        height: region.3,
-    }
-}
-
 /// Computes pixel regions for the items in an arbitrary engine.
 pub(crate) fn compute_regions_for(
     internal: &Internal,
