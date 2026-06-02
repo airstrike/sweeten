@@ -40,6 +40,10 @@ use super::shared::{
 };
 use super::state;
 
+/// Upward extension (in pixels) of an item's hover hit-test, so the
+/// straddling controls overlay stays visible while the cursor reaches it.
+const CONTROLS_HOVER_BAND: f32 = 30.0;
+
 /// How the widget selects between [`MoveMode::Swap`] and
 /// [`MoveMode::Place`] during drags.
 ///
@@ -679,12 +683,28 @@ where
                 .map(|node| node.id)
                 .collect();
             for gid in groups {
-                let inner_rows = self
-                    .fitted_engine(Some(gid), cell_h, drag, resize)
-                    .get_row();
-                let extra = self.group_extra_rows(gid, cell_h);
-                let w = engine.get(gid).map_or(1, |node| node.w);
-                engine.resize_item(gid, w, (extra + inner_rows).max(1));
+                let inner = self.fitted_engine(Some(gid), cell_h, drag, resize);
+                let used_rows = inner.get_row();
+                let used_cols = inner.get_col();
+
+                // Height = children rows + header/padding rows.
+                let height =
+                    (self.group_extra_rows(gid, cell_h) + used_rows).max(1);
+
+                // Width = the children's used columns, scaled from the
+                // group's inner column count to its authored outer span
+                // (so unused columns are trimmed).
+                let authored_w =
+                    engine.get(gid).map_or(1, |node| node.w).max(1);
+                let inner_cols = self
+                    .child_engine_of(gid)
+                    .map_or(1, Internal::columns)
+                    .max(1);
+                let width = (u32::from(used_cols) * u32::from(authored_w))
+                    .div_ceil(u32::from(inner_cols))
+                    as u16;
+
+                engine.resize_item(gid, width.max(1), height);
             }
             engine.pack_nodes();
         }
@@ -861,6 +881,10 @@ struct Memory {
     /// Full rects of container nodes from the last layout pass, in
     /// widget-relative coordinates. Used for the whole-group drag ghost.
     group_rects: HashMap<ItemId, Rectangle>,
+    /// The item whose controls overlay should be shown (the hovered item,
+    /// with an upward band so reaching the straddling controls keeps them
+    /// visible). `None` hides all controls.
+    controls_hovered: Option<ItemId>,
     /// Most recently seen keyboard modifiers.
     modifiers: keyboard::Modifiers,
 }
@@ -1376,9 +1400,10 @@ where
         }
 
         // Track which node the cursor hovers so we request redraws when it
-        // changes (keeps title-bar controls in sync).
+        // changes (keeps title-bar controls + overlay controls in sync).
         {
-            let hovered_index = cursor.position_over(bounds).and_then(|pos| {
+            let pos = cursor.position_over(bounds);
+            let hovered_index = pos.and_then(|pos| {
                 layout
                     .children()
                     .enumerate()
@@ -1386,9 +1411,44 @@ where
                     .map(|(i, _)| i)
             });
 
+            // The hovered item for the controls overlay. The overlay
+            // straddles the item's top edge, so the cursor leaves the item
+            // rect to reach it — extend the hit-test upward by a band so the
+            // controls stay visible while being aimed at.
+            let controls_hovered = pos.and_then(|pos| {
+                self.items
+                    .iter()
+                    .copied()
+                    .zip(layout.children())
+                    .find(|(_, child)| child.bounds().contains(pos))
+                    .or_else(|| {
+                        self.items.iter().copied().zip(layout.children()).find(
+                            |(_, child)| {
+                                let b = child.bounds();
+                                Rectangle {
+                                    x: b.x,
+                                    y: b.y - CONTROLS_HOVER_BAND,
+                                    width: b.width,
+                                    height: b.height + CONTROLS_HOVER_BAND,
+                                }
+                                .contains(pos)
+                            },
+                        )
+                    })
+                    .map(|(id, _)| id)
+            });
+
             let memory = tree.state.downcast_mut::<Memory>();
+            let mut redraw = false;
             if memory.last_hovered != hovered_index {
                 memory.last_hovered = hovered_index;
+                redraw = true;
+            }
+            if memory.controls_hovered != controls_hovered {
+                memory.controls_hovered = controls_hovered;
+                redraw = true;
+            }
+            if redraw {
                 shell.request_redraw();
             }
         }
@@ -1582,6 +1642,25 @@ where
 
         let grid_style = Catalog::style(theme, &self.class);
 
+        // Persistent border framing every container's full rect.
+        if let Some(border) = grid_style.group_border {
+            let offset = layout.bounds().position();
+            for rect in group_rects.values() {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x: rect.x + offset.x,
+                            y: rect.y + offset.y,
+                            ..*rect
+                        },
+                        border,
+                        ..renderer::Quad::default()
+                    },
+                    Background::Color(Color::TRANSPARENT),
+                );
+            }
+        }
+
         // While a drag is in progress, outline every container body to
         // hint at the available drop zones.
         if picked_item.is_some()
@@ -1761,13 +1840,27 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        // Controls overlays render only for the hovered item.
+        let controls_hovered =
+            tree.state.downcast_ref::<Memory>().controls_hovered;
+
         let children = self
-            .contents
-            .iter_mut()
+            .items
+            .iter()
+            .copied()
+            .zip(&mut self.contents)
             .zip(&mut tree.children)
             .zip(layout.children())
-            .filter_map(|((content, state), layout)| {
-                content.overlay(state, layout, renderer, viewport, translation)
+            .filter_map(|(((id, content), state), layout)| {
+                let show_controls = controls_hovered == Some(id);
+                content.overlay(
+                    state,
+                    layout,
+                    renderer,
+                    viewport,
+                    translation,
+                    show_controls,
+                )
             })
             .collect::<Vec<_>>();
 
@@ -2075,6 +2168,9 @@ pub struct Style {
     /// The outline drawn around every container's body while a drag is in
     /// progress, hinting at the available drop zones. `None` disables it.
     pub group_outline: Option<Border>,
+    /// A persistent border drawn around every container's full rect (header
+    /// + body). `None` disables it. Useful to frame groups while editing.
+    pub group_border: Option<Border>,
 }
 
 /// A highlight region appearance.
@@ -2160,5 +2256,6 @@ pub fn default_style(_theme: &Theme) -> Style {
             },
             radius: 8.0.into(),
         }),
+        group_border: None,
     }
 }

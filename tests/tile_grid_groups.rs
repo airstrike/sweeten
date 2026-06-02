@@ -274,11 +274,11 @@ fn controls_overlay_receives_click() {
             iced::Size::new(W, H),
             app.view(),
         );
-        // Lay out the overlay first.
-        let _ = ui.simulate([Event::Window(
-            iced::window::Event::RedrawRequested(std::time::Instant::now()),
-        )]);
-        ui.point_at(Point::new(274.0, 18.0));
+        // Controls show only on hover: move over the tile first so the
+        // overlay appears, then click it.
+        ui.point_at(Point::new(150.0, 75.0));
+        let _ = ui.simulate([moved(Point::new(150.0, 75.0))]);
+        ui.point_at(Point::new(274.0, 12.0));
         let _ = ui.simulate(iced_test::simulator::click());
         ui.into_messages().collect::<Vec<_>>()
     };

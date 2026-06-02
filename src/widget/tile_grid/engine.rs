@@ -288,6 +288,15 @@ impl Internal {
         self.items.iter().map(Node::bottom).max().unwrap_or(0)
     }
 
+    /// Returns the current grid width in columns (the maximum right edge of
+    /// any item).
+    ///
+    /// Returns 0 if the grid is empty.
+    #[must_use]
+    pub fn get_col(&self) -> u16 {
+        self.items.iter().map(Node::right).max().unwrap_or(0)
+    }
+
     /// Enforces all constraints on an item: min/max dimensions, grid
     /// boundaries, and position clamping.
     ///

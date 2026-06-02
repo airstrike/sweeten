@@ -21,10 +21,12 @@ use iced::widget::{
     button, center, column, container, mouse_area, opaque, row, space, stack,
     text, text_input,
 };
-use iced::{Border, Center, Color, Element, Fill, Font, Task, Theme};
+use iced::{
+    Background, Border, Center, Color, Element, Fill, Font, Task, Theme,
+};
 
 use sweeten::widget::tile_grid::{
-    Action, CellHeight, ItemId, State, grid_content, title_bar,
+    Action, CellHeight, ItemId, State, default_style, grid_content, title_bar,
 };
 
 fn main() -> iced::Result {
@@ -78,6 +80,7 @@ enum Message {
     ArmDelete(ItemId),
     ConfirmDelete(ItemId),
     AddTile(ItemId),
+    GroupTitle(ItemId, String),
 }
 
 fn tile(title: &str, value: &str) -> Cell {
@@ -195,6 +198,11 @@ impl App {
                     tile("New tile", "—"),
                 );
             }
+            Message::GroupTitle(id, label) => {
+                if let Some(Cell::Section(section)) = self.state.get_mut(id) {
+                    *section = label;
+                }
+            }
         }
     }
 
@@ -205,19 +213,18 @@ impl App {
         let grid =
             sweeten::tile_grid(&self.state, move |id, cell| match cell {
                 Cell::Section(label) => {
-                    let header = (!label.is_empty()).then(|| {
-                        title_bar(
-                            text(label.clone()).size(16).style(section_label),
-                        )
-                        .padding([4, 6])
-                    });
+                    // In edit mode every group shows its title (an inline,
+                    // editable input); read-only hides empty labels.
+                    let has_header = edit_mode || !label.is_empty();
                     let mut content = grid_content(
                         container(text("")).width(Fill).height(Fill),
                     )
-                    .resizable(false)
-                    .style(group_style);
-                    if let Some(header) = header {
-                        content = content.title_bar(header);
+                    .resizable(false);
+                    if has_header {
+                        content = content.title_bar(
+                            title_bar(group_title(id, label, edit_mode))
+                                .padding([4, 6]),
+                        );
                     } else {
                         content = content.draggable(false);
                     }
@@ -254,6 +261,18 @@ impl App {
             .group_header(32)
             .group_padding(10)
             .size_to_content(true)
+            .locked(!edit_mode)
+            .style(move |theme| {
+                let mut style = default_style(theme);
+                if edit_mode {
+                    style.group_border = Some(Border {
+                        width: 1.0,
+                        color: theme.palette().background.strong.color,
+                        radius: 10.0.into(),
+                    });
+                }
+                style
+            })
             .on_action(Message::Grid);
 
         let toolbar = row![
@@ -291,12 +310,29 @@ fn customize_button(edit_mode: bool) -> Element<'static, Message> {
     )
     .on_press(Message::ToggleEdit)
     .padding([6, 12])
-    .style(if edit_mode {
-        button::primary
-    } else {
-        button::secondary
-    })
+    .style(outlined)
     .into()
+}
+
+/// The group's title: static text when read-only, an inline editable
+/// `text_input` (with a placeholder) when in edit mode — styled to be
+/// visually identical to the static text.
+fn group_title(
+    id: ItemId,
+    label: &str,
+    edit_mode: bool,
+) -> Element<'_, Message> {
+    if edit_mode {
+        text_input("Enter a title", label)
+            .size(16)
+            .padding(0)
+            .width(Fill)
+            .on_input(move |value| Message::GroupTitle(id, value))
+            .style(title_input)
+            .into()
+    } else {
+        text(label.to_owned()).size(16).style(section_label).into()
+    }
 }
 
 fn edit_button(id: ItemId) -> Element<'static, Message> {
@@ -430,15 +466,39 @@ fn muted(theme: &Theme) -> text::Style {
     }
 }
 
-fn group_style(theme: &Theme) -> container::Style {
+/// An outlined (transparent-fill) button, as in the mockup's "Customize".
+fn outlined(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
-    container::Style {
+    let background =
+        matches!(status, button::Status::Hovered | button::Status::Pressed)
+            .then(|| palette.background.weak.color.into());
+    button::Style {
+        background,
+        text_color: palette.background.base.text,
         border: Border {
             width: 1.0,
-            color: palette.background.weak.color,
-            radius: 10.0.into(),
+            color: palette.background.strong.color,
+            radius: 8.0.into(),
         },
-        ..Default::default()
+        ..button::Style::default()
+    }
+}
+
+/// A `text_input` styled to be visually identical to the group's title
+/// text: transparent, borderless, with the title's color and a muted
+/// placeholder.
+fn title_input(
+    theme: &Theme,
+    _status: text_input::Status,
+) -> text_input::Style {
+    let palette = theme.palette();
+    text_input::Style {
+        background: Background::Color(Color::TRANSPARENT),
+        border: Border::default(),
+        icon: palette.background.weak.color,
+        placeholder: palette.background.strong.color,
+        value: palette.background.base.text,
+        selection: palette.primary.weak.color,
     }
 }
 

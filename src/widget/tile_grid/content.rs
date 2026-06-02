@@ -533,6 +533,7 @@ where
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
+        show_controls: bool,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let bounds = layout.bounds();
 
@@ -584,8 +585,9 @@ where
         }
 
         // Controls overlay, anchored straddling the item's top edge so the
-        // card's top border passes through its vertical center.
-        if let Some(controls) = self.controls.as_mut() {
+        // card's top border passes through its vertical center. Shown only
+        // while the item is hovered.
+        if show_controls && let Some(controls) = self.controls.as_mut() {
             let anchor = Rectangle {
                 x: bounds.x + translation.x,
                 y: bounds.y + translation.y,
