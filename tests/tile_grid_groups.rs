@@ -115,6 +115,37 @@ fn grouped_layout_renders_without_panic() {
 }
 
 #[test]
+fn size_to_content_renders_without_panic() {
+    // Exercises the size-to-content fit (groups resized to children) and
+    // group padding — the recursive fitted_engine path.
+    let app = App::new();
+    let view: Element<'_, Message> =
+        sweeten::tile_grid(&app.state, |_id, d| {
+            grid_content(iced::widget::text(*d))
+                .title_bar(title_bar(iced::widget::text(*d)))
+        })
+        .width(Fill)
+        .height(Fill)
+        .spacing(4)
+        .cell_height(CellHeight::Fixed(40.0))
+        .group_header(24)
+        .group_padding(8)
+        .size_to_content(true)
+        .on_action(Message::Grid)
+        .into();
+
+    let mut ui = iced_test::Simulator::with_size(
+        Default::default(),
+        iced::Size::new(W, H),
+        view,
+    );
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+        std::time::Instant::now(),
+    ))]);
+    let _ = ui.into_messages().count();
+}
+
+#[test]
 fn cross_group_drag_emits_reparent() {
     let app = App::new();
     let messages = {

@@ -308,6 +308,12 @@ pub struct TileGrid<
     cell_height: CellHeight,
     /// Pixel height reserved for a labeled group's header strip.
     group_header: f32,
+    /// Pixel padding inside a container, between its border and the child
+    /// grid.
+    group_padding: f32,
+    /// When `true`, containers are sized to fit their children (plus the
+    /// header and padding) rather than using their authored row span.
+    size_to_content: bool,
     on_action: Option<Box<dyn Fn(Action) -> Message + 'a>>,
     locked: bool,
     swap_mode: SwapMode,
@@ -372,6 +378,8 @@ where
             spacing: 0.0,
             cell_height: CellHeight::default(),
             group_header: 0.0,
+            group_padding: 0.0,
+            size_to_content: false,
             on_action: None,
             locked: false,
             swap_mode: SwapMode::default(),
@@ -415,6 +423,24 @@ where
     /// Defaults to `0.0`, which leaves flat (group-less) grids unchanged.
     pub fn group_header(mut self, height: impl Into<Pixels>) -> Self {
         self.group_header = height.into().0;
+        self
+    }
+
+    /// Sets the pixel padding inside a container, between its border and the
+    /// child grid. Defaults to `0.0`.
+    pub fn group_padding(mut self, padding: impl Into<Pixels>) -> Self {
+        self.group_padding = padding.into().0;
+        self
+    }
+
+    /// Sizes containers to fit their children (header + child grid +
+    /// padding) instead of their authored row span. Group nodes resize
+    /// automatically as tiles are added, removed, or dragged in or out.
+    ///
+    /// Works best with a [`CellHeight::Fixed`] cell height shared by every
+    /// level. Defaults to `false`, leaving flat grids unchanged.
+    pub fn size_to_content(mut self, size_to_content: bool) -> Self {
+        self.size_to_content = size_to_content;
         self
     }
 
@@ -567,32 +593,23 @@ where
 
     // ── recursive positioning ──────────────────────────────────
 
-    /// Computes the relative pixel rect for every node's [`Content`] (the
-    /// header strip for a container, the full cell for a leaf) and the body
-    /// rect for every container, applying any in-flight drag/resize preview.
+    /// Computes the relative pixel rects for every node, applying any
+    /// in-flight drag/resize preview and size-to-content fitting.
     fn positions(
         &self,
         total_width: f32,
         drag: Option<DragMove>,
         resize: Option<ResizeTarget>,
-    ) -> (HashMap<ItemId, Rectangle>, HashMap<ItemId, Rectangle>) {
-        let mut content_rects = HashMap::new();
-        let mut bodies = HashMap::new();
+    ) -> Positions {
+        let mut out = Positions::default();
         let area = Rectangle {
             x: 0.0,
             y: 0.0,
             width: total_width,
             height: 0.0,
         };
-        self.place_grid(
-            None,
-            area,
-            drag,
-            resize,
-            &mut content_rects,
-            &mut bodies,
-        );
-        (content_rects, bodies)
+        self.place_grid(None, area, drag, resize, &mut out);
+        out
     }
 
     /// Builds the (possibly preview-mutated) engine for the grid owned by
@@ -641,23 +658,67 @@ where
         None
     }
 
+    /// Returns the engine for the grid owned by `owner`, with the active
+    /// drag/resize preview applied and — when `size_to_content` is on —
+    /// every group child resized to fit its own content.
+    fn fitted_engine(
+        &self,
+        owner: Option<ItemId>,
+        cell_h: f32,
+        drag: Option<DragMove>,
+        resize: Option<ResizeTarget>,
+    ) -> Internal {
+        let mut engine = self
+            .preview_engine(owner, drag, resize)
+            .unwrap_or_else(|| self.owner_engine(owner).clone());
+
+        if self.size_to_content {
+            let groups: Vec<ItemId> = engine
+                .items()
+                .filter(|node| self.is_group(node.id))
+                .map(|node| node.id)
+                .collect();
+            for gid in groups {
+                let inner_rows = self
+                    .fitted_engine(Some(gid), cell_h, drag, resize)
+                    .get_row();
+                let extra = self.group_extra_rows(gid, cell_h);
+                let w = engine.get(gid).map_or(1, |node| node.w);
+                engine.resize_item(gid, w, (extra + inner_rows).max(1));
+            }
+            engine.pack_nodes();
+        }
+        engine
+    }
+
+    /// Rows occupied by a group's header strip plus its vertical padding.
+    fn group_extra_rows(&self, gid: ItemId, cell_h: f32) -> u16 {
+        let header = if self.has_title_bar(gid) {
+            self.group_header
+        } else {
+            0.0
+        };
+        let extra_px = header + 2.0 * self.group_padding;
+        if cell_h <= 0.0 {
+            0
+        } else {
+            (extra_px / cell_h).ceil() as u16
+        }
+    }
+
     fn place_grid(
         &self,
         owner: Option<ItemId>,
         area: Rectangle,
         drag: Option<DragMove>,
         resize: Option<ResizeTarget>,
-        content_rects: &mut HashMap<ItemId, Rectangle>,
-        bodies: &mut HashMap<ItemId, Rectangle>,
+        out: &mut Positions,
     ) {
-        let preview = self.preview_engine(owner, drag, resize);
-        let engine: &Internal =
-            preview.as_ref().unwrap_or_else(|| self.owner_engine(owner));
-
         let (cell_w, cell_h) =
-            self.grid_cell_dims(engine.columns(), area.width);
+            self.grid_cell_dims(self.owner_engine(owner).columns(), area.width);
+        let engine = self.fitted_engine(owner, cell_h, drag, resize);
         let regions = shared::compute_regions_for(
-            engine,
+            &engine,
             area.width,
             cell_w,
             cell_h,
@@ -675,38 +736,47 @@ where
             // A node only acts as a container if it is known to this widget
             // (it always is) and has a child engine.
             if self.index_of.contains_key(&id) && self.is_group(id) {
+                out.group_rects.insert(id, rect);
+
                 let header = if self.has_title_bar(id) {
                     self.group_header.min(rect.height)
                 } else {
                     0.0
                 };
-                content_rects.insert(
+                out.content.insert(
                     id,
                     Rectangle {
                         height: header,
                         ..rect
                     },
                 );
+
+                let pad = self.group_padding;
                 let body = Rectangle {
-                    x: rect.x,
-                    y: rect.y + header,
-                    width: rect.width,
-                    height: (rect.height - header).max(0.0),
+                    x: rect.x + pad,
+                    y: rect.y + header + pad,
+                    width: (rect.width - 2.0 * pad).max(0.0),
+                    height: (rect.height - header - 2.0 * pad).max(0.0),
                 };
-                bodies.insert(id, body);
-                self.place_grid(
-                    Some(id),
-                    body,
-                    drag,
-                    resize,
-                    content_rects,
-                    bodies,
-                );
+                out.bodies.insert(id, body);
+                self.place_grid(Some(id), body, drag, resize, out);
             } else {
-                content_rects.insert(id, rect);
+                out.content.insert(id, rect);
             }
         }
     }
+}
+
+/// The relative pixel rects produced by [`TileGrid::positions`].
+#[derive(Default)]
+struct Positions {
+    /// Per-node Content rect — the header strip for a container, the full
+    /// cell for a leaf.
+    content: HashMap<ItemId, Rectangle>,
+    /// Per-container padded body rect (where its child grid is laid out).
+    bodies: HashMap<ItemId, Rectangle>,
+    /// Per-container full rect (header + body), used for the drag ghost.
+    group_rects: HashMap<ItemId, Rectangle>,
 }
 
 /// Ephemeral interaction state stored in the widget tree.
@@ -788,6 +858,9 @@ struct Memory {
     /// Body rects of container nodes from the last layout pass, in
     /// widget-relative coordinates. Used to hit-test the reparent target.
     group_bodies: HashMap<ItemId, Rectangle>,
+    /// Full rects of container nodes from the last layout pass, in
+    /// widget-relative coordinates. Used for the whole-group drag ghost.
+    group_rects: HashMap<ItemId, Rectangle>,
     /// Most recently seen keyboard modifiers.
     modifiers: keyboard::Modifiers,
 }
@@ -878,11 +951,11 @@ where
         let resize = memory.resize_target;
 
         // Compute relative node rects + container bodies, applying the
-        // in-flight drag/resize preview against cloned engines.
-        let (content_rects, bodies) =
-            self.positions(resolved_width, drag, resize);
+        // in-flight drag/resize preview and size-to-content fitting.
+        let positions = self.positions(resolved_width, drag, resize);
 
-        let regions: Vec<(ItemId, (f32, f32, f32, f32))> = content_rects
+        let regions: Vec<(ItemId, (f32, f32, f32, f32))> = positions
+            .content
             .iter()
             .map(|(&id, r)| (id, (r.x, r.y, r.width, r.height)))
             .collect();
@@ -897,18 +970,21 @@ where
             .animations
             .update_positions(&regions, dragged_id, now);
 
+        // The ghost tracks the dragged node's snap rect — the *full* rect
+        // for a container, so dragging a group previews the whole group.
         if let Some(dragged) = dragged_id
-            && let Some(&(_, (px, py, pw, ph))) =
-                regions.iter().find(|(id, _)| *id == dragged)
+            && let Some(snap) = positions
+                .group_rects
+                .get(&dragged)
+                .or_else(|| positions.content.get(&dragged))
         {
-            memory.animations.update_ghost_position(
-                Rectangle::new(Point::new(px, py), Size::new(pw, ph)),
-                now,
-            );
+            memory.animations.update_ghost_position(*snap, now);
         }
 
-        memory.group_bodies = bodies;
+        memory.group_bodies = positions.bodies;
+        memory.group_rects = positions.group_rects;
 
+        let content_rects = positions.content;
         let children = self
             .items
             .iter()
@@ -1425,6 +1501,7 @@ where
             animations,
             drag_target,
             group_bodies,
+            group_rects,
             ..
         } = tree.state.downcast_ref();
         let now = animations.now.unwrap_or_else(Instant::now);
@@ -1589,7 +1666,20 @@ where
         if let Some(((content, tree), item_layout, grab_offset)) = render_picked
             && let Some(cursor_position) = cursor.position()
         {
-            let snap_bounds = item_layout.bounds();
+            let dragged_id = picked_item.unwrap().0;
+
+            // The drop ghost is the dragged node's full rect — the whole
+            // group (header + body) when dragging a container, not just its
+            // header strip.
+            let widget_origin = layout.bounds().position();
+            let snap_bounds = group_rects.get(&dragged_id).map_or_else(
+                || item_layout.bounds(),
+                |r| Rectangle {
+                    x: r.x + widget_origin.x,
+                    y: r.y + widget_origin.y,
+                    ..*r
+                },
+            );
             let ghost_pos_offset = animations.ghost_offset(now);
             let ghost_target = Rectangle {
                 x: snap_bounds.x + ghost_pos_offset.x,
@@ -1597,8 +1687,6 @@ where
                 ..snap_bounds
             };
             let ghost_alpha = animations.ghost_alpha(now);
-
-            let dragged_id = picked_item.unwrap().0;
             let animating: Vec<(Rectangle, Vector)> = self
                 .items
                 .iter()
