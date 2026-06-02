@@ -1,16 +1,17 @@
 //! A grouped `tile_grid` dashboard with an edit mode.
 //!
-//! Read-only by default. Click **Customize** to enter edit mode, which
-//! reveals per-tile and per-group controls (rendered as straddling overlays
-//! pinned to each item's top-right corner):
+//! Read-only by default. Click **Customize** to enter edit mode, which frames
+//! every group with a border and — on hover — reveals controls (straddling
+//! overlays pinned to the hovered item's top-right corner):
 //!
 //! - tiles get an **edit** control (opens a modal) and a **delete** control;
-//! - groups get a tinted **+ Add tile** command, an **edit** control (renames
-//!   the section), and a **delete** control.
+//! - groups get a tinted **+ Add tile** command and a **delete** control, and
+//!   their title becomes an inline `text_input` for renaming.
 //!
 //! Deletion is a two-step *arm-and-execute*: the first click arms (the icon
-//! turns into a red check); the second confirms. Groups are sized to their
-//! children, so adding/removing/dragging tiles reflows the layout.
+//! turns into a red check); the second confirms. Moving/resizing is enabled
+//! only in edit mode. Groups are sized to their children, so adding,
+//! removing, or dragging tiles reflows the layout.
 //!
 //! Run with: `cargo run -p grouped`
 
