@@ -742,6 +742,18 @@ where
         let (cell_w, cell_h) =
             self.grid_cell_dims(self.owner_engine(owner).columns(), area.width);
         let engine = self.fitted_engine(owner, cell_h, drag, resize);
+
+        // For a content-fitted group, `fitted_engine` trimmed the outer width
+        // to the used column span. Divide the body by that same span (rather
+        // than the authored inner column count) so each cell keeps its
+        // authored pixel size — otherwise a child that frees up columns makes
+        // the remaining cells shrink (the resize "overshoots") and leaves a
+        // gap to the group border.
+        let cell_w = if self.size_to_content && owner.is_some() {
+            self.grid_cell_dims(engine.get_col(), area.width).0
+        } else {
+            cell_w
+        };
         let regions = shared::compute_regions_for(
             &engine,
             area.width,

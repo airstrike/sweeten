@@ -329,3 +329,80 @@ fn controls_overlay_survives_hover_onto_button() {
          so the press still emits Edit; got {messages:?}"
     );
 }
+
+// ── size_to_content child resize keeps cell width constant ──────
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+enum FitMessage {
+    Grid(Action),
+}
+
+/// A `size_to_content` group whose two side-by-side children let us measure
+/// the inner cell width. `pipeline_w` controls the second child's column span.
+fn trends_with_pipeline_width(
+    pipeline_w: u16,
+) -> iced_test::Simulator<'static, FitMessage> {
+    let mut state: State<&'static str> = State::new(12);
+    let trends = state.add_group(0, 0, 8, 1, "Trends", 8);
+    state.add_child(trends, 0, 0, 4, 3, "Bookings").unwrap();
+    state
+        .add_child(trends, 4, 0, pipeline_w, 3, "Pipeline")
+        .unwrap();
+
+    let view: Element<'static, FitMessage> = sweeten::tile_grid(
+        // Leak the state so the Simulator can own a 'static view; fine for a
+        // one-shot measurement in a test.
+        Box::leak(Box::new(state)),
+        |_id, data: &&'static str| {
+            grid_content(iced::widget::text(*data))
+                .title_bar(title_bar(iced::widget::text(*data)))
+        },
+    )
+    .width(Fill)
+    .height(Fill)
+    .spacing(8)
+    .cell_height(CellHeight::Fixed(54.0))
+    .group_header(32)
+    .group_padding(10)
+    .size_to_content(true)
+    .on_action(FitMessage::Grid)
+    .into();
+
+    let mut ui = iced_test::Simulator::with_size(
+        Default::default(),
+        iced::Size::new(1900.0, 1100.0),
+        view,
+    );
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+        std::time::Instant::now(),
+    ))]);
+    ui
+}
+
+#[test]
+fn size_to_content_child_resize_keeps_cell_width() {
+    // The "Bookings" tile is always 4 columns wide. The horizontal distance
+    // from its left edge to "Pipeline"'s left edge is therefore `4*cell_w +
+    // 4*spacing` and depends only on the inner cell width. Freeing a column
+    // (Pipeline 4 -> 3) must NOT shrink that cell width: pre-fix the group's
+    // body was divided by the authored 8 columns even though it was trimmed
+    // to 7, so the cells (and the resized child) shrank — an overshoot that
+    // also left a gap to the group border.
+    let x_of = |ui: &mut iced_test::Simulator<'_, FitMessage>, label: &str| {
+        ui.find(label).unwrap().visible_bounds().unwrap().x
+    };
+
+    let mut full = trends_with_pipeline_width(4);
+    let span_full = x_of(&mut full, "Pipeline") - x_of(&mut full, "Bookings");
+
+    let mut shrunk = trends_with_pipeline_width(3);
+    let span_shrunk =
+        x_of(&mut shrunk, "Pipeline") - x_of(&mut shrunk, "Bookings");
+
+    assert!(
+        (span_full - span_shrunk).abs() < 2.0,
+        "Bookings' 4-column span (cell width) must not change when Pipeline \
+         frees a column: full={span_full:.1} shrunk={span_shrunk:.1}"
+    );
+}
