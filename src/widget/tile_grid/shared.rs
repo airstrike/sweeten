@@ -173,6 +173,11 @@ impl ItemAnimations {
         if self.ghost_item != Some(id) {
             self.ghost_opacity = Self::new_ghost_animation(false).go(true, now);
             self.ghost_item = Some(id);
+            // A fresh ghost has no prior position to animate from. Drop any
+            // stale origin (e.g. left over from a resize, which tracks the
+            // snap rect but never sets `ghost_item`) so the new ghost appears
+            // in place instead of sliding in from the previous item's slot.
+            self.ghost_last_pos = None;
         }
     }
 
