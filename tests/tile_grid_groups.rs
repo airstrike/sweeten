@@ -290,3 +290,42 @@ fn controls_overlay_receives_click() {
         "clicking the controls overlay should emit Edit; got {messages:?}"
     );
 }
+
+#[test]
+fn controls_overlay_survives_hover_onto_button() {
+    // Regression: hovering the *button itself* must not flicker the overlay
+    // off. The overlay reports a non-`None` mouse_interaction under the
+    // cursor, so iced hands the base widget `Cursor::Unavailable`. If the
+    // base then cleared its hover state, the overlay would vanish on the next
+    // frame and the click would miss (the user's "50% dead clicks"). Here we
+    // move the cursor *onto* the button as a distinct CursorMoved before
+    // pressing — pre-fix that drops the overlay and the press reaches nothing.
+    let app = CtrlApp::new();
+    let messages = {
+        let mut ui = iced_test::Simulator::with_size(
+            Default::default(),
+            iced::Size::new(W, H),
+            app.view(),
+        );
+        // 1. Hover the tile body so the overlay appears.
+        ui.point_at(Point::new(150.0, 75.0));
+        let _ = ui.simulate([moved(Point::new(150.0, 75.0))]);
+        // 2. Move onto the button. With the cursor over the overlay, the
+        //    base widget sees `Cursor::Unavailable`; it must keep its hover.
+        let on_button = Point::new(274.0, 12.0);
+        ui.point_at(on_button);
+        let _ = ui.simulate([moved(on_button)]);
+        // 3. Now press the button. The overlay must still be there.
+        ui.point_at(on_button);
+        let _ = ui.simulate([press(), release()]);
+        ui.into_messages().collect::<Vec<_>>()
+    };
+
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, CtrlMessage::Edit(id) if *id == app.tile)),
+        "the overlay must stay visible while the cursor is on its button, \
+         so the press still emits Edit; got {messages:?}"
+    );
+}

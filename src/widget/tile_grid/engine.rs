@@ -1233,6 +1233,74 @@ impl Internal {
 mod tests {
     use super::*;
 
+    /// Regression: a leaked drag snapshot must not perturb the
+    /// size-to-content group fit. `preview_engine`'s within-grid move calls
+    /// `save_snapshot()`; if that snapshot survives into the per-group
+    /// `resize_item` loop, `try_swap_pack` (Swap-mode collision handling)
+    /// reads it and reorders the groups — visually swapping two groups while
+    /// dragging an unrelated loose tile. Mirrors the grouped example: a 2×2
+    /// loose tile resting at (8,1) and a no-op within-grid move of it.
+    #[test]
+    fn leaked_snapshot_does_not_reorder_size_to_content_fit() {
+        // Committed root: Pulse(0,0,8,1), rail(8,0,4,1), Trends(0,1,8,1),
+        // loose(8,1,2,2) — exactly the example's layout after the loose tile
+        // is reparented to the root and gravity packs it under rail.
+        let (pulse, rail, trends, loose) =
+            (ItemId(0), ItemId(8), ItemId(5), ItemId(11));
+        let build = || {
+            let mut e = Internal::new(12);
+            e.add_item_with_id(pulse, 0, 0, 8, 1);
+            e.add_item_with_id(rail, 8, 0, 4, 1);
+            e.add_item_with_id(trends, 0, 1, 8, 1);
+            e.add_item_with_id(loose, 8, 1, 2, 2);
+            e
+        };
+
+        // The `size_to_content` fit the widget performs every layout: resize
+        // each group to its content (in id-sorted/Vec order) then pack.
+        let fit = |e: &mut Internal, p: ItemId, r: ItemId, t: ItemId| {
+            e.resize_item(p, 8, 3);
+            e.resize_item(r, 4, 7);
+            e.resize_item(t, 8, 4);
+            e.pack_nodes();
+        };
+
+        // Idle layout: no drag snapshot.
+        let mut idle = build();
+        fit(&mut idle, pulse, rail, trends);
+        let idle_ok = idle.get(pulse).unwrap().y < idle.get(trends).unwrap().y;
+        assert!(idle_ok, "sanity: idle keeps Pulse above Trends");
+
+        // Drag preview WITHOUT the fix: snapshot left on the engine.
+        let mut leaked = build();
+        leaked.save_snapshot();
+        // No-op move of the loose tile (its committed spot), Swap mode.
+        leaked.move_item_held(loose, 8, 1, &[loose], MoveMode::Swap);
+        fit(&mut leaked, pulse, rail, trends);
+        let leaked_pulse_above =
+            leaked.get(pulse).unwrap().y < leaked.get(trends).unwrap().y;
+
+        // Drag preview WITH the fix: clear the snapshot once the move is done.
+        let mut fixed = build();
+        fixed.save_snapshot();
+        fixed.move_item_held(loose, 8, 1, &[loose], MoveMode::Swap);
+        fixed.clear_snapshot();
+        fit(&mut fixed, pulse, rail, trends);
+        let fixed_pulse_above =
+            fixed.get(pulse).unwrap().y < fixed.get(trends).unwrap().y;
+
+        assert!(
+            !leaked_pulse_above,
+            "expected the leaked snapshot to REPRODUCE the bug (Trends above \
+             Pulse); if this fails the repro no longer holds"
+        );
+        assert!(
+            fixed_pulse_above,
+            "clearing the snapshot after the move must keep Pulse above \
+             Trends in the fit, matching idle"
+        );
+    }
+
     // =================================================================
     // 1. AABB Intersection Tests
     // =================================================================

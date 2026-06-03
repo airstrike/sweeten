@@ -627,7 +627,11 @@ where
     ) -> Option<Internal> {
         if let Some(d) = drag {
             if d.source_owner == owner && d.dest_owner == owner {
-                // Within-grid move.
+                // Within-grid move. The snapshot scopes `try_swap_pack` to
+                // this move; clear it afterwards (as the committed path in
+                // `State::perform` does) so it cannot leak into the
+                // `size_to_content` resize pass and spuriously reorder
+                // sibling groups under Swap mode.
                 let mut engine = self.owner_engine(owner).clone();
                 engine.save_snapshot();
                 engine.move_item_held(
@@ -637,6 +641,7 @@ where
                     &self.held_in(owner),
                     d.mode,
                 );
+                engine.clear_snapshot();
                 return Some(engine);
             }
             if d.source_owner == owner {
@@ -763,15 +768,22 @@ where
                 } else {
                     0.0
                 };
+
+                let pad = self.group_padding;
+
+                // The header strip shares the body's horizontal inset so the
+                // group title lines up with the left edge of its child tiles
+                // rather than sitting flush against the group border.
                 out.content.insert(
                     id,
                     Rectangle {
+                        x: rect.x + pad,
+                        y: rect.y,
+                        width: (rect.width - 2.0 * pad).max(0.0),
                         height: header,
-                        ..rect
                     },
                 );
 
-                let pad = self.group_padding;
                 let body = Rectangle {
                     x: rect.x + pad,
                     y: rect.y + header + pad,
@@ -1401,55 +1413,80 @@ where
 
         // Track which node the cursor hovers so we request redraws when it
         // changes (keeps title-bar controls + overlay controls in sync).
+        //
+        // Only recompute while the cursor position is actually known. When
+        // our own controls overlay sits under the cursor, iced reports its
+        // (non-`None`) `mouse_interaction` and hands the base widget
+        // `Cursor::Unavailable` (see `UserInterface::update`). Clearing the
+        // hover then would drop the overlay, which un-captures the cursor on
+        // the next frame and re-shows it — a per-frame flicker that also
+        // makes clicks land on the wrong phase. So hold the last hover while
+        // the cursor is unavailable, and only force-clear it when the cursor
+        // genuinely leaves the window.
         {
-            let pos = cursor.position_over(bounds);
-            let hovered_index = pos.and_then(|pos| {
-                layout
-                    .children()
-                    .enumerate()
-                    .find(|(_, child)| child.bounds().contains(pos))
-                    .map(|(i, _)| i)
-            });
+            let hover =
+                if matches!(event, Event::Mouse(mouse::Event::CursorLeft)) {
+                    Some((None, None))
+                } else {
+                    cursor.position().map(|point| {
+                        let over = bounds.contains(point).then_some(point);
 
-            // The hovered item for the controls overlay. The overlay
-            // straddles the item's top edge, so the cursor leaves the item
-            // rect to reach it — extend the hit-test upward by a band so the
-            // controls stay visible while being aimed at.
-            let controls_hovered = pos.and_then(|pos| {
-                self.items
-                    .iter()
-                    .copied()
-                    .zip(layout.children())
-                    .find(|(_, child)| child.bounds().contains(pos))
-                    .or_else(|| {
-                        self.items.iter().copied().zip(layout.children()).find(
-                            |(_, child)| {
-                                let b = child.bounds();
-                                Rectangle {
-                                    x: b.x,
-                                    y: b.y - CONTROLS_HOVER_BAND,
-                                    width: b.width,
-                                    height: b.height + CONTROLS_HOVER_BAND,
-                                }
-                                .contains(pos)
-                            },
-                        )
+                        let hovered_index = over.and_then(|pos| {
+                            layout
+                                .children()
+                                .enumerate()
+                                .find(|(_, child)| child.bounds().contains(pos))
+                                .map(|(i, _)| i)
+                        });
+
+                        // The hovered item for the controls overlay. The overlay
+                        // straddles the item's top edge, so the cursor leaves the
+                        // item rect to reach it — extend the hit-test upward by a
+                        // band so the controls stay visible while being aimed at.
+                        let controls_hovered = over.and_then(|pos| {
+                            self.items
+                                .iter()
+                                .copied()
+                                .zip(layout.children())
+                                .find(|(_, child)| child.bounds().contains(pos))
+                                .or_else(|| {
+                                    self.items
+                                        .iter()
+                                        .copied()
+                                        .zip(layout.children())
+                                        .find(|(_, child)| {
+                                            let b = child.bounds();
+                                            Rectangle {
+                                                x: b.x,
+                                                y: b.y - CONTROLS_HOVER_BAND,
+                                                width: b.width,
+                                                height: b.height
+                                                    + CONTROLS_HOVER_BAND,
+                                            }
+                                            .contains(pos)
+                                        })
+                                })
+                                .map(|(id, _)| id)
+                        });
+
+                        (hovered_index, controls_hovered)
                     })
-                    .map(|(id, _)| id)
-            });
+                };
 
-            let memory = tree.state.downcast_mut::<Memory>();
-            let mut redraw = false;
-            if memory.last_hovered != hovered_index {
-                memory.last_hovered = hovered_index;
-                redraw = true;
-            }
-            if memory.controls_hovered != controls_hovered {
-                memory.controls_hovered = controls_hovered;
-                redraw = true;
-            }
-            if redraw {
-                shell.request_redraw();
+            if let Some((hovered_index, controls_hovered)) = hover {
+                let memory = tree.state.downcast_mut::<Memory>();
+                let mut redraw = false;
+                if memory.last_hovered != hovered_index {
+                    memory.last_hovered = hovered_index;
+                    redraw = true;
+                }
+                if memory.controls_hovered != controls_hovered {
+                    memory.controls_hovered = controls_hovered;
+                    redraw = true;
+                }
+                if redraw {
+                    shell.request_redraw();
+                }
             }
         }
 
@@ -1560,7 +1597,6 @@ where
             interaction,
             animations,
             drag_target,
-            group_bodies,
             group_rects,
             ..
         } = tree.state.downcast_ref();
@@ -1654,28 +1690,6 @@ where
                             ..*rect
                         },
                         border,
-                        ..renderer::Quad::default()
-                    },
-                    Background::Color(Color::TRANSPARENT),
-                );
-            }
-        }
-
-        // While a drag is in progress, outline every container body to
-        // hint at the available drop zones.
-        if picked_item.is_some()
-            && let Some(outline) = grid_style.group_outline
-        {
-            let offset = layout.bounds().position();
-            for body in group_bodies.values() {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: body.x + offset.x,
-                            y: body.y + offset.y,
-                            ..*body
-                        },
-                        border: outline,
                         ..renderer::Quad::default()
                     },
                     Background::Color(Color::TRANSPARENT),
@@ -2165,9 +2179,6 @@ pub struct Style {
     ///
     /// Set to `None` to disable the resize grip.
     pub resize_grip: Option<ResizeGrip>,
-    /// The outline drawn around every container's body while a drag is in
-    /// progress, hinting at the available drop zones. `None` disables it.
-    pub group_outline: Option<Border>,
     /// A persistent border drawn around every container's full rect (header
     /// + body). `None` disables it. Useful to frame groups while editing.
     pub group_border: Option<Border>,
@@ -2247,14 +2258,6 @@ pub fn default_style(_theme: &Theme) -> Style {
                 a: 0.25,
             },
             dot_size: 2.0,
-        }),
-        group_outline: Some(Border {
-            width: 1.0,
-            color: Color {
-                a: 0.2,
-                ..Color::BLACK
-            },
-            radius: 8.0.into(),
         }),
         group_border: None,
     }
