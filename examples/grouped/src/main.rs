@@ -252,7 +252,7 @@ impl App {
                     )
                     .style(tile_style);
                     if edit_mode {
-                        content = content.controls(
+                        content = content.drag_body(true).controls(
                             row![edit_button(id), delete_button(id, armed)]
                                 .spacing(4),
                         );

@@ -49,6 +49,7 @@ pub struct Content<
     controls: Option<Element<'a, Message, Theme, Renderer>>,
     class: Theme::Class<'a>,
     draggable: bool,
+    drag_body: bool,
     resizable: bool,
     held: bool,
     hug_height: bool,
@@ -69,6 +70,7 @@ where
             controls: None,
             class: Theme::default(),
             draggable: true,
+            drag_body: false,
             resizable: true,
             held: false,
             hug_height: false,
@@ -122,6 +124,24 @@ where
     #[must_use]
     pub fn draggable(mut self, draggable: bool) -> Self {
         self.draggable = draggable;
+        self
+    }
+
+    /// Sets whether the whole card acts as a drag handle, not just the title
+    /// bar.
+    ///
+    /// By default a drag only starts from the title bar's pick area (the strip
+    /// minus its title content and controls), matching [`pane_grid`]. Enable
+    /// this for dashboard-style tiles where grabbing anywhere on the card to
+    /// move it feels more natural. Has no effect unless [`draggable`] is also
+    /// set (the default). The resize grip and the controls overlay still take
+    /// priority over their own regions.
+    ///
+    /// [`draggable`]: Self::draggable
+    /// [`pane_grid`]: https://docs.iced.rs/iced/widget/pane_grid
+    #[must_use]
+    pub fn drag_body(mut self, drag_body: bool) -> Self {
+        self.drag_body = drag_body;
         self
     }
 
@@ -517,6 +537,11 @@ where
         layout: Layout<'_>,
         cursor_position: Point,
     ) -> bool {
+        // The whole card is a drag handle when opted in (the controls overlay
+        // and resize grip, checked earlier, still claim their own regions).
+        if self.drag_body {
+            return layout.bounds().contains(cursor_position);
+        }
         if let Some(title_bar) = &self.title_bar {
             let mut children = layout.children();
             let title_bar_layout = children.next().unwrap();
