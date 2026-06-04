@@ -1882,9 +1882,12 @@ where
         viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        // Controls overlays render only for the hovered item.
-        let controls_hovered =
-            tree.state.downcast_ref::<Memory>().controls_hovered;
+        // Controls overlays render only for the hovered item, and never while
+        // a drag or resize is in flight — otherwise they float around with the
+        // reflowing layout and get in the way of the gesture.
+        let memory = tree.state.downcast_ref::<Memory>();
+        let controls_hovered = memory.controls_hovered;
+        let interacting = !matches!(memory.interaction, Interaction::Idle);
 
         let children = self
             .items
@@ -1894,7 +1897,8 @@ where
             .zip(&mut tree.children)
             .zip(layout.children())
             .filter_map(|(((id, content), state), layout)| {
-                let show_controls = controls_hovered == Some(id);
+                let show_controls =
+                    !interacting && controls_hovered == Some(id);
                 content.overlay(
                     state,
                     layout,
