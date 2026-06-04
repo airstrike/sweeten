@@ -902,6 +902,12 @@ struct Memory {
     /// Body rects of container nodes from the last layout pass, in
     /// widget-relative coordinates. Used to hit-test the reparent target.
     group_bodies: HashMap<ItemId, Rectangle>,
+    /// Container body rects captured at the start of the active drag, before
+    /// the preview moves anything. The reparent hit-test resolves against
+    /// these fixed pre-lift rects rather than the live (preview) bodies — so
+    /// the drop target is a stable function of the cursor, not of the
+    /// evolving layout (which would feed back and oscillate).
+    drag_bodies: Option<HashMap<ItemId, Rectangle>>,
     /// Full rects of container nodes from the last layout pass, in
     /// widget-relative coordinates. Used for the whole-group drag ghost.
     group_rects: HashMap<ItemId, Rectangle>,
@@ -1113,6 +1119,7 @@ where
             interaction,
             animations,
             drag_target,
+            drag_bodies,
             resize_target,
             group_bodies,
             modifiers,
@@ -1265,6 +1272,7 @@ where
                 }
                 *interaction = Interaction::Idle;
                 *drag_target = None;
+                *drag_bodies = None;
                 *resize_target = None;
                 animations.hide_ghost();
             }
@@ -1293,8 +1301,16 @@ where
                             let mode =
                                 self.swap_mode.resolve(modifiers.shift());
                             let source_owner = self.parent_of(*id);
+                            // Resolve the reparent target against the fixed
+                            // pre-lift bodies, captured once at drag start, so
+                            // the drop is a stable function of the cursor and
+                            // doesn't chase the preview as groups reflow.
+                            let bodies: &HashMap<ItemId, Rectangle> =
+                                drag_bodies.get_or_insert_with(|| {
+                                    group_bodies.clone()
+                                });
                             let dest_owner = self.reparent_target(
-                                group_bodies,
+                                bodies,
                                 origin_offset(bounds),
                                 cursor_position,
                                 *id,
@@ -1346,7 +1362,7 @@ where
                                 );
                                 let (dx, dy) = self.dest_cell(
                                     dest_owner,
-                                    group_bodies,
+                                    bodies,
                                     bounds.position(),
                                     bounds,
                                     node_top_left,

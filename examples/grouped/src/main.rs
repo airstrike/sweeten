@@ -117,6 +117,11 @@ impl App {
         state.add_child(rail, 0, 0, 1, 3, tile("News Feed", "3 new"));
         state.add_child(rail, 0, 3, 1, 3, tile("Markets", "S&P 7,580"));
 
+        // A standalone (ungrouped) 2x2 tile on the root board, gravity-packed
+        // below the news/markets rail. Useful for exercising drags through the
+        // busy intersection between the root grid and the groups.
+        state.add(8, 1000, 2, 2, tile("Loose tile", "—"));
+
         (
             Self {
                 state,
