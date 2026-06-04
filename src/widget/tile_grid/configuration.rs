@@ -115,10 +115,11 @@ pub struct Item<T> {
     pub max_h: Option<u16>,
     /// User data associated with the item.
     pub state: T,
-    /// Number of columns for this item's child grid, when it is a
-    /// container. `None` inherits the parent grid's column count.
-    pub inner_columns: Option<u16>,
-    /// Child items. A non-empty list (or a set `inner_columns`) makes this
+    /// Forces this item to be a *container* (a "group") even with no children
+    /// yet. An item with children is a container regardless. The child grid's
+    /// column count is the item's own width.
+    pub group: bool,
+    /// Child items. A non-empty list (or [`group`](Self::group)) makes this
     /// item a *container* (a "group") whose body hosts a nested grid.
     pub children: Vec<Item<T>>,
 }
@@ -140,23 +141,23 @@ impl<T> Item<T> {
             min_h: None,
             max_h: None,
             state,
-            inner_columns: None,
+            group: false,
             children: Vec::new(),
         }
     }
 
-    /// Returns `true` if this item is a container (has children or a
-    /// declared child-grid column count).
+    /// Returns `true` if this item is a container (has children or is marked
+    /// as a [`group`](Self::group)).
     #[must_use]
     pub fn is_group(&self) -> bool {
-        !self.children.is_empty() || self.inner_columns.is_some()
+        self.group || !self.children.is_empty()
     }
 
-    /// Sets the number of columns for this item's child grid, marking it
-    /// as a container.
+    /// Marks this item as a container (a "group") even when it has no children
+    /// yet. Its child grid takes the item's own width as its column count.
     #[must_use]
-    pub fn inner_columns(mut self, columns: u16) -> Self {
-        self.inner_columns = Some(columns);
+    pub fn group(mut self) -> Self {
+        self.group = true;
         self
     }
 

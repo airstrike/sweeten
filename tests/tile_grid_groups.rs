@@ -36,9 +36,9 @@ struct App {
 impl App {
     fn new() -> Self {
         let mut state: State<&'static str> = State::new(12);
-        let group_a = state.add_group(0, 0, 6, 4, "A", 6);
+        let group_a = state.add_group(0, 0, 6, 4, "A");
         let a = state.add_child(group_a, 0, 0, 2, 2, "a").unwrap();
-        let group_b = state.add_group(6, 0, 6, 4, "B", 6);
+        let group_b = state.add_group(6, 0, 6, 4, "B");
         let b = state.add_child(group_b, 0, 0, 2, 2, "b").unwrap();
         Self {
             state,
@@ -231,7 +231,7 @@ struct CtrlApp {
 impl CtrlApp {
     fn new() -> Self {
         let mut state: State<&'static str> = State::new(12);
-        let group = state.add_group(0, 0, 12, 6, "G", 12);
+        let group = state.add_group(0, 0, 12, 6, "G");
         let tile = state.add_child(group, 0, 0, 3, 3, "t").unwrap();
         Self { state, tile }
     }
@@ -344,7 +344,7 @@ fn trends_with_pipeline_width(
     pipeline_w: u16,
 ) -> iced_test::Simulator<'static, FitMessage> {
     let mut state: State<&'static str> = State::new(12);
-    let trends = state.add_group(0, 0, 8, 1, "Trends", 8);
+    let trends = state.add_group(0, 0, 8, 1, "Trends");
     state.add_child(trends, 0, 0, 4, 3, "Bookings").unwrap();
     state
         .add_child(trends, 4, 0, pipeline_w, 3, "Pipeline")

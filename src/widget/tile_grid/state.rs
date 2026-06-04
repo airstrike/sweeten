@@ -310,8 +310,12 @@ impl<T> State<T> {
 
     /// Adds a new *container* (group) node at the root.
     ///
-    /// The node hosts a child grid with `inner_columns` columns, initially
-    /// empty. Use [`add_child`](Self::add_child) to populate it.
+    /// The node hosts a child grid, initially empty, at the same column
+    /// granularity as the grid it lives in: a group `w` columns wide owns a
+    /// child grid of `w` columns. (There is one column size for the whole
+    /// tree — a group just fills a span of it — so a tile keeps its width
+    /// when it moves between groups.) Use [`add_child`](Self::add_child) to
+    /// populate it.
     pub fn add_group(
         &mut self,
         x: u16,
@@ -319,7 +323,6 @@ impl<T> State<T> {
         w: u16,
         h: u16,
         user_data: T,
-        inner_columns: u16,
     ) -> ItemId {
         let id = self.alloc_id();
         self.root.engine.add_item_with_id(id, x, y, w, h);
@@ -327,7 +330,7 @@ impl<T> State<T> {
             id,
             Node {
                 data: user_data,
-                children: Some(Grid::new(inner_columns)),
+                children: Some(Grid::new(w)),
             },
         );
         id
@@ -641,9 +644,9 @@ fn build_into<T>(
         }
 
         let children = if item.is_group() {
-            let columns =
-                item.inner_columns.unwrap_or_else(|| grid.engine.columns());
-            let mut child = Grid::new(columns);
+            // A group's inner grid matches its own width — one column size for
+            // the whole tree.
+            let mut child = Grid::new(item.w);
             build_into(&mut child, item.children, next_id, float);
             Some(child)
         } else {
@@ -981,7 +984,7 @@ mod tests {
     fn global_ids_unique_across_nested_grids() {
         // Ids must be unique across the whole tree, not per-engine.
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group", 6);
+        let group = state.add_group(0, 0, 6, 4, "group");
         let a = state.add_child(group, 0, 0, 3, 2, "a").unwrap();
         let b = state.add_child(group, 3, 0, 3, 2, "b").unwrap();
         let leaf = state.add(6, 0, 6, 4, "leaf");
@@ -997,7 +1000,7 @@ mod tests {
     #[test]
     fn nested_lookup_finds_node_and_item() {
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group", 6);
+        let group = state.add_group(0, 0, 6, 4, "group");
         let child = state.add_child(group, 1, 1, 2, 2, "child").unwrap();
 
         // get / get_node reach the nested node.
@@ -1015,7 +1018,7 @@ mod tests {
     #[test]
     fn nested_move_targets_child_grid() {
         let mut state: State<()> = State::new(12);
-        let group = state.add_group(0, 0, 12, 6, (), 6);
+        let group = state.add_group(0, 0, 12, 6, ());
         let a = state.add_child(group, 0, 0, 2, 2, ()).unwrap();
         let b = state.add_child(group, 2, 0, 2, 2, ()).unwrap();
 
@@ -1040,7 +1043,7 @@ mod tests {
     #[test]
     fn remove_nested_node() {
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group", 6);
+        let group = state.add_group(0, 0, 6, 4, "group");
         let child = state.add_child(group, 0, 0, 2, 2, "child").unwrap();
 
         assert_eq!(state.remove(child), Some("child"));
@@ -1054,8 +1057,8 @@ mod tests {
     /// Builds a state with two sibling groups, each holding one child.
     fn two_groups() -> (State<&'static str>, ItemId, ItemId, ItemId, ItemId) {
         let mut state: State<&str> = State::new(12);
-        let pulse = state.add_group(0, 0, 6, 4, "pulse", 6);
-        let trends = state.add_group(6, 0, 6, 4, "trends", 6);
+        let pulse = state.add_group(0, 0, 6, 4, "pulse");
+        let trends = state.add_group(6, 0, 6, 4, "trends");
         let a = state.add_child(pulse, 0, 0, 2, 2, "a").unwrap();
         let b = state.add_child(trends, 0, 0, 2, 2, "b").unwrap();
         (state, pulse, trends, a, b)
@@ -1133,8 +1136,8 @@ mod tests {
         // Dropping a group into its own subtree would create a cycle and
         // must be rejected, leaving the tree untouched.
         let mut state: State<&str> = State::new(12);
-        let outer = state.add_group(0, 0, 12, 6, "outer", 6);
-        let inner = state.add_group(0, 0, 6, 4, "inner", 6);
+        let outer = state.add_group(0, 0, 12, 6, "outer");
+        let inner = state.add_group(0, 0, 6, 4, "inner");
         // Nest `inner` under `outer` first.
         state.perform(
             reparent(inner, Some(outer), 0, 0, DragPhase::Ended),
@@ -1164,8 +1167,8 @@ mod tests {
     fn reparent_preserves_moved_subtree() {
         // Moving a container carries its children along.
         let mut state: State<&str> = State::new(12);
-        let host = state.add_group(0, 0, 12, 8, "host", 12);
-        let group = state.add_group(0, 0, 6, 4, "group", 6);
+        let host = state.add_group(0, 0, 12, 8, "host");
+        let group = state.add_group(0, 0, 6, 4, "group");
         let child = state.add_child(group, 0, 0, 2, 2, "child").unwrap();
 
         // Move `group` (with `child`) into `host`.
@@ -1185,8 +1188,9 @@ mod tests {
     #[test]
     fn reparent_restores_width_clamped_by_a_narrow_grid() {
         let mut state: State<&str> = State::new(12);
-        // A single-column group inside the 12-column root.
-        let narrow = state.add_group(0, 0, 4, 6, "narrow", 1);
+        // A single-column group (its inner grid matches its width) inside the
+        // 12-column root.
+        let narrow = state.add_group(0, 0, 1, 6, "narrow");
         // Author a 2-wide tile in it; the 1-column grid clamps it to 1, but
         // the node remembers it wants to be 2 wide.
         let tile = state.add_child(narrow, 0, 0, 2, 2, "t").unwrap();

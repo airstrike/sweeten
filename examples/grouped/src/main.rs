@@ -97,8 +97,7 @@ impl App {
 
         // Groups are authored 1 row tall; `size_to_content` grows them to
         // fit their children.
-        let pulse =
-            state.add_group(0, 0, 8, 1, Cell::Section("Pulse".into()), 8);
+        let pulse = state.add_group(0, 0, 8, 1, Cell::Section("Pulse".into()));
         for (x, t, v) in [
             (0, "New Bookings", "$4.2M"),
             (2, "Pipeline Coverage", "3.4×"),
@@ -109,13 +108,15 @@ impl App {
         }
 
         let trends =
-            state.add_group(0, 1, 8, 1, Cell::Section("Trends".into()), 8);
+            state.add_group(0, 1, 8, 1, Cell::Section("Trends".into()));
         state.add_child(trends, 0, 0, 4, 3, tile("Bookings vs Plan", "▁▂▃▅▆▇"));
         state.add_child(trends, 4, 0, 4, 3, tile("Pipeline by Stage", "▇▆▅▃▂"));
 
-        let rail = state.add_group(8, 0, 4, 1, Cell::Section(String::new()), 1);
-        state.add_child(rail, 0, 0, 1, 3, tile("News Feed", "3 new"));
-        state.add_child(rail, 0, 3, 1, 3, tile("Markets", "S&P 7,580"));
+        // 4 columns wide, so its inner grid is 4 columns: the stacked tiles
+        // fill it at width 4.
+        let rail = state.add_group(8, 0, 4, 1, Cell::Section(String::new()));
+        state.add_child(rail, 0, 0, 4, 3, tile("News Feed", "3 new"));
+        state.add_child(rail, 0, 3, 4, 3, tile("Markets", "S&P 7,580"));
 
         // A standalone (ungrouped) 2x2 tile on the root board, gravity-packed
         // below the news/markets rail. Useful for exercising drags through the
