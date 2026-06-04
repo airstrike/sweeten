@@ -22,7 +22,7 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay::{self, Group};
 use crate::core::renderer;
-use crate::core::time::Instant;
+use crate::core::time::{Duration, Instant};
 use crate::core::touch;
 use crate::core::widget;
 use crate::core::widget::tree::{self, Tree};
@@ -43,6 +43,13 @@ use super::state;
 /// Upward extension (in pixels) of an item's hover hit-test, so the
 /// straddling controls overlay stays visible while the cursor reaches it.
 const CONTROLS_HOVER_BAND: f32 = 30.0;
+
+/// How long the drag target cell must stay put before the grid reflows to
+/// make room for it. Sweeping a tile across the board re-targets every cell
+/// it passes, so without this dwell the whole grid thrashes even though only
+/// the final destination matters. The floating tile still tracks the cursor
+/// immediately; only the reflow waits.
+const DRAG_DWELL: Duration = Duration::from_millis(175);
 
 /// How the widget selects between [`MoveMode::Swap`] and
 /// [`MoveMode::Place`] during drags.
@@ -878,6 +885,27 @@ struct DragMove {
     mode: MoveMode,
     w: u16,
     h: u16,
+    /// When this target cell was first seen. The reflow waits [`DRAG_DWELL`]
+    /// past this before applying, so sweeping across cells doesn't thrash.
+    since: Instant,
+}
+
+impl DragMove {
+    /// Whether two targets land the dragged node in the same cell of the same
+    /// grid (ignoring the dwell timestamp). A move that keeps the same cell
+    /// must not reset the dwell — otherwise a jittery hand parked on the
+    /// destination never settles.
+    fn same_cell(&self, other: &Self) -> bool {
+        self.source_owner == other.source_owner
+            && self.dest_owner == other.dest_owner
+            && self.x == other.x
+            && self.y == other.y
+    }
+
+    /// Whether the target has dwelled long enough for the grid to reflow.
+    fn dwelled(&self) -> bool {
+        self.since.elapsed() >= DRAG_DWELL
+    }
 }
 
 /// The resize target during an active resize.
@@ -894,9 +922,15 @@ struct Memory {
     order: Vec<ItemId>,
     last_hovered: Option<usize>,
     animations: ItemAnimations,
-    /// Tentative drag target during an active drag. Drives the preview
-    /// layout (computed in `layout`); the committed engine is untouched.
+    /// Tentative drag target during an active drag — the cell the cursor is
+    /// currently over. Tracked every frame to detect the dwell; the preview
+    /// is driven by [`held_drag`](Self::held_drag), not this.
     drag_target: Option<DragMove>,
+    /// The last drag target that *dwelled* long enough to apply. This drives
+    /// the preview layout and persists between dwells, so the reflow it
+    /// produced stays put while the tile keeps moving — the next dwell adjusts
+    /// from it rather than snapping back to the committed layout.
+    held_drag: Option<DragMove>,
     /// Tentative resize dimensions during an active resize.
     resize_target: Option<ResizeTarget>,
     /// Body rects of container nodes from the last layout pass, in
@@ -1001,7 +1035,17 @@ where
         let bounds = Size::new(resolved_width, resolved_height);
 
         let memory = tree.state.downcast_mut::<Memory>();
-        let drag = memory.drag_target;
+        // Promote the current target to the held target once it has dwelled
+        // (and lands in a new cell). The held target persists between dwells,
+        // so the reflow it produced stays put while the tile keeps moving —
+        // the grid doesn't snap back to committed on every sideways nudge.
+        if let Some(t) = memory.drag_target
+            && t.dwelled()
+            && memory.held_drag.is_none_or(|h| !h.same_cell(&t))
+        {
+            memory.held_drag = Some(t);
+        }
+        let drag = memory.held_drag;
         let resize = memory.resize_target;
 
         // Compute relative node rects + container bodies, applying the
@@ -1025,8 +1069,12 @@ where
             .update_positions(&regions, dragged_id, now);
 
         // The ghost tracks the dragged node's snap rect — the *full* rect
-        // for a container, so dragging a group previews the whole group.
-        if let Some(dragged) = dragged_id
+        // for a container, so dragging a group previews the whole group. Only
+        // while the move has dwelled (so `drag` is applied): before that the
+        // slot hasn't opened, and we want the highlight to reveal in place
+        // rather than slide in from the tile's origin.
+        if drag.is_some()
+            && let Some(dragged) = dragged_id
             && let Some(snap) = positions
                 .group_rects
                 .get(&dragged)
@@ -1119,6 +1167,7 @@ where
             interaction,
             animations,
             drag_target,
+            held_drag,
             drag_bodies,
             resize_target,
             group_bodies,
@@ -1144,7 +1193,16 @@ where
             Event::Window(window::Event::RedrawRequested(now)) => {
                 animations.now = Some(*now);
 
-                if animations.is_animating(*now) {
+                // While a drag is live, force a *relayout* every frame — not
+                // just a repaint. The dwell is time-based and evaluated in
+                // `layout`; `request_redraw` alone reuses the cached layout,
+                // so with the cursor sitting still the reflow would never
+                // compute. Invalidating layout re-runs the dwell check, and
+                // the steady frame loop then plays the reflow animation.
+                if !matches!(interaction, Interaction::Idle) {
+                    shell.invalidate_layout();
+                    shell.request_redraw();
+                } else if animations.is_animating(*now) {
                     shell.request_redraw();
                 }
 
@@ -1212,8 +1270,11 @@ where
             | Event::Touch(touch::Event::FingerLost { .. }) => {
                 match interaction {
                     Interaction::Moving { id, started, .. } if *started => {
+                        // Commit what the preview showed: the held (dwelled)
+                        // slot, or — if the tile was dropped before any dwell —
+                        // the cell the cursor is currently over.
                         if let Some(on_action) = &self.on_action
-                            && let Some(target) = *drag_target
+                            && let Some(target) = held_drag.or(*drag_target)
                         {
                             let action =
                                 if target.dest_owner == target.source_owner {
@@ -1272,6 +1333,7 @@ where
                 }
                 *interaction = Interaction::Idle;
                 *drag_target = None;
+                *held_drag = None;
                 *drag_bodies = None;
                 *resize_target = None;
                 animations.hide_ghost();
@@ -1316,8 +1378,8 @@ where
                                 *id,
                             );
 
-                            let (action, target) = if dest_owner == source_owner
-                            {
+                            let stamp = Instant::now();
+                            let (cx, cy) = if dest_owner == source_owner {
                                 // Within-grid move: snap by delta.
                                 let step_w = *cell_w + self.spacing;
                                 let step_h = *cell_h + self.spacing;
@@ -1329,29 +1391,9 @@ where
                                     / step_h)
                                     .round()
                                     as i32;
-                                let new_x =
-                                    (*start_x as i32 + grid_dx).max(0) as u16;
-                                let new_y =
-                                    (*start_y as i32 + grid_dy).max(0) as u16;
-                                let (w, h) = self.size_of(*id);
                                 (
-                                    Action::Move {
-                                        id: *id,
-                                        x: new_x,
-                                        y: new_y,
-                                        phase: phase_of(started),
-                                        mode,
-                                    },
-                                    DragMove {
-                                        id: *id,
-                                        source_owner,
-                                        dest_owner,
-                                        x: new_x,
-                                        y: new_y,
-                                        mode,
-                                        w,
-                                        h,
-                                    },
+                                    (*start_x as i32 + grid_dx).max(0) as u16,
+                                    (*start_y as i32 + grid_dy).max(0) as u16,
                                 )
                             } else {
                                 // Cross-group: land at the cursor's cell in
@@ -1360,38 +1402,58 @@ where
                                     cursor_position.x - grab_offset.x,
                                     cursor_position.y - grab_offset.y,
                                 );
-                                let (dx, dy) = self.dest_cell(
+                                self.dest_cell(
                                     dest_owner,
                                     bodies,
                                     bounds.position(),
                                     bounds,
                                     node_top_left,
-                                );
-                                let (w, h) = self.size_of(*id);
-                                (
+                                )
+                            };
+                            let (w, h) = self.size_of(*id);
+                            let candidate = DragMove {
+                                id: *id,
+                                source_owner,
+                                dest_owner,
+                                x: cx,
+                                y: cy,
+                                mode,
+                                w,
+                                h,
+                                since: stamp,
+                            };
+
+                            // Debounce the reflow: only re-target (and re-arm
+                            // the dwell redraw / re-publish) when the cell
+                            // actually changes. The floating tile tracks the
+                            // cursor every frame regardless; a parked cursor —
+                            // jitter and all — keeps its `since` and settles.
+                            if drag_target
+                                .is_none_or(|prev| !prev.same_cell(&candidate))
+                            {
+                                *drag_target = Some(candidate);
+                                shell.request_redraw_at(stamp + DRAG_DWELL);
+                                let phase = phase_of(started);
+                                let action = if dest_owner == source_owner {
+                                    Action::Move {
+                                        id: *id,
+                                        x: cx,
+                                        y: cy,
+                                        phase,
+                                        mode,
+                                    }
+                                } else {
                                     Action::Reparent {
                                         node: *id,
                                         new_parent: dest_owner,
-                                        x: dx,
-                                        y: dy,
-                                        phase: phase_of(started),
+                                        x: cx,
+                                        y: cy,
+                                        phase,
                                         mode,
-                                    },
-                                    DragMove {
-                                        id: *id,
-                                        source_owner,
-                                        dest_owner,
-                                        x: dx,
-                                        y: dy,
-                                        mode,
-                                        w,
-                                        h,
-                                    },
-                                )
-                            };
-
-                            *drag_target = Some(target);
-                            shell.publish(on_action(action));
+                                    }
+                                };
+                                shell.publish(on_action(action));
+                            }
                         }
                         shell.request_redraw();
                     }
@@ -1624,7 +1686,7 @@ where
         let Memory {
             interaction,
             animations,
-            drag_target,
+            held_drag,
             group_rects,
             ..
         } = tree.state.downcast_ref();
@@ -1830,25 +1892,34 @@ where
                 &animating,
             );
 
-            let highlight = match drag_target.map(|t| t.mode) {
-                Some(MoveMode::Place) => grid_style
-                    .place_region
-                    .as_ref()
-                    .unwrap_or(&grid_style.hovered_region),
-                _ => &grid_style.hovered_region,
-            };
+            // The drop-slot highlight tracks the held (dwelled) target, which
+            // is also what the grid has reflowed to open. While the tile is
+            // still sweeping between dwells, the highlight stays at the held
+            // slot rather than chasing the cursor.
+            if held_drag.is_some() {
+                let highlight = match held_drag.map(|t| t.mode) {
+                    Some(MoveMode::Place) => grid_style
+                        .place_region
+                        .as_ref()
+                        .unwrap_or(&grid_style.hovered_region),
+                    _ => &grid_style.hovered_region,
+                };
 
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: ghost_bounds,
-                    border: Border {
-                        color: highlight.border.color.scale_alpha(ghost_alpha),
-                        ..highlight.border
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: ghost_bounds,
+                        border: Border {
+                            color: highlight
+                                .border
+                                .color
+                                .scale_alpha(ghost_alpha),
+                            ..highlight.border
+                        },
+                        ..renderer::Quad::default()
                     },
-                    ..renderer::Quad::default()
-                },
-                highlight.background.scale_alpha(ghost_alpha),
-            );
+                    highlight.background.scale_alpha(ghost_alpha),
+                );
+            }
 
             let layout_pos = snap_bounds.position();
             let target = Point::new(
