@@ -551,9 +551,12 @@ where
 
     /// Returns the size (in cells) of `id` from its grid's engine.
     fn size_of(&self, id: ItemId) -> (u16, u16) {
+        // Use the desired width so a cross-group drag previews (and commits)
+        // the node re-expanded to fit the destination, rather than carrying
+        // the width a narrower source grid clamped it to.
         self.owner_engine(self.parent_of(id))
             .get(id)
-            .map_or((1, 1), |node| (node.w, node.h))
+            .map_or((1, 1), |node| (node.desired_w, node.h))
     }
 
     /// Collects the held ids that live directly in the grid owned by

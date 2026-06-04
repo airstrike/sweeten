@@ -28,10 +28,16 @@ pub struct Node {
     pub x: u16,
     /// Row position (0-based from top).
     pub y: u16,
-    /// Width in columns (>= 1).
+    /// Width in columns (>= 1). The *effective* width, clamped to the grid.
     pub w: u16,
     /// Height in rows (>= 1).
     pub h: u16,
+    /// The width the node *wants* to be — what it was authored with, or last
+    /// deliberately resized to. [`w`](Self::w) is this clamped to the grid's
+    /// column count; carrying it across a reparent lets a node re-expand when
+    /// it reaches a grid with room, instead of staying stuck at a width an
+    /// earlier, narrower grid clamped it to.
+    pub desired_w: u16,
     /// Minimum width in columns.
     pub min_w: Option<u16>,
     /// Maximum width in columns.
@@ -385,6 +391,7 @@ impl Internal {
             y: 0,
             w,
             h,
+            desired_w: w,
             min_w: None,
             max_w: None,
             min_h: None,
@@ -616,6 +623,7 @@ impl Internal {
                     y: py,
                     w: cw,
                     h: ch,
+                    desired_w: cw,
                     min_w: None,
                     max_w: None,
                     min_h: None,
@@ -633,6 +641,7 @@ impl Internal {
                             y: py2,
                             w: pw2,
                             h: ph2,
+                            desired_w: pw2,
                             min_w: None,
                             max_w: None,
                             min_h: None,
@@ -939,6 +948,7 @@ impl Internal {
             y,
             w,
             h,
+            desired_w: w,
             min_w: None,
             max_w: None,
             min_h: None,
@@ -984,6 +994,7 @@ impl Internal {
             y,
             w,
             h,
+            desired_w: w,
             min_w: None,
             max_w: None,
             min_h: None,
@@ -1116,6 +1127,10 @@ impl Internal {
 
         self.items[idx].w = new_w;
         self.items[idx].h = new_h;
+        // A deliberate resize is the node's new desired width — so a later
+        // move into a narrow grid clamps from here, and back into a wide one
+        // restores to here rather than to the original authored width.
+        self.items[idx].desired_w = new_w;
 
         // Apply constraints (resizing mode)
         self.node_bound_fix_by_id(id, true);
@@ -1232,6 +1247,25 @@ impl Internal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_clamps_effective_width_but_keeps_desired() {
+        let mut engine = Internal::new(1);
+        engine.add_item_with_id(ItemId(0), 0, 0, 3, 2);
+        let node = engine.get(ItemId(0)).unwrap();
+        assert_eq!(node.w, 1, "effective width clamps to the 1-column grid");
+        assert_eq!(node.desired_w, 3, "desired width is preserved");
+    }
+
+    #[test]
+    fn resize_updates_desired_width() {
+        let mut engine = Internal::new(8);
+        let id = engine.add_item(0, 0, 2, 2);
+        engine.resize_item(id, 5, 2);
+        let node = engine.get(id).unwrap();
+        assert_eq!(node.w, 5);
+        assert_eq!(node.desired_w, 5, "a deliberate resize sets the desire");
+    }
 
     /// Regression: a leaked drag snapshot must not perturb the
     /// size-to-content group fit. `preview_engine`'s within-grid move calls
@@ -3093,6 +3127,7 @@ mod tests {
             y,
             w,
             h,
+            desired_w: w,
             min_w: None,
             max_w: None,
             min_h: None,

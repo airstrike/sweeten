@@ -577,11 +577,15 @@ impl<T> State<T> {
             return;
         }
 
-        // Read the node's size and remove it (with its subtree) from its
-        // source grid, which compacts to close the gap.
+        // Read the node's *desired* width (not its grid-clamped width) and
+        // remove it (with its subtree) from its source grid, which compacts
+        // to close the gap. Carrying the desired width lets the node re-expand
+        // when it lands in a grid with room, instead of staying stuck at a
+        // width a narrower source grid had clamped it to.
         let Some((w, h, removed)) =
             self.root.grid_containing_mut(node).and_then(|src| {
-                let (w, h) = src.engine.get(node).map(|n| (n.w, n.h))?;
+                let (w, h) =
+                    src.engine.get(node).map(|n| (n.desired_w, n.h))?;
                 src.engine.remove_item(node);
                 src.nodes.remove(&node).map(|data| (w, h, data))
             })
@@ -1176,5 +1180,29 @@ mod tests {
             state.get_node(host).unwrap().children.as_ref().unwrap();
         assert!(host_grid.find_node(group).is_some());
         assert!(host_grid.find_node(child).is_some());
+    }
+
+    #[test]
+    fn reparent_restores_width_clamped_by_a_narrow_grid() {
+        let mut state: State<&str> = State::new(12);
+        // A single-column group inside the 12-column root.
+        let narrow = state.add_group(0, 0, 4, 6, "narrow", 1);
+        // Author a 2-wide tile in it; the 1-column grid clamps it to 1, but
+        // the node remembers it wants to be 2 wide.
+        let tile = state.add_child(narrow, 0, 0, 2, 2, "t").unwrap();
+        {
+            let n = state.engine_of(tile).unwrap().get(tile).unwrap();
+            assert_eq!(n.w, 1, "clamped to the group's single column");
+            assert_eq!(n.desired_w, 2, "but remembers its authored width");
+        }
+
+        // Drag it out to the 12-column root, which has room.
+        state.perform(reparent(tile, None, 0, 7, DragPhase::Ended), |_, _| {
+            false
+        });
+
+        let n = state.engine().get(tile).unwrap();
+        assert_eq!(n.w, 2, "re-expands to its desired width in the wider grid");
+        assert_eq!(n.desired_w, 2);
     }
 }
