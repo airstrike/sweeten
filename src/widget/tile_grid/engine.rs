@@ -986,6 +986,26 @@ impl Internal {
         w: u16,
         h: u16,
     ) {
+        self.add_item_with_id_held(id, x, y, w, h, &[]);
+    }
+
+    /// Adds an item with a fixed ID, treating `held` items as immovable
+    /// during the collision and gravity passes.
+    ///
+    /// Pinning the newly inserted item (by passing its own id in `held`)
+    /// keeps it at `(x, y)` instead of letting gravity pull it up into the
+    /// first free hole — which is what a drag *preview* wants, so the drop
+    /// lands where the cursor points rather than wherever gravity collapses
+    /// it to.
+    pub fn add_item_with_id_held(
+        &mut self,
+        id: ItemId,
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+        held: &[ItemId],
+    ) {
         self.next_id = self.next_id.max(id.0 + 1);
 
         let mut item = Node {
@@ -1003,10 +1023,10 @@ impl Internal {
 
         self.node_bound_fix(&mut item, false);
         self.items.push(item);
-        self.fix_collisions(id, &[], MoveMode::Swap);
+        self.fix_collisions(id, held, MoveMode::Swap);
 
         if !self.float {
-            self.pack_nodes();
+            self.pack_nodes_held(held);
         }
     }
 

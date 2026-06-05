@@ -51,6 +51,16 @@ const CONTROLS_HOVER_BAND: f32 = 30.0;
 /// immediately; only the reflow waits.
 const DRAG_DWELL: Duration = Duration::from_millis(175);
 
+/// Height of the "append" drop band beneath a grid's content, as a
+/// fraction of one cell. Because every grid is sized exactly to its
+/// content, there is otherwise no pixel space *below the last row* to aim
+/// at. During a drag we treat this thin band under a container's body as
+/// "drop here as the new last row," so a tile can be appended to the
+/// bottom of a group (and a group below another) rather than only ever
+/// landing on top of an existing tile. Past the band, the cursor falls
+/// through to the parent grid — the dnd-kit midpoint rule.
+const APPEND_BAND_FRACTION: f32 = 0.5;
+
 /// How the widget selects between [`MoveMode::Swap`] and
 /// [`MoveMode::Place`] during drags.
 ///
@@ -642,15 +652,18 @@ where
                 // `State::perform` does) so it cannot leak into the
                 // `size_to_content` resize pass and spuriously reorder
                 // sibling groups under Swap mode.
+                //
+                // The dragged node is pinned at its target cell (added to the
+                // held set) so gravity packs the *other* items around it,
+                // rather than pulling the dragged node up into the first free
+                // hole — which would detach the preview from the cursor. The
+                // final un-held pack in `fitted_engine` snugs it back up while
+                // preserving this order.
+                let mut held = self.held_in(owner);
+                held.push(d.id);
                 let mut engine = self.owner_engine(owner).clone();
                 engine.save_snapshot();
-                engine.move_item_held(
-                    d.id,
-                    d.x,
-                    d.y,
-                    &self.held_in(owner),
-                    d.mode,
-                );
+                engine.move_item_held(d.id, d.x, d.y, &held, d.mode);
                 engine.clear_snapshot();
                 return Some(engine);
             }
@@ -661,9 +674,10 @@ where
                 return Some(engine);
             }
             if d.dest_owner == owner {
-                // Reparent: insert into the destination grid.
+                // Reparent: insert into the destination grid, pinned at the
+                // target cell (see the within-grid case above).
                 let mut engine = self.owner_engine(owner).clone();
-                engine.add_item_with_id(d.id, d.x, d.y, d.w, d.h);
+                engine.add_item_with_id_held(d.id, d.x, d.y, d.w, d.h, &[d.id]);
                 return Some(engine);
             }
         }
@@ -692,6 +706,15 @@ where
             .unwrap_or_else(|| self.owner_engine(owner).clone());
 
         if self.size_to_content {
+            // The dragged node, if it lives in this grid, stays pinned at its
+            // target cell while the size-to-content resize grows its siblings,
+            // so a tall dragged group can't be shoved aside (or pull itself
+            // up) as neighbours expand. The final un-held `pack_nodes` then
+            // snugs everything — including the dragged node — back upward,
+            // preserving the order this pinning established.
+            let dragged_here: Option<ItemId> =
+                drag.filter(|d| d.dest_owner == owner).map(|d| d.id);
+            let pinned: &[ItemId] = dragged_here.as_slice();
             let groups: Vec<ItemId> = engine
                 .items()
                 .filter(|node| self.is_group(node.id))
@@ -719,7 +742,7 @@ where
                     .div_ceil(u32::from(inner_cols))
                     as u16;
 
-                engine.resize_item(gid, width.max(1), height);
+                engine.resize_item_held(gid, width.max(1), height, pinned);
             }
             engine.pack_nodes();
         }
@@ -846,14 +869,11 @@ enum Interaction {
         id: ItemId,
         /// The cursor position when the drag started.
         origin: Point,
-        /// Offset from the node's top-left corner to the grab point.
+        /// Offset from the node's top-left corner to the grab point. The
+        /// drop cell is derived absolutely from this (cursor minus offset
+        /// maps to a grid cell), not from a delta off the start position —
+        /// so a grid of unequal-height groups still lands correctly.
         grab_offset: Vector,
-        /// The node's grid position when the drag started.
-        start_x: u16,
-        start_y: u16,
-        /// Cell dimensions of the node's source grid at drag start.
-        cell_w: f32,
-        cell_h: f32,
         /// Whether a `DragPhase::Started` event has already been emitted.
         started: bool,
     },
@@ -909,6 +929,17 @@ impl DragMove {
     fn dwelled(&self) -> bool {
         self.since.elapsed() >= DRAG_DWELL
     }
+}
+
+/// A resolved drop container and how the cursor hit it.
+///
+/// `append` distinguishes a hit *inside* the body (`false`, land at the
+/// cursor's cell) from one in the band below it (`true`, append as the new
+/// last row). See [`TileGrid::reparent_target`].
+#[derive(Debug, Clone, Copy)]
+struct DropHit {
+    owner: ItemId,
+    append: bool,
 }
 
 /// The resize target during an active resize.
@@ -1263,8 +1294,6 @@ where
                         layout,
                         cursor_position,
                         shell,
-                        group_bodies,
-                        bounds,
                     );
                 }
             }
@@ -1348,11 +1377,8 @@ where
                         id,
                         origin,
                         grab_offset,
-                        start_x,
-                        start_y,
-                        cell_w,
-                        cell_h,
                         started,
+                        ..
                     } => {
                         if let Some(on_action) = &self.on_action
                             && let Some(cursor_position) = cursor.position()
@@ -1374,44 +1400,45 @@ where
                                 drag_bodies.get_or_insert_with(|| {
                                     group_bodies.clone()
                                 });
-                            let dest_owner = self.reparent_target(
+                            let hit = self.reparent_target(
                                 bodies,
                                 origin_offset(bounds),
                                 cursor_position,
                                 *id,
                             );
+                            let dest_owner = hit.map(|h| h.owner);
 
                             let stamp = Instant::now();
-                            let (cx, cy) = if dest_owner == source_owner {
-                                // Within-grid move: snap by delta.
-                                let step_w = *cell_w + self.spacing;
-                                let step_h = *cell_h + self.spacing;
-                                let grid_dx = ((cursor_position.x - origin.x)
-                                    / step_w)
-                                    .round()
-                                    as i32;
-                                let grid_dy = ((cursor_position.y - origin.y)
-                                    / step_h)
-                                    .round()
-                                    as i32;
-                                (
-                                    (*start_x as i32 + grid_dx).max(0) as u16,
-                                    (*start_y as i32 + grid_dy).max(0) as u16,
-                                )
+                            // Position the node absolutely against the stable
+                            // pre-lift layout — for within-grid moves and
+                            // cross-group reparents alike. A delta-from-start
+                            // snap only holds when every row is a uniform
+                            // `cell_h` tall; in a grid of size-to-content
+                            // groups (each stored as height 1 but rendered far
+                            // taller) the pixel delta stops tracking committed
+                            // rows, so dragging a group past its tall
+                            // neighbours lands it in the wrong row. Mapping the
+                            // floating node's top-left to a cell sidesteps
+                            // that, and gravity settles the final order.
+                            let node_top_left = Point::new(
+                                cursor_position.x - grab_offset.x,
+                                cursor_position.y - grab_offset.y,
+                            );
+                            let (cx, cy) = self.dest_cell(
+                                dest_owner,
+                                bodies,
+                                bounds.position(),
+                                bounds,
+                                node_top_left,
+                            );
+                            // An append-band hit drops at the grid's new last
+                            // row regardless of where the floating node's top
+                            // maps — so a whole-tile grab still lands *below*
+                            // the content, not on top of it.
+                            let cy = if hit.is_some_and(|h| h.append) {
+                                self.owner_engine(dest_owner).get_row()
                             } else {
-                                // Cross-group: land at the cursor's cell in
-                                // the destination grid.
-                                let node_top_left = Point::new(
-                                    cursor_position.x - grab_offset.x,
-                                    cursor_position.y - grab_offset.y,
-                                );
-                                self.dest_cell(
-                                    dest_owner,
-                                    bodies,
-                                    bounds.position(),
-                                    bounds,
-                                    node_top_left,
-                                )
+                                cy
                             };
                             let (w, h) = self.size_of(*id);
                             let candidate = DragMove {
@@ -2096,17 +2123,27 @@ where
         }
     }
 
-    /// The deepest valid container whose body contains the cursor, or
-    /// `None` for the root grid. Excludes the dragged node and its own
-    /// subtree (which would create a cycle).
+    /// The deepest valid container the cursor targets, or `None` for the
+    /// root grid. Excludes the dragged node and its own subtree (which would
+    /// create a cycle).
+    ///
+    /// A hit is either *inside* a container's body or in the thin
+    /// [`APPEND_BAND_FRACTION`] band just below it — the latter meaning
+    /// "drop as this container's new last row." Because grids are sized to
+    /// their content, that band is the only way to aim below the bottom row.
+    /// Past the band the cursor falls through to the parent grid, so the
+    /// lower edge of a group resolves to "after the group" rather than
+    /// "into it."
     fn reparent_target(
         &self,
         bodies: &HashMap<ItemId, Rectangle>,
         widget_origin: Vector,
         cursor: Point,
         dragged: ItemId,
-    ) -> Option<ItemId> {
-        let mut best: Option<(usize, ItemId)> = None;
+    ) -> Option<DropHit> {
+        // Rank: deeper containers win; an inside-body hit beats an
+        // append-band hit at the same depth.
+        let mut best: Option<((usize, u8), DropHit)> = None;
         for &id in &self.items {
             if !self.is_group(id) || id == dragged {
                 continue;
@@ -2114,21 +2151,38 @@ where
             if self.is_ancestor(dragged, id) {
                 continue;
             }
-            if let Some(body) = bodies.get(&id) {
-                let abs = Rectangle {
-                    x: body.x + widget_origin.x,
-                    y: body.y + widget_origin.y,
-                    ..*body
-                };
-                if abs.contains(cursor) {
-                    let depth = self.depth_of(id);
-                    if best.is_none_or(|(bd, _)| depth > bd) {
-                        best = Some((depth, id));
-                    }
+            let Some(body) = bodies.get(&id) else {
+                continue;
+            };
+            let abs = Rectangle {
+                x: body.x + widget_origin.x,
+                y: body.y + widget_origin.y,
+                ..*body
+            };
+            let append = if abs.contains(cursor) {
+                false
+            } else {
+                let (_, cell_h) = self.grid_cell_dims(
+                    self.owner_engine(Some(id)).columns(),
+                    body.width,
+                );
+                let band = cell_h * APPEND_BAND_FRACTION;
+                let in_band = cursor.x >= abs.x
+                    && cursor.x <= abs.x + abs.width
+                    && cursor.y >= abs.y + abs.height
+                    && cursor.y <= abs.y + abs.height + band;
+                if in_band {
+                    true
+                } else {
+                    continue;
                 }
+            };
+            let rank = (self.depth_of(id), u8::from(!append));
+            if best.is_none_or(|(br, _)| rank > br) {
+                best = Some((rank, DropHit { owner: id, append }));
             }
         }
-        best.map(|(_, id)| id)
+        best.map(|(_, hit)| hit)
     }
 
     /// Converts a floating node's top-left pixel to a cell in the
@@ -2228,8 +2282,6 @@ where
         layout: Layout<'_>,
         cursor_position: Point,
         shell: &mut Shell<'_, Message>,
-        bodies: &HashMap<ItemId, Rectangle>,
-        bounds: Rectangle,
     ) {
         let clicked = self
             .items
@@ -2250,8 +2302,7 @@ where
 
             if self.on_action.is_some()
                 && in_drag_zone
-                && let Some(item) =
-                    self.owner_engine(self.parent_of(id)).get(id)
+                && self.owner_engine(self.parent_of(id)).get(id).is_some()
             {
                 let item_pos = item_layout.bounds().position();
                 let grab_offset = Vector::new(
@@ -2259,20 +2310,10 @@ where
                     cursor_position.y - item_pos.y,
                 );
 
-                let owner = self.parent_of(id);
-                let (cell_w, cell_h) = self.grid_cell_dims(
-                    self.owner_engine(owner).columns(),
-                    self.owner_width(owner, bodies, bounds),
-                );
-
                 *interaction = Interaction::Moving {
                     id,
                     origin: cursor_position,
                     grab_offset,
-                    start_x: item.x,
-                    start_y: item.y,
-                    cell_w,
-                    cell_h,
                     started: false,
                 };
             }
