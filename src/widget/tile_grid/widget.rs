@@ -1720,6 +1720,13 @@ where
         };
 
         let mut render_picked = None;
+        // When a *group* is dragged, its descendants float with it (drawn in
+        // the picked block below) instead of being drawn in place, so the
+        // whole group — chrome, outline and tiles — moves as one.
+        let dragged_group = picked_item
+            .map(|(id, _)| id)
+            .filter(|&id| self.is_group(id));
+        let mut floating_children = Vec::new();
 
         // Draw nodes in parent-before-child order so a container's chrome
         // sits behind the tiles it holds.
@@ -1728,6 +1735,12 @@ where
                 Some((dragging, grab_offset)) if id == dragging => {
                     render_picked =
                         Some(((content, tree), item_layout, grab_offset));
+                }
+                Some(_)
+                    if dragged_group
+                        .is_some_and(|g| self.is_ancestor(g, id)) =>
+                {
+                    floating_children.push((content, tree, item_layout));
                 }
                 _ => {
                     let draw_cursor = if resizing_id == Some(id) {
@@ -1771,10 +1784,14 @@ where
 
         let grid_style = Catalog::style(theme, &self.class);
 
-        // Persistent border framing every container's full rect.
+        // Persistent border framing every container's full rect. A dragged
+        // group is skipped here — its outline is drawn floating with it.
         if let Some(border) = grid_style.group_border {
             let offset = layout.bounds().position();
-            for rect in group_rects.values() {
+            for (&id, rect) in group_rects {
+                if Some(id) == dragged_group {
+                    continue;
+                }
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: Rectangle {
@@ -1943,7 +1960,35 @@ where
                         mouse::Cursor::Unavailable,
                         viewport,
                     );
+                    // A dragged group's tiles float with it.
+                    for (child, child_tree, child_layout) in &floating_children
+                    {
+                        child.draw(
+                            child_tree,
+                            renderer,
+                            theme,
+                            defaults,
+                            *child_layout,
+                            mouse::Cursor::Unavailable,
+                            viewport,
+                        );
+                    }
                 });
+
+                // The group's own outline, floating with it (drawn on top, so
+                // it isn't clipped at the group edge).
+                if dragged_group.is_some()
+                    && let Some(border) = grid_style.group_border
+                {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: snap_bounds,
+                            border,
+                            ..renderer::Quad::default()
+                        },
+                        Background::Color(Color::TRANSPARENT),
+                    );
+                }
             });
         }
     }

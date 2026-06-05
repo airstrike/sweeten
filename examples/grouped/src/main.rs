@@ -23,7 +23,7 @@ use iced::widget::{
     text, text_input,
 };
 use iced::{
-    Background, Border, Center, Color, Element, Fill, Font, Task, Theme,
+    Background, Border, Center, Color, Element, Fill, Font, Task, Theme, color,
 };
 
 use sweeten::widget::tile_grid::{
@@ -293,7 +293,15 @@ impl App {
         .align_y(Center)
         .padding([4, 4]);
 
-        let base = container(column![toolbar, grid].spacing(12)).padding(16);
+        let base = container(column![toolbar, grid].spacing(12))
+            .padding(16)
+            .width(Fill)
+            .height(Fill)
+            // Off-white board (Tailwind zinc-100) so the white tiles stand out.
+            .style(|_| container::Style {
+                background: Some(Background::Color(color!(0xf4f4f5))),
+                ..container::Style::default()
+            });
 
         match &self.editing {
             None => base.into(),
@@ -512,7 +520,8 @@ fn title_input(
 fn tile_style(theme: &Theme) -> container::Style {
     let palette = theme.palette();
     container::Style {
-        background: Some(palette.background.base.color.into()),
+        // White fill so tiles read as cards on the off-white board.
+        background: Some(Background::Color(Color::WHITE)),
         border: Border {
             width: 1.0,
             color: palette.background.strong.color,
