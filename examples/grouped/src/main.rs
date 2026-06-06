@@ -228,15 +228,21 @@ impl App {
                     )
                     .resizable(false);
                     if has_header {
-                        content = content.title_bar(
-                            title_bar(group_title(id, label, edit_mode))
-                                .padding([4, 6]),
-                        );
+                        // Center the title in its strip (the widget frames the
+                        // strip with `group_padding` top and bottom) and let it
+                        // align with the tiles' left edge — so the title bar
+                        // carries no padding of its own.
+                        content = content.title_bar(title_bar(
+                            container(group_title(id, label, edit_mode))
+                                .center_y(Fill),
+                        ));
                     } else {
                         content = content.draggable(false);
                     }
                     if edit_mode {
-                        content = content.controls(
+                        // Drag the group from anywhere on its body, not just
+                        // the title bar.
+                        content = content.drag_body(true).controls(
                             row![add_tile_button(id), delete_button(id, armed)]
                                 .spacing(4),
                         );
@@ -265,12 +271,16 @@ impl App {
             .height(Fill)
             .spacing(8)
             .cell_height(CellHeight::Fixed(54.0))
-            .group_header(32)
+            .group_header(24)
             .group_padding(10)
             .size_to_content(true)
             .locked(!edit_mode)
             .style(move |theme| {
                 let mut style = default_style(theme);
+                // Fill groups with the board's off-white so the drag ghost is
+                // opaque rather than see-through.
+                style.group_background =
+                    Some(Background::Color(color!(0xf4f4f5)));
                 if edit_mode {
                     style.group_border = Some(Border {
                         width: 1.0,

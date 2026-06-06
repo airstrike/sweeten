@@ -750,13 +750,18 @@ where
     }
 
     /// Rows occupied by a group's header strip plus its vertical padding.
+    ///
+    /// Mirrors the `pad | header | pad | body | pad` layout in `place_grid`:
+    /// a titled group reserves the header strip plus three pads (top inset,
+    /// header-to-body gap, bottom), a headerless one just the two framing
+    /// pads.
     fn group_extra_rows(&self, gid: ItemId, cell_h: f32) -> u16 {
-        let header = if self.has_title_bar(gid) {
-            self.group_header
+        let pad = self.group_padding;
+        let extra_px = if self.has_title_bar(gid) {
+            self.group_header + 3.0 * pad
         } else {
-            0.0
+            2.0 * pad
         };
-        let extra_px = header + 2.0 * self.group_padding;
         if cell_h <= 0.0 {
             0
         } else {
@@ -808,13 +813,21 @@ where
             if self.index_of.contains_key(&id) && self.is_group(id) {
                 out.group_rects.insert(id, rect);
 
+                let pad = self.group_padding;
                 let header = if self.has_title_bar(id) {
-                    self.group_header.min(rect.height)
+                    self.group_header.min((rect.height - 2.0 * pad).max(0.0))
                 } else {
                     0.0
                 };
 
-                let pad = self.group_padding;
+                // Vertical layout is `pad | header | pad | body | pad`: the
+                // header strip is inset from the group's top edge by the same
+                // `pad` that separates it from the body and frames the bottom
+                // and sides, so the title reads as vertically centered in its
+                // strip rather than hugging the top border. A headerless group
+                // is just `pad | body | pad`.
+                let header_block =
+                    if header > 0.0 { header + pad } else { 0.0 };
 
                 // The header strip shares the body's horizontal inset so the
                 // group title lines up with the left edge of its child tiles
@@ -823,7 +836,7 @@ where
                     id,
                     Rectangle {
                         x: rect.x + pad,
-                        y: rect.y,
+                        y: rect.y + pad,
                         width: (rect.width - 2.0 * pad).max(0.0),
                         height: header,
                     },
@@ -831,9 +844,9 @@ where
 
                 let body = Rectangle {
                     x: rect.x + pad,
-                    y: rect.y + header + pad,
+                    y: rect.y + pad + header_block,
                     width: (rect.width - 2.0 * pad).max(0.0),
-                    height: (rect.height - header - 2.0 * pad).max(0.0),
+                    height: (rect.height - 2.0 * pad - header_block).max(0.0),
                 };
                 out.bodies.insert(id, body);
                 self.place_grid(Some(id), body, drag, resize, out);
@@ -1205,6 +1218,7 @@ where
             drag_bodies,
             resize_target,
             group_bodies,
+            group_rects,
             modifiers,
             ..
         } = tree.state.downcast_mut();
@@ -1255,7 +1269,15 @@ where
             }
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
-                if let Some(cursor_position) = cursor.position_over(bounds) {
+                // If a child already handled this press — a text input placing
+                // its caret, a button, a control — don't hijack it to start a
+                // drag. Children are updated before this, so their capture is
+                // visible here. Otherwise grabbing a group's title input (or
+                // any interactive body widget) would drag instead of letting
+                // the user select text or click.
+                if !shell.is_event_captured()
+                    && let Some(cursor_position) = cursor.position_over(bounds)
+                {
                     shell.capture_event();
 
                     // Resize first (bottom-right edge of a leaf).
@@ -1294,6 +1316,8 @@ where
                         layout,
                         cursor_position,
                         shell,
+                        group_rects,
+                        origin_offset(bounds),
                     );
                 }
             }
@@ -1721,6 +1745,8 @@ where
             ..
         } = tree.state.downcast_ref();
         let now = animations.now.unwrap_or_else(Instant::now);
+        let grid_style = Catalog::style(theme, &self.class);
+        let widget_origin = layout.bounds().position();
 
         let picked_item = match interaction {
             Interaction::Moving {
@@ -1782,6 +1808,29 @@ where
 
                     let offset = animations.get_offset(id, now);
 
+                    // A container's fill sits behind its tiles (this loop is
+                    // parent-before-child) and slides with it during reflow.
+                    if let Some(bg) = grid_style.group_background
+                        && self.is_group(id)
+                        && let Some(rect) = group_rects.get(&id)
+                    {
+                        renderer.fill_quad(
+                            renderer::Quad {
+                                bounds: Rectangle {
+                                    x: rect.x + widget_origin.x + offset.x,
+                                    y: rect.y + widget_origin.y + offset.y,
+                                    ..*rect
+                                },
+                                border: Border {
+                                    radius: group_radius(&grid_style),
+                                    ..Border::default()
+                                },
+                                ..renderer::Quad::default()
+                            },
+                            bg,
+                        );
+                    }
+
                     if offset.x != 0.0 || offset.y != 0.0 {
                         renderer.with_translation(offset, |renderer| {
                             content.draw(
@@ -1808,8 +1857,6 @@ where
                 }
             }
         }
-
-        let grid_style = Catalog::style(theme, &self.class);
 
         // Persistent border framing every container's full rect. A dragged
         // group is skipped here — its outline is drawn floating with it.
@@ -1977,6 +2024,28 @@ where
                 Vector::new(target.x - layout_pos.x, target.y - layout_pos.y);
 
             renderer.with_translation(translation, |renderer| {
+                // A dragged group's fill floats with it, behind its tiles, so
+                // the ghost is opaque rather than showing what it passes over.
+                // It is drawn *outside* the clip layer below: that layer's
+                // contents paint over this parent layer, so an opaque fill
+                // inside it would also cover the outline (drawn here, after the
+                // layer). Behind the layer, the fill sits under both the tiles
+                // and the outline.
+                if dragged_group.is_some()
+                    && let Some(bg) = grid_style.group_background
+                {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: snap_bounds,
+                            border: Border {
+                                radius: group_radius(&grid_style),
+                                ..Border::default()
+                            },
+                            ..renderer::Quad::default()
+                        },
+                        bg,
+                    );
+                }
                 renderer.with_layer(snap_bounds, |renderer| {
                     content.draw(
                         tree,
@@ -2282,6 +2351,8 @@ where
         layout: Layout<'_>,
         cursor_position: Point,
         shell: &mut Shell<'_, Message>,
+        group_rects: &HashMap<ItemId, Rectangle>,
+        widget_origin: Vector,
     ) {
         let clicked = self
             .items
@@ -2296,28 +2367,96 @@ where
                 && content.is_draggable()
                 && content.can_be_dragged_at(item_layout, cursor_position);
 
-            if !in_drag_zone && let Some(on_action) = &self.on_action {
+            if self.on_action.is_some() && in_drag_zone {
+                // A container is anchored to its *full* rect (the ghost is the
+                // whole group), a leaf to its own cell.
+                let anchor = self
+                    .group_origin(id, group_rects, widget_origin)
+                    .unwrap_or_else(|| item_layout.bounds().position());
+                self.begin_move(interaction, id, cursor_position, anchor);
+            } else if let Some(on_action) = &self.on_action {
                 shell.publish(on_action(Action::Click(id)));
             }
+            return;
+        }
 
-            if self.on_action.is_some()
-                && in_drag_zone
-                && self.owner_engine(self.parent_of(id)).get(id).is_some()
-            {
-                let item_pos = item_layout.bounds().position();
-                let grab_offset = Vector::new(
-                    cursor_position.x - item_pos.x,
-                    cursor_position.y - item_pos.y,
-                );
+        // No item under the cursor: a click on a container's bare body (the
+        // padding frame and the gaps around its tiles) drags the whole group,
+        // so a group is grabbable far beyond its title bar.
+        if self.on_action.is_some()
+            && !self.locked
+            && let Some(gid) =
+                self.group_body_at(group_rects, widget_origin, cursor_position)
+            && let Some(anchor) =
+                self.group_origin(gid, group_rects, widget_origin)
+        {
+            self.begin_move(interaction, gid, cursor_position, anchor);
+        }
+    }
 
-                *interaction = Interaction::Moving {
-                    id,
-                    origin: cursor_position,
-                    grab_offset,
-                    started: false,
-                };
+    /// The absolute top-left of a container's full rect, or `None` for a leaf.
+    fn group_origin(
+        &self,
+        id: ItemId,
+        group_rects: &HashMap<ItemId, Rectangle>,
+        widget_origin: Vector,
+    ) -> Option<Point> {
+        group_rects
+            .get(&id)
+            .map(|r| Point::new(r.x + widget_origin.x, r.y + widget_origin.y))
+    }
+
+    /// The deepest drag-from-body container whose full rect contains the
+    /// cursor (its tiles are hit-tested first, so this only fires on the bare
+    /// body), or `None`.
+    fn group_body_at(
+        &self,
+        group_rects: &HashMap<ItemId, Rectangle>,
+        widget_origin: Vector,
+        cursor: Point,
+    ) -> Option<ItemId> {
+        let mut best: Option<(usize, ItemId)> = None;
+        for (&id, rect) in group_rects {
+            let content = &self.contents[self.idx(id)];
+            if !content.is_draggable() || !content.drags_from_body() {
+                continue;
+            }
+            let abs = Rectangle {
+                x: rect.x + widget_origin.x,
+                y: rect.y + widget_origin.y,
+                ..*rect
+            };
+            if abs.contains(cursor) {
+                let depth = self.depth_of(id);
+                if best.is_none_or(|(bd, _)| depth > bd) {
+                    best = Some((depth, id));
+                }
             }
         }
+        best.map(|(_, id)| id)
+    }
+
+    /// Starts a move drag of `id`, anchoring the grab offset to `anchor`
+    /// (the dragged node's top-left). No-op if the node is gone.
+    fn begin_move(
+        &self,
+        interaction: &mut Interaction,
+        id: ItemId,
+        cursor_position: Point,
+        anchor: Point,
+    ) {
+        if self.owner_engine(self.parent_of(id)).get(id).is_none() {
+            return;
+        }
+        *interaction = Interaction::Moving {
+            id,
+            origin: cursor_position,
+            grab_offset: Vector::new(
+                cursor_position.x - anchor.x,
+                cursor_position.y - anchor.y,
+            ),
+            started: false,
+        };
     }
 }
 
@@ -2334,6 +2473,14 @@ fn phase_of(started: &mut bool) -> DragPhase {
 /// The widget's absolute origin as a [`Vector`].
 fn origin_offset(bounds: Rectangle) -> Vector {
     Vector::new(bounds.x, bounds.y)
+}
+
+/// The corner radius for a container's fill — matched to the group border so
+/// the fill doesn't poke out past the rounded outline. Square when no border.
+fn group_radius(style: &Style) -> crate::core::border::Radius {
+    style
+        .group_border
+        .map_or_else(|| 0.0.into(), |border| border.radius)
 }
 
 impl<'a, Message, Theme, Renderer> From<TileGrid<'a, Message, Theme, Renderer>>
@@ -2374,6 +2521,11 @@ pub struct Style {
     /// A persistent border drawn around every container's full rect (header
     /// + body). `None` disables it. Useful to frame groups while editing.
     pub group_border: Option<Border>,
+    /// A fill drawn behind every container's full rect (header + body),
+    /// under its tiles. `None` leaves containers transparent. Giving groups
+    /// a solid fill keeps the drag ghost opaque (so it doesn't show whatever
+    /// it floats over) and lets them read as cards against the board.
+    pub group_background: Option<Background>,
 }
 
 /// A highlight region appearance.
@@ -2452,5 +2604,6 @@ pub fn default_style(_theme: &Theme) -> Style {
             dot_size: 2.0,
         }),
         group_border: None,
+        group_background: None,
     }
 }

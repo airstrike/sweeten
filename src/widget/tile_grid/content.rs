@@ -191,6 +191,12 @@ where
         self.draggable
     }
 
+    /// Returns whether the whole card (not just the title bar) is a drag
+    /// handle. For a container this also makes its body a drag handle.
+    pub(crate) fn drags_from_body(&self) -> bool {
+        self.drag_body
+    }
+
     /// Returns whether this content is resizable.
     pub(crate) fn is_resizable(&self) -> bool {
         self.resizable
