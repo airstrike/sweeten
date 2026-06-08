@@ -42,6 +42,7 @@
 
 pub mod configuration;
 pub mod content;
+mod drop;
 pub mod engine;
 pub mod item_id;
 mod shared;

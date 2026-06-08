@@ -461,9 +461,16 @@ impl Internal {
         };
         let mover = self.items[mover_idx].clone();
 
-        // Collect ALL items that collide with the mover (excluding held),
+        // Collect the items that collide with the mover (excluding held),
         // sorted by overlap area (largest first) so we swap with the
         // primary collider — the one the cursor is most "into".
+        //
+        // Only items that *fit in the gap the mover left* (no larger than the
+        // mover in either dimension) are swap candidates: a small tile can
+        // exchange places with a same-size tile, but you can't swap a massive
+        // group into the tiny hole a 2x2 tile vacated. Oversized colliders are
+        // left to cascade *down* (Phase 2), which is what "push it out of the
+        // way" means for them.
         let mut collider_ids: Vec<(ItemId, u16)> = self
             .items
             .iter()
@@ -471,6 +478,8 @@ impl Internal {
                 item.id != mover_id
                     && !held.contains(&item.id)
                     && is_intercepted(item, &mover)
+                    && item.w <= mover.w
+                    && item.h <= mover.h
             })
             .map(|item| {
                 let ox = mover.x.max(item.x);

@@ -504,6 +504,9 @@ impl<T> State<T> {
                     }
                     DragPhase::Ended => {
                         if let Some(grid) = self.root.grid_containing_mut(id) {
+                            // The same call the widget's preview makes
+                            // (`preview_engine`), so the committed move equals
+                            // the previewed one — the drop lands where shown.
                             let held = grid.held_ids(&is_held);
                             grid.engine.save_snapshot();
                             grid.engine.move_item_held(id, x, y, &held, mode);
@@ -605,6 +608,8 @@ impl<T> State<T> {
                 .and_then(|n| n.children.as_mut())
                 .expect("destination validated before removal"),
         };
+        // The same call the widget's preview makes (`preview_engine`), so the
+        // committed reparent matches the previewed one.
         dest.engine.add_item_with_id(node, x, y, w, h);
         dest.nodes.insert(node, removed);
     }
