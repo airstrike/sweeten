@@ -205,7 +205,11 @@ where
         From<iced_widget::text::StyleFn<'a, Theme>>,
     Renderer: core::text::Renderer<Font = core::Font> + 'a,
 {
-    crate::widget::gt::Table::new(columns, rows)
+    // A module-level `use crate::widget::gt` would collide with this
+    // function's own name, so the import is scoped to the body.
+    use crate::widget::gt::Table;
+
+    Table::new(columns, rows)
 }
 
 /// Creates a new [`Checkbox`].

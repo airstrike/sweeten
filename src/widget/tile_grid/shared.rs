@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use crate::core::animation::Easing;
 use crate::core::time::Instant;
 use crate::core::{Animation, Rectangle, Vector};
 
@@ -89,15 +90,11 @@ impl Default for ItemAnimations {
 
 impl ItemAnimations {
     fn new_animation(value: f32) -> Animation<f32> {
-        Animation::new(value)
-            .quick()
-            .easing(crate::core::animation::Easing::EaseOut)
+        Animation::new(value).quick().easing(Easing::EaseOut)
     }
 
     fn new_ghost_animation(value: bool) -> Animation<bool> {
-        Animation::new(value)
-            .quick()
-            .easing(crate::core::animation::Easing::EaseOut)
+        Animation::new(value).quick().easing(Easing::EaseOut)
     }
 
     /// Returns true if any item animation is in progress.

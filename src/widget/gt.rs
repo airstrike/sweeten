@@ -1252,7 +1252,7 @@ where
                                 available.height,
                             ),
                         )
-                        .width(Length::Fixed(metrics.column_widths[col_offset]))
+                        .width(metrics.column_widths[col_offset])
                         .height(Length::Shrink);
                         let node = self.cells[cell_idx].as_widget_mut().layout(
                             &mut tree.children[cell_idx],
@@ -1282,7 +1282,7 @@ where
                     Size::ZERO,
                     Size::new(inner_width, available.height),
                 )
-                .width(Length::Fixed(inner_width))
+                .width(inner_width)
                 .height(Length::Shrink);
                 let node = self.cells[*cell_index].as_widget_mut().layout(
                     &mut tree.children[*cell_index],

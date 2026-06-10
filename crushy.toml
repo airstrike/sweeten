@@ -1,0 +1,4 @@
+# `Length::Fill` -> `iced::Fill` is a stylistic preference we don't follow here.
+# The `Length::Fixed(_)` -> bare-number nudge (crushy::length_fixed) stays on.
+[lints]
+length_fill = "allow"

@@ -32,6 +32,7 @@ use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::time::Instant;
 use crate::core::widget::{Operation, Tree, tree};
+use crate::core::window;
 use crate::core::{
     Animation, Background, Border, Color, Element, Event, Length, Padding,
     Pixels, Point, Rectangle, Shell, Size, Transformation, Vector, Widget,
@@ -647,7 +648,7 @@ where
         }
 
         match &event {
-            Event::Window(crate::core::window::Event::RedrawRequested(now)) => {
+            Event::Window(window::Event::RedrawRequested(now)) => {
                 match action {
                     Action::Idle {
                         now: current_now,
