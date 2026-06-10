@@ -27,7 +27,8 @@ use iced::{
 };
 
 use sweeten::widget::tile_grid::{
-    Action, CellHeight, ItemId, State, default_style, grid_content, title_bar,
+    Action, CellHeight, ItemId, State, Width, default_style, grid_content,
+    title_bar,
 };
 
 fn main() -> iced::Result {
@@ -97,31 +98,56 @@ impl App {
 
         // Groups are authored 1 row tall; `size_to_content` grows them to
         // fit their children.
-        let pulse = state.add_group(0, 0, 8, 1, Cell::Section("Pulse".into()));
+        let pulse = state.add_group(
+            [0, 0, 8, 1],
+            Width::Shrink,
+            Cell::Section("Pulse".into()),
+        );
         for (x, t, v) in [
             (0, "New Bookings", "$4.2M"),
             (2, "Pipeline Coverage", "3.4×"),
             (4, "Win Rate", "23.8%"),
             (6, "Quota Attainment", "78%"),
         ] {
-            state.add_child(pulse, x, 0, 2, 2, tile(t, v));
+            state.add_child(pulse, [x, 0, 2, 2], tile(t, v));
         }
 
-        let trends =
-            state.add_group(0, 1, 8, 1, Cell::Section("Trends".into()));
-        state.add_child(trends, 0, 0, 4, 3, tile("Bookings vs Plan", "▁▂▃▅▆▇"));
-        state.add_child(trends, 4, 0, 4, 3, tile("Pipeline by Stage", "▇▆▅▃▂"));
+        let trends = state.add_group(
+            [0, 1, 8, 1],
+            Width::Shrink,
+            Cell::Section("Trends".into()),
+        );
+        state.add_child(
+            trends,
+            [0, 0, 4, 3],
+            tile("Bookings vs Plan", "▁▂▃▅▆▇"),
+        );
+        state.add_child(
+            trends,
+            [4, 0, 4, 3],
+            tile("Pipeline by Stage", "▇▆▅▃▂"),
+        );
 
-        // 4 columns wide, so its inner grid is 4 columns: the stacked tiles
-        // fill it at width 4.
-        let rail = state.add_group(8, 0, 4, 1, Cell::Section(String::new()));
-        state.add_child(rail, 0, 0, 4, 3, tile("News Feed", "3 new"));
-        state.add_child(rail, 0, 3, 4, 3, tile("Markets", "S&P 7,580"));
+        // A Shrink group: its tiles can grow and the rail grows with them.
+        let rail = state.add_group(
+            [8, 0, 4, 1],
+            Width::Shrink,
+            Cell::Section(String::new()),
+        );
+        state.add_child(rail, [0, 0, 4, 3], tile("News Feed", "3 new"));
+        state.add_child(rail, [0, 3, 4, 3], tile("Markets", "S&P 7,580"));
 
         // A standalone (ungrouped) 2x2 tile on the root board, gravity-packed
         // below the news/markets rail. Useful for exercising drags through the
         // busy intersection between the root grid and the groups.
-        state.add(8, 1000, 2, 2, tile("Loose tile", "—"));
+        state.add([8, 1000, 2, 2], tile("Loose tile", "—"));
+
+        // Size groups to their content. This commits each group's width to
+        // the columns its tiles occupy, so a group whose tiles shrink keeps a
+        // snug footprint and can be dragged flush to the board edges rather
+        // than being held back by the width it was authored with. The widget
+        // reads this flag off the state.
+        state.fit(true);
 
         (
             Self {
@@ -198,10 +224,7 @@ impl App {
                 // group to fit.
                 self.state.add_child(
                     group,
-                    0,
-                    1000,
-                    2,
-                    2,
+                    [0, 1000, 2, 2],
                     tile("New tile", "—"),
                 );
             }
@@ -272,8 +295,6 @@ impl App {
             .spacing(8)
             .cell_height(CellHeight::Fixed(54.0))
             .group_header(24)
-            .group_padding(10)
-            .size_to_content(true)
             .locked(!edit_mode)
             .style(move |theme| {
                 let mut style = default_style(theme);
@@ -281,11 +302,12 @@ impl App {
                 // opaque rather than see-through.
                 style.group_background =
                     Some(Background::Color(color!(0xf4f4f5)));
+                style.hovered_region.border.radius = 8.0.into();
                 if edit_mode {
                     style.group_border = Some(Border {
                         width: 1.0,
                         color: theme.palette().background.strong.color,
-                        radius: 10.0.into(),
+                        radius: 8.0.into(),
                     });
                 }
                 style

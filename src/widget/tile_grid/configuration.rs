@@ -9,6 +9,8 @@
 //! [`State`]: super::State
 //! [`State::with_configuration`]: super::State::with_configuration
 
+use super::rect::Rect;
+
 /// The arrangement of a [`TileGrid`].
 ///
 /// Describes a flat grid layout with a fixed number of columns and a
@@ -22,8 +24,8 @@
 /// use sweeten::widget::tile_grid::{Configuration, configuration::Item};
 ///
 /// let config: Configuration<&str> = Configuration::new(12)
-///     .with_item(0, 0, 4, 2, "sidebar")
-///     .with_item(4, 0, 8, 2, "main");
+///     .with_item([0, 0, 4, 2], "sidebar")
+///     .with_item([4, 0, 8, 2], "main");
 /// ```
 ///
 /// [`TileGrid`]: super::TileGrid
@@ -77,13 +79,12 @@ impl<T> Configuration<T> {
         self
     }
 
-    /// Appends an item at the given position and size with the provided
-    /// state.
+    /// Appends an item at the given grid region with the provided state.
     ///
-    /// This is a shorthand for `.push(Item::new(x, y, w, h, state))`.
+    /// This is a shorthand for `.push(Item::new(rect, state))`.
     #[must_use]
-    pub fn with_item(self, x: u16, y: u16, w: u16, h: u16, state: T) -> Self {
-        self.push(Item::new(x, y, w, h, state))
+    pub fn with_item(self, rect: impl Into<Rect>, state: T) -> Self {
+        self.push(Item::new(rect, state))
     }
 }
 
@@ -125,17 +126,18 @@ pub struct Item<T> {
 }
 
 impl<T> Item<T> {
-    /// Creates a new [`Item`] at the given position and size.
+    /// Creates a new [`Item`] at the given grid region.
     ///
     /// All constraints default to `None` and the item is a leaf (no
     /// children).
     #[must_use]
-    pub fn new(x: u16, y: u16, w: u16, h: u16, state: T) -> Self {
+    pub fn new(rect: impl Into<Rect>, state: T) -> Self {
+        let rect = rect.into();
         Self {
-            x,
-            y,
-            w,
-            h,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
             min_w: None,
             max_w: None,
             min_h: None,
@@ -168,10 +170,10 @@ impl<T> Item<T> {
         self
     }
 
-    /// Appends a child item at the given position and size.
+    /// Appends a child item at the given grid region.
     #[must_use]
-    pub fn with_child(self, x: u16, y: u16, w: u16, h: u16, state: T) -> Self {
-        self.child(Item::new(x, y, w, h, state))
+    pub fn with_child(self, rect: impl Into<Rect>, state: T) -> Self {
+        self.child(Item::new(rect, state))
     }
 
     /// Sets the minimum width constraint.

@@ -14,7 +14,8 @@ use std::collections::BTreeMap;
 
 use super::ItemId;
 use super::configuration::{Configuration, Item};
-use super::engine::{Internal, Node as EngineNode};
+use super::engine::{self, Internal, fit_group_width};
+use super::rect::Rect;
 use super::widget::{Action, DragPhase};
 
 /// A node in the recursive grid tree.
@@ -45,6 +46,25 @@ impl<T> Node<T> {
     }
 }
 
+/// How a group's width is determined within its parent grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Width {
+    /// The group's width tracks its content, and its children may grow up to
+    /// the parent grid's full column count. The default for new groups.
+    Shrink,
+    /// The group's width is pinned to `n` columns and its children are capped
+    /// at it, regardless of content.
+    Fixed(u16),
+}
+
+impl From<u16> for Width {
+    /// A bare column count is a [`Fixed`](Width::Fixed)-width group, so
+    /// `add_group(rect, 4, data)` reads as "4 columns wide".
+    fn from(columns: u16) -> Self {
+        Width::Fixed(columns)
+    }
+}
+
 /// One level of the recursive layout: a layout [`Internal`] engine paired
 /// with the user data for the nodes it arranges.
 ///
@@ -57,14 +77,24 @@ pub struct Grid<T> {
     engine: Internal,
     /// This level's nodes, keyed by id.
     nodes: BTreeMap<ItemId, Node<T>>,
+    /// How this grid's *group* is sized in its parent (irrelevant for the
+    /// root). Drives [`fit_widths`](Self::fit_widths) and the inner column
+    /// count.
+    width: Width,
 }
 
 impl<T> Grid<T> {
-    /// Creates an empty grid with the given number of columns.
+    /// Creates an empty `Shrink` grid with the given number of columns.
     fn new(columns: u16) -> Self {
+        Self::with_mode(columns, Width::Shrink)
+    }
+
+    /// Creates an empty grid with the given column count and width mode.
+    fn with_mode(columns: u16, width_mode: Width) -> Self {
         Self {
             engine: Internal::new(columns),
             nodes: BTreeMap::new(),
+            width: width_mode,
         }
     }
 
@@ -152,6 +182,51 @@ impl<T> Grid<T> {
             .map(|(&id, _)| id)
             .collect()
     }
+
+    /// Shrinks every container node's width to the column extent its children
+    /// actually occupy — size-to-content for *width*.
+    ///
+    /// This is the one place a group's width is decided: the committed engine
+    /// holds the truth and the widget draws it. (Width is pure column math, so
+    /// it belongs in the state; height is left to the widget because it
+    /// depends on the cell pixel size.) Without this, a group kept its
+    /// authored width and over-claimed columns — positioning and the
+    /// right-edge clamp treated a 6-wide group as 8 wide, so it could never
+    /// sit flush against the board's right edge.
+    ///
+    /// Only `Shrink` groups are fitted; a `Fixed(n)` group keeps its pinned
+    /// width. Depth-first: a nested group is fitted before its parent measures
+    /// it, so the parent sees its child's *fitted* extent. An empty group
+    /// keeps its current width (it has no content to measure).
+    fn fit_widths(&mut self) {
+        for node in self.nodes.values_mut() {
+            if let Some(child) = node.children.as_mut() {
+                child.fit_widths();
+            }
+        }
+
+        let cols = self.engine.columns();
+        let fits: Vec<(ItemId, u16, u16)> = self
+            .nodes
+            .iter()
+            .filter_map(|(&id, node)| {
+                let child = node.children.as_ref()?;
+                if !matches!(child.width, Width::Shrink) {
+                    return None;
+                }
+                let used = child.engine.get_col();
+                if used == 0 {
+                    return None;
+                }
+                let h = self.engine.get(id)?.h;
+                Some((id, fit_group_width(used, cols), h))
+            })
+            .collect();
+
+        for (id, w, h) in fits {
+            self.engine.resize_item(id, w, h);
+        }
+    }
 }
 
 /// User-facing state: a recursive tree of [`Grid`]s with a single global
@@ -168,7 +243,7 @@ impl<T> Grid<T> {
 ///
 /// let mut state: State<String> = State::new(12);
 ///
-/// let id = state.add(0, 0, 4, 2, "Widget A".to_string());
+/// let id = state.add([0, 0, 4, 2], "Widget A".to_string());
 /// assert_eq!(state.get(id), Some(&"Widget A".to_string()));
 ///
 /// state.remove(id);
@@ -181,6 +256,12 @@ pub struct State<T> {
     root: Grid<T>,
     /// Monotonic global id allocator shared across every nested grid.
     next_id: usize,
+    /// When set, every committing mutation re-fits each group's width to its
+    /// content (see [`Grid::fit_widths`]). Mirror of the widget's
+    /// `size_to_content`: with it on, the committed group footprint matches
+    /// what the widget draws, so groups position and clamp at their true
+    /// width rather than their authored one.
+    fit: bool,
 }
 
 impl<T> State<T> {
@@ -194,6 +275,7 @@ impl<T> State<T> {
         Self {
             root: Grid::new(columns),
             next_id: 0,
+            fit: false,
         }
     }
 
@@ -210,8 +292,8 @@ impl<T> State<T> {
     ///
     /// let state: State<&str> = State::with_configuration(
     ///     Configuration::new(12)
-    ///         .with_item(0, 0, 4, 2, "left")
-    ///         .with_item(4, 0, 8, 2, "right"),
+    ///         .with_item([0, 0, 4, 2], "left")
+    ///         .with_item([4, 0, 8, 2], "right"),
     /// );
     ///
     /// assert_eq!(state.len(), 2);
@@ -276,19 +358,44 @@ impl<T> State<T> {
         self.root.engine.float()
     }
 
+    /// Sizes every group to its content rather than its authored span.
+    ///
+    /// This is the single switch for the whole tree: the widget reads it off
+    /// the [`State`] it is given (there is no separate widget-side flag). With
+    /// it on, each group's **width** is committed to the column extent its
+    /// children occupy after every mutation, so a group positions and clamps
+    /// at the width it is actually drawn — a content-narrowed group can sit
+    /// flush against the grid's right edge instead of being held back by its
+    /// authored width. (Group **height** is still resolved by the widget at
+    /// layout time, since it depends on the cell pixel height.)
+    pub fn fit(&mut self, enabled: bool) {
+        self.fit = enabled;
+        self.fit_groups();
+    }
+
+    /// Returns whether groups are sized to their content. See
+    /// [`fit`](Self::fit).
+    #[must_use]
+    pub fn fits(&self) -> bool {
+        self.fit
+    }
+
+    /// Re-fits every group's width to its content, if [`fit`](Self::fit) is on.
+    fn fit_groups(&mut self) {
+        if self.fit {
+            self.root.fit_widths();
+        }
+    }
+
     /// Adds a new leaf item at the root with associated data.
     ///
     /// Returns the [`ItemId`] of the newly created item.
-    pub fn add(
-        &mut self,
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
-        user_data: T,
-    ) -> ItemId {
+    pub fn add(&mut self, rect: impl Into<Rect>, user_data: T) -> ItemId {
+        let rect = rect.into();
         let id = self.alloc_id();
-        self.root.engine.add_item_with_id(id, x, y, w, h);
+        self.root
+            .engine
+            .add_item_with_id(id, rect.x, rect.y, rect.w, rect.h);
         self.root.nodes.insert(
             id,
             Node {
@@ -305,32 +412,47 @@ impl<T> State<T> {
     /// is set).
     pub fn add_auto(&mut self, w: u16, h: u16, user_data: T) -> Option<ItemId> {
         let (x, y) = self.root.engine.find_empty_position(w, h)?;
-        Some(self.add(x, y, w, h, user_data))
+        Some(self.add([x, y, w, h], user_data))
     }
 
     /// Adds a new *container* (group) node at the root.
     ///
-    /// The node hosts a child grid, initially empty, at the same column
-    /// granularity as the grid it lives in: a group `w` columns wide owns a
-    /// child grid of `w` columns. (There is one column size for the whole
-    /// tree — a group just fills a span of it — so a tile keeps its width
-    /// when it moves between groups.) Use [`add_child`](Self::add_child) to
-    /// populate it.
+    /// `width` is the group's sizing mode: [`Width::Shrink`] (the default —
+    /// the group tracks its content and its children may grow up to the root's
+    /// full column count; see [`fit`](Self::fit)) or [`Width::Fixed(n)`] (the
+    /// group is pinned to `n` columns and its children capped at it). A bare
+    /// `u16` means `Fixed`, so `add_group([8, 0, 4, 1], 4, data)` and
+    /// `add_group([8, 0, 4, 1], Width::Fixed(4), data)` are the same.
+    ///
+    /// For a `Shrink` group `rect`'s width is the initial span; for a `Fixed`
+    /// group the mode's column count governs and `rect`'s width is ignored.
+    /// Use [`add_child`](Self::add_child) to populate it.
+    ///
+    /// [`Width::Fixed(n)`]: Width::Fixed
     pub fn add_group(
         &mut self,
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
+        rect: impl Into<Rect>,
+        width: impl Into<Width>,
         user_data: T,
     ) -> ItemId {
+        let rect = rect.into();
+        let mode = width.into();
+        // A Shrink group spans the root's full column count (so children can
+        // grow into it) and starts at its authored width; a Fixed(n) group is
+        // exactly `n` columns.
+        let (w, inner_cols) = match mode {
+            Width::Shrink => (rect.w, self.root.engine.columns()),
+            Width::Fixed(n) => (n, n),
+        };
         let id = self.alloc_id();
-        self.root.engine.add_item_with_id(id, x, y, w, h);
+        self.root
+            .engine
+            .add_item_with_id(id, rect.x, rect.y, w, rect.h);
         self.root.nodes.insert(
             id,
             Node {
                 data: user_data,
-                children: Some(Grid::new(w)),
+                children: Some(Grid::with_mode(inner_cols, mode)),
             },
         );
         id
@@ -342,15 +464,14 @@ impl<T> State<T> {
     pub fn add_child(
         &mut self,
         parent: ItemId,
-        x: u16,
-        y: u16,
-        w: u16,
-        h: u16,
+        rect: impl Into<Rect>,
         user_data: T,
     ) -> Option<ItemId> {
+        let rect = rect.into();
         let id = self.alloc_id();
         let grid = self.root.find_node_mut(parent)?.children.as_mut()?;
-        grid.engine.add_item_with_id(id, x, y, w, h);
+        grid.engine
+            .add_item_with_id(id, rect.x, rect.y, rect.w, rect.h);
         grid.nodes.insert(
             id,
             Node {
@@ -358,6 +479,7 @@ impl<T> State<T> {
                 children: None,
             },
         );
+        self.fit_groups();
         Some(id)
     }
 
@@ -368,25 +490,37 @@ impl<T> State<T> {
     pub fn remove(&mut self, id: ItemId) -> Option<T> {
         let grid = self.root.grid_containing_mut(id)?;
         grid.engine.remove_item(id)?;
-        grid.nodes.remove(&id).map(|node| node.data)
+        let data = grid.nodes.remove(&id).map(|node| node.data);
+        self.fit_groups();
+        data
     }
 
     /// Moves a node to a new position within its current grid.
     ///
     /// Returns `true` if the node was actually moved.
     pub fn move_item(&mut self, id: ItemId, x: u16, y: u16) -> bool {
-        self.root
+        let moved = self
+            .root
             .grid_containing_mut(id)
-            .is_some_and(|grid| grid.engine.move_item(id, x, y))
+            .is_some_and(|grid| grid.engine.move_item(id, x, y));
+        if moved {
+            self.fit_groups();
+        }
+        moved
     }
 
     /// Resizes a node within its current grid.
     ///
     /// Returns `true` if the node was actually resized.
     pub fn resize_item(&mut self, id: ItemId, w: u16, h: u16) -> bool {
-        self.root
+        let resized = self
+            .root
             .grid_containing_mut(id)
-            .is_some_and(|grid| grid.engine.resize_item(id, w, h))
+            .is_some_and(|grid| grid.engine.resize_item(id, w, h));
+        if resized {
+            self.fit_groups();
+        }
+        resized
     }
 
     /// Returns a reference to the user data for the given node.
@@ -408,7 +542,7 @@ impl<T> State<T> {
 
     /// Returns the grid item (position/size) for the given ID.
     #[must_use]
-    pub fn get_item(&self, id: ItemId) -> Option<&EngineNode> {
+    pub fn get_item(&self, id: ItemId) -> Option<&engine::Node> {
         self.root
             .grid_containing(id)
             .and_then(|grid| grid.engine.get(id))
@@ -551,6 +685,11 @@ impl<T> State<T> {
                 }
             }
         }
+
+        // A committed move/resize/reparent can change a group's content
+        // extent (a child resized, a tile left or joined a group), so re-fit
+        // every group's width to match what `size_to_content` draws.
+        self.fit_groups();
     }
 
     /// Commits a cross-grid transfer: removes `node` (and its subtree) from
@@ -649,9 +788,10 @@ fn build_into<T>(
         }
 
         let children = if item.is_group() {
-            // A group's inner grid matches its own width — one column size for
-            // the whole tree.
-            let mut child = Grid::new(item.w);
+            // Groups default to Shrink: the inner grid spans the parent's full
+            // column count so children can grow into it, and the group's width
+            // tracks its content.
+            let mut child = Grid::new(grid.engine.columns());
             build_into(&mut child, item.children, next_id, float);
             Some(child)
         } else {
@@ -683,9 +823,9 @@ mod tests {
         // engine be mutated. The widget handles visual preview
         // internally by cloning the engine.
         let mut state: State<()> = State::new(12);
-        let a = state.add(0, 0, 4, 2, ());
-        let _b = state.add(4, 0, 4, 2, ());
-        let _c = state.add(8, 0, 4, 2, ());
+        let a = state.add([0, 0, 4, 2], ());
+        let _b = state.add([4, 0, 4, 2], ());
+        let _c = state.add([8, 0, 4, 2], ());
 
         // Snapshot initial positions.
         let initial: Vec<_> =
@@ -735,8 +875,8 @@ mod tests {
         // (Started/Ongoing). Only on DragPhase::Ended should the
         // engine be mutated.
         let mut state: State<()> = State::new(12);
-        let a = state.add(0, 0, 4, 2, ());
-        let _b = state.add(4, 0, 4, 2, ());
+        let a = state.add([0, 0, 4, 2], ());
+        let _b = state.add([4, 0, 4, 2], ());
 
         // Snapshot initial state (positions + sizes).
         let initial: Vec<_> = state
@@ -808,9 +948,9 @@ mod tests {
         // On DragPhase::Ended, the engine should apply the move
         // including swap logic (same-size items swap positions).
         let mut state: State<()> = State::new(12);
-        let a = state.add(0, 0, 4, 2, ());
-        let b = state.add(4, 0, 4, 2, ());
-        state.add(8, 0, 4, 2, ());
+        let a = state.add([0, 0, 4, 2], ());
+        let b = state.add([4, 0, 4, 2], ());
+        state.add([8, 0, 4, 2], ());
 
         // Drop a at (4,0) — onto b. Same size → swap.
         state.perform(
@@ -856,9 +996,9 @@ mod tests {
     fn with_configuration_monotonic_ids() {
         let state: State<&str> = State::with_configuration(
             Configuration::new(12)
-                .with_item(0, 0, 4, 2, "a")
-                .with_item(4, 0, 4, 2, "b")
-                .with_item(8, 0, 4, 2, "c"),
+                .with_item([0, 0, 4, 2], "a")
+                .with_item([4, 0, 4, 2], "b")
+                .with_item([8, 0, 4, 2], "c"),
         );
 
         let ids: Vec<_> = state.iter().map(|(id, _)| id).collect();
@@ -871,9 +1011,9 @@ mod tests {
     fn with_configuration_preserves_positions() {
         let state: State<()> = State::with_configuration(
             Configuration::new(12)
-                .with_item(0, 0, 4, 2, ())
-                .with_item(4, 0, 4, 2, ())
-                .with_item(8, 0, 4, 2, ()),
+                .with_item([0, 0, 4, 2], ())
+                .with_item([4, 0, 4, 2], ())
+                .with_item([8, 0, 4, 2], ()),
         );
 
         let mut positions: Vec<_> = state
@@ -889,13 +1029,9 @@ mod tests {
     fn with_configuration_resolves_collisions() {
         // Two items at the same position — engine should displace one.
         let state: State<()> = State::with_configuration(
-            Configuration::new(12).with_item(0, 0, 4, 2, ()).with_item(
-                0,
-                0,
-                4,
-                2,
-                (),
-            ),
+            Configuration::new(12)
+                .with_item([0, 0, 4, 2], ())
+                .with_item([0, 0, 4, 2], ()),
         );
 
         let positions: Vec<_> =
@@ -912,13 +1048,9 @@ mod tests {
         // Items floating at y=10 should be compacted to y=0 when
         // float is off (default).
         let state: State<()> = State::with_configuration(
-            Configuration::new(12).with_item(0, 10, 4, 2, ()).with_item(
-                4,
-                10,
-                4,
-                2,
-                (),
-            ),
+            Configuration::new(12)
+                .with_item([0, 10, 4, 2], ())
+                .with_item([4, 10, 4, 2], ()),
         );
 
         for node in state.engine().items() {
@@ -932,8 +1064,8 @@ mod tests {
         let state: State<()> = State::with_configuration(
             Configuration::new(12)
                 .float(true)
-                .with_item(0, 10, 4, 2, ())
-                .with_item(4, 10, 4, 2, ()),
+                .with_item([0, 10, 4, 2], ())
+                .with_item([4, 10, 4, 2], ()),
         );
 
         for node in state.engine().items() {
@@ -945,7 +1077,7 @@ mod tests {
     fn with_configuration_constraints_applied() {
         let state: State<()> = State::with_configuration(
             Configuration::new(12)
-                .push(Item::new(0, 0, 2, 1, ()).min_w(4).min_h(3)),
+                .push(Item::new([0, 0, 2, 1], ()).min_w(4).min_h(3)),
         );
 
         let node = state.engine().items().next().unwrap();
@@ -957,13 +1089,10 @@ mod tests {
     fn with_configuration_max_rows_honored() {
         // An item extending past max_rows should be clamped.
         let state: State<()> = State::with_configuration(
-            Configuration::new(12).max_rows(5).float(true).with_item(
-                0,
-                0,
-                4,
-                10,
-                (),
-            ),
+            Configuration::new(12)
+                .max_rows(5)
+                .float(true)
+                .with_item([0, 0, 4, 10], ()),
         );
 
         let node = state.engine().items().next().unwrap();
@@ -974,8 +1103,8 @@ mod tests {
     fn with_configuration_user_data_accessible() {
         let state: State<&str> = State::with_configuration(
             Configuration::new(12)
-                .with_item(0, 0, 6, 2, "hello")
-                .with_item(6, 0, 6, 2, "world"),
+                .with_item([0, 0, 6, 2], "hello")
+                .with_item([6, 0, 6, 2], "world"),
         );
 
         let mut values: Vec<_> = state.iter().map(|(_, data)| *data).collect();
@@ -989,10 +1118,10 @@ mod tests {
     fn global_ids_unique_across_nested_grids() {
         // Ids must be unique across the whole tree, not per-engine.
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group");
-        let a = state.add_child(group, 0, 0, 3, 2, "a").unwrap();
-        let b = state.add_child(group, 3, 0, 3, 2, "b").unwrap();
-        let leaf = state.add(6, 0, 6, 4, "leaf");
+        let group = state.add_group([0, 0, 6, 4], Width::Shrink, "group");
+        let a = state.add_child(group, [0, 0, 3, 2], "a").unwrap();
+        let b = state.add_child(group, [3, 0, 3, 2], "b").unwrap();
+        let leaf = state.add([6, 0, 6, 4], "leaf");
 
         let ids = [group, a, b, leaf];
         for (i, &x) in ids.iter().enumerate() {
@@ -1005,8 +1134,8 @@ mod tests {
     #[test]
     fn nested_lookup_finds_node_and_item() {
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group");
-        let child = state.add_child(group, 1, 1, 2, 2, "child").unwrap();
+        let group = state.add_group([0, 0, 6, 4], Width::Shrink, "group");
+        let child = state.add_child(group, [1, 1, 2, 2], "child").unwrap();
 
         // get / get_node reach the nested node.
         assert_eq!(state.get(child), Some(&"child"));
@@ -1023,9 +1152,9 @@ mod tests {
     #[test]
     fn nested_move_targets_child_grid() {
         let mut state: State<()> = State::new(12);
-        let group = state.add_group(0, 0, 12, 6, ());
-        let a = state.add_child(group, 0, 0, 2, 2, ()).unwrap();
-        let b = state.add_child(group, 2, 0, 2, 2, ()).unwrap();
+        let group = state.add_group([0, 0, 12, 6], Width::Shrink, ());
+        let a = state.add_child(group, [0, 0, 2, 2], ()).unwrap();
+        let b = state.add_child(group, [2, 0, 2, 2], ()).unwrap();
 
         // Move `a` within the child grid onto `b` (same size → swap).
         state.perform(
@@ -1046,10 +1175,71 @@ mod tests {
     }
 
     #[test]
+    fn size_to_content_commits_group_width_to_its_content() {
+        // A 12-col root with one group authored 8 wide whose two 4-wide tiles
+        // fill it. Shrinking a tile leaves the group's content at 6 columns;
+        // with `size_to_content` the committed group width must follow, so the
+        // group can be dragged flush to the right edge instead of being held
+        // back by its authored 8-wide footprint.
+        let mut state: State<()> = State::new(12);
+        state.fit(true);
+
+        let group = state.add_group([0, 0, 8, 1], Width::Shrink, ());
+        let _l = state.add_child(group, [0, 0, 4, 3], ()).unwrap();
+        let r = state.add_child(group, [4, 0, 4, 3], ()).unwrap();
+
+        // Content fills all 8 columns → group width is 8.
+        assert_eq!(state.get_item(group).unwrap().w, 8);
+
+        // Halve the right tile: content now spans 6 columns.
+        assert!(state.resize_item(r, 2, 3));
+        assert_eq!(
+            state.get_item(group).unwrap().w,
+            6,
+            "group width follows its content after a child shrinks"
+        );
+
+        // The 6-wide group can now reach the right edge (x = 12 - 6); with the
+        // stale 8-wide footprint the move clamped to x = 4.
+        state.perform(
+            Action::Move {
+                id: group,
+                x: 6,
+                y: 0,
+                phase: DragPhase::Ended,
+                mode: MoveMode::Place,
+            },
+            |_, _| false,
+        );
+        assert_eq!(
+            state.get_item(group).unwrap().x,
+            6,
+            "group sits flush right at its content width"
+        );
+    }
+
+    #[test]
+    fn size_to_content_off_keeps_authored_group_width() {
+        // Without `size_to_content`, a group keeps the width it was authored
+        // with even when its content is narrower (fixed-size container mode).
+        let mut state: State<()> = State::new(12);
+        let group = state.add_group([0, 0, 8, 1], Width::Shrink, ());
+        let _l = state.add_child(group, [0, 0, 4, 3], ()).unwrap();
+        let r = state.add_child(group, [4, 0, 4, 3], ()).unwrap();
+
+        assert!(state.resize_item(r, 2, 3));
+        assert_eq!(
+            state.get_item(group).unwrap().w,
+            8,
+            "authored width is preserved when size_to_content is off"
+        );
+    }
+
+    #[test]
     fn remove_nested_node() {
         let mut state: State<&str> = State::new(12);
-        let group = state.add_group(0, 0, 6, 4, "group");
-        let child = state.add_child(group, 0, 0, 2, 2, "child").unwrap();
+        let group = state.add_group([0, 0, 6, 4], Width::Shrink, "group");
+        let child = state.add_child(group, [0, 0, 2, 2], "child").unwrap();
 
         assert_eq!(state.remove(child), Some("child"));
         assert!(state.get(child).is_none());
@@ -1062,10 +1252,10 @@ mod tests {
     /// Builds a state with two sibling groups, each holding one child.
     fn two_groups() -> (State<&'static str>, ItemId, ItemId, ItemId, ItemId) {
         let mut state: State<&str> = State::new(12);
-        let pulse = state.add_group(0, 0, 6, 4, "pulse");
-        let trends = state.add_group(6, 0, 6, 4, "trends");
-        let a = state.add_child(pulse, 0, 0, 2, 2, "a").unwrap();
-        let b = state.add_child(trends, 0, 0, 2, 2, "b").unwrap();
+        let pulse = state.add_group([0, 0, 6, 4], Width::Shrink, "pulse");
+        let trends = state.add_group([6, 0, 6, 4], Width::Shrink, "trends");
+        let a = state.add_child(pulse, [0, 0, 2, 2], "a").unwrap();
+        let b = state.add_child(trends, [0, 0, 2, 2], "b").unwrap();
         (state, pulse, trends, a, b)
     }
 
@@ -1141,8 +1331,8 @@ mod tests {
         // Dropping a group into its own subtree would create a cycle and
         // must be rejected, leaving the tree untouched.
         let mut state: State<&str> = State::new(12);
-        let outer = state.add_group(0, 0, 12, 6, "outer");
-        let inner = state.add_group(0, 0, 6, 4, "inner");
+        let outer = state.add_group([0, 0, 12, 6], Width::Shrink, "outer");
+        let inner = state.add_group([0, 0, 6, 4], Width::Shrink, "inner");
         // Nest `inner` under `outer` first.
         state.perform(
             reparent(inner, Some(outer), 0, 0, DragPhase::Ended),
@@ -1172,9 +1362,9 @@ mod tests {
     fn reparent_preserves_moved_subtree() {
         // Moving a container carries its children along.
         let mut state: State<&str> = State::new(12);
-        let host = state.add_group(0, 0, 12, 8, "host");
-        let group = state.add_group(0, 0, 6, 4, "group");
-        let child = state.add_child(group, 0, 0, 2, 2, "child").unwrap();
+        let host = state.add_group([0, 0, 12, 8], Width::Shrink, "host");
+        let group = state.add_group([0, 0, 6, 4], Width::Shrink, "group");
+        let child = state.add_child(group, [0, 0, 2, 2], "child").unwrap();
 
         // Move `group` (with `child`) into `host`.
         state.perform(
@@ -1191,14 +1381,53 @@ mod tests {
     }
 
     #[test]
+    fn shrink_group_lets_children_grow_past_its_authored_width() {
+        // A Shrink group authored 4 wide: its inner grid spans the root's 12
+        // columns, so a child can be resized wider than 4, and the group grows
+        // to match (size-to-content). A Fixed group would clamp at 4.
+        let mut state: State<&str> = State::new(12);
+        state.fit(true);
+        let g = state.add_group([0, 0, 4, 1], Width::Shrink, "g");
+        let tile = state.add_child(g, [0, 0, 4, 3], "t").unwrap();
+        assert_eq!(
+            state.get_item(g).unwrap().w,
+            4,
+            "starts at content width 4"
+        );
+
+        // Resize the child to 6 — past the group's authored 4.
+        assert!(state.resize_item(tile, 6, 3));
+        assert_eq!(
+            state.get_item(tile).unwrap().w,
+            6,
+            "child grows past the authored width (not clamped to 4)"
+        );
+        assert_eq!(
+            state.get_item(g).unwrap().w,
+            6,
+            "the group grows to fit its content"
+        );
+
+        // A Fixed group, by contrast, clamps the child at its width.
+        let fixed = state.add_group([0, 6, 4, 1], 4, "f");
+        let fchild = state.add_child(fixed, [0, 0, 6, 3], "ft").unwrap();
+        assert_eq!(
+            state.get_item(fchild).unwrap().w,
+            4,
+            "Fixed group caps the child at its 4 columns"
+        );
+    }
+
+    #[test]
     fn reparent_restores_width_clamped_by_a_narrow_grid() {
         let mut state: State<&str> = State::new(12);
-        // A single-column group (its inner grid matches its width) inside the
-        // 12-column root.
-        let narrow = state.add_group(0, 0, 1, 6, "narrow");
+        // A Fixed single-column group (its inner grid is exactly 1 column)
+        // inside the 12-column root. (A Shrink group wouldn't clamp — its inner
+        // grid spans the root's columns — so this exercises Fixed.)
+        let narrow = state.add_group([0, 0, 1, 6], 1, "narrow");
         // Author a 2-wide tile in it; the 1-column grid clamps it to 1, but
         // the node remembers it wants to be 2 wide.
-        let tile = state.add_child(narrow, 0, 0, 2, 2, "t").unwrap();
+        let tile = state.add_child(narrow, [0, 0, 2, 2], "t").unwrap();
         {
             let n = state.engine_of(tile).unwrap().get(tile).unwrap();
             assert_eq!(n.w, 1, "clamped to the group's single column");

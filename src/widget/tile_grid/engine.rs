@@ -102,6 +102,29 @@ pub fn is_intercepted(a: &Node, b: &Node) -> bool {
         || a.x >= b.right())
 }
 
+/// The `y` an item held in the pre-cascade `order` snapshot, used to keep
+/// displaced items in their original top-to-bottom order. An id absent from
+/// the snapshot sorts to the bottom (treated as the lowest).
+fn orig_y_of(order: &[(ItemId, u16)], id: ItemId) -> u16 {
+    order
+        .iter()
+        .find(|(other, _)| *other == id)
+        .map_or(u16::MAX, |(_, y)| *y)
+}
+
+/// The content-fitted width of a group, in columns: the column extent its
+/// children occupy (`content_cols`), clamped to the columns available to it
+/// in its parent grid (`available_cols`), and never below 1.
+///
+/// This is the *single* definition of a group's width. The state commits it
+/// after every mutation (the resting truth); the widget's layout reprojects
+/// it from the previewed engine during a drag/resize, since the pending
+/// change is not yet committed. Both call here so there is one rule.
+#[must_use]
+pub(crate) fn fit_group_width(content_cols: u16, available_cols: u16) -> u16 {
+    content_cols.min(available_cols).max(1)
+}
+
 /// The internal layout state of a [`TileGrid`].
 ///
 /// Manages a flat list of [`Node`]s on a grid with a fixed number of
@@ -734,6 +757,12 @@ impl Internal {
         // under Swap mode, conditionally snap the mover.
         self.try_swap_pack(item_id, held, mode);
 
+        // The vertical order entering the cascade. Phase 2 preserves it: when
+        // the mover shoves two stacked items onto the same row, the one that
+        // was higher stays higher (rather than the cascade inverting them).
+        let order: Vec<(ItemId, u16)> =
+            self.items.iter().map(|i| (i.id, i.y)).collect();
+
         // Phase 2: Cascade displacement.
         let max_iterations = (self.items.len() + 1) * (self.items.len() + 1);
         let mut iterations = 0;
@@ -784,6 +813,7 @@ impl Internal {
                 self.fix_collisions_nested(
                     colliding_id,
                     held,
+                    &order,
                     iterations,
                     max_iterations,
                 );
@@ -795,10 +825,16 @@ impl Internal {
     ///
     /// Resolves collisions for a displaced item, with a shared iteration
     /// budget to prevent infinite loops.
+    ///
+    /// `order` is the pre-cascade vertical order (id → entry `y`). When the
+    /// displaced item collides with a non-held sibling, the one that was
+    /// originally *higher* keeps the upper slot and the other is pushed below
+    /// — so two items shoved onto the same row don't swap places.
     fn fix_collisions_nested(
         &mut self,
         item_id: ItemId,
         held: &[ItemId],
+        order: &[(ItemId, u16)],
         mut iterations: usize,
         max_iterations: usize,
     ) {
@@ -829,6 +865,16 @@ impl Internal {
                     self.items.iter().position(|i| i.id == item_id).unwrap();
                 self.items[item_idx].y = held_bottom;
                 self.node_bound_fix_by_id(item_id, false);
+            } else if orig_y_of(order, colliding_id) < orig_y_of(order, item_id)
+            {
+                // The collider was originally above us: it keeps the higher
+                // slot, so drop *our* item below it instead of shoving it
+                // down. The loop re-checks our item against any next obstacle.
+                let below = self.items[collision_idx].bottom();
+                let item_idx =
+                    self.items.iter().position(|i| i.id == item_id).unwrap();
+                self.items[item_idx].y = below;
+                self.node_bound_fix_by_id(item_id, false);
             } else {
                 let item_idx =
                     self.items.iter().position(|i| i.id == item_id).unwrap();
@@ -843,6 +889,7 @@ impl Internal {
                 self.fix_collisions_nested(
                     colliding_id,
                     held,
+                    order,
                     iterations,
                     max_iterations,
                 );
@@ -2849,6 +2896,31 @@ mod tests {
         assert_eq!((ia.x, ia.y), (0, 2), "mover stays at drag target");
         assert!(ib.y >= 4, "wide item cascaded below; got y={}", ib.y);
         assert!(!is_intercepted(ia, ib), "no overlap");
+    }
+
+    #[test]
+    fn insert_preserves_order_of_displaced_stack() {
+        // Inserting a tall item at the top that displaces two stacked,
+        // horizontally-overlapping items must keep their relative order: the
+        // one that was higher stays higher. Pre-fix the cascade shoved both
+        // onto the mover's bottom row and then inverted them, so `top` ended
+        // up *below* `bottom`. Mirrors the grouped example: dragging a tile to
+        // the very top (reparent to root, before the first group) flipping the
+        // order of the two stacked groups it pushes down.
+        let (top, bottom) = (ItemId(0), ItemId(1));
+        let mut engine = Internal::new(12);
+        engine.add_item_with_id(top, 0, 0, 8, 1);
+        engine.add_item_with_id(bottom, 0, 1, 8, 1);
+        // A 3-tall tile inserted at the top, overlapping both items' columns.
+        engine.add_item_with_id(ItemId(2), 4, 0, 4, 3);
+
+        let top_y = engine.get(top).unwrap().y;
+        let bot_y = engine.get(bottom).unwrap().y;
+        assert!(
+            top_y < bot_y,
+            "the originally-higher item must stay above the lower one; \
+             got top.y={top_y} bottom.y={bot_y}"
+        );
     }
 
     #[test]

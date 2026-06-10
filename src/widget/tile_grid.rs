@@ -27,9 +27,9 @@
 //! use iced::widget::text;
 //!
 //! let mut state: State<&str> = State::new(12);
-//! let header = state.add(0, 0, 12, 1, "header");
-//! let sidebar = state.add(0, 1, 3, 4, "sidebar");
-//! let main = state.add(3, 1, 9, 4, "main");
+//! let header = state.add([0, 0, 12, 1], "header");
+//! let sidebar = state.add([0, 1, 3, 4], "sidebar");
+//! let main = state.add([3, 1, 9, 4], "main");
 //!
 //! // In view:
 //! let grid = TileGrid::new(&state, |id, label| {
@@ -45,6 +45,7 @@ pub mod content;
 mod drop;
 pub mod engine;
 pub mod item_id;
+mod rect;
 mod shared;
 pub mod state;
 pub mod title_bar;
@@ -54,7 +55,8 @@ pub use configuration::Configuration;
 pub use content::Content;
 pub use engine::{Internal, MoveMode, Node};
 pub use item_id::ItemId;
-pub use state::State;
+pub use rect::Rect;
+pub use state::{State, Width};
 pub use title_bar::TitleBar;
 pub use widget::{
     Action, Catalog, CellHeight, DragPhase, Highlight, ResizeGrip, Style,

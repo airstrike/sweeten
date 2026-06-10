@@ -10,7 +10,7 @@
 use iced::{Element, Event, Fill, Point, mouse};
 
 use sweeten::widget::tile_grid::{
-    self, Action, CellHeight, ItemId, State, grid_content, title_bar,
+    self, Action, CellHeight, ItemId, State, Width, grid_content, title_bar,
 };
 
 // Deterministic geometry: a 1200×800 window, a 12-column root with two
@@ -36,10 +36,10 @@ struct App {
 impl App {
     fn new() -> Self {
         let mut state: State<&'static str> = State::new(12);
-        let group_a = state.add_group(0, 0, 6, 4, "A");
-        let a = state.add_child(group_a, 0, 0, 2, 2, "a").unwrap();
-        let group_b = state.add_group(6, 0, 6, 4, "B");
-        let b = state.add_child(group_b, 0, 0, 2, 2, "b").unwrap();
+        let group_a = state.add_group([0, 0, 6, 4], Width::Shrink, "A");
+        let a = state.add_child(group_a, [0, 0, 2, 2], "a").unwrap();
+        let group_b = state.add_group([6, 0, 6, 4], Width::Shrink, "B");
+        let b = state.add_child(group_b, [0, 0, 2, 2], "b").unwrap();
         Self {
             state,
             a,
@@ -118,7 +118,8 @@ fn grouped_layout_renders_without_panic() {
 fn size_to_content_renders_without_panic() {
     // Exercises the size-to-content fit (groups resized to children) and
     // group padding — the recursive fitted_engine path.
-    let app = App::new();
+    let mut app = App::new();
+    app.state.fit(true);
     let view: Element<'_, Message> =
         sweeten::tile_grid(&app.state, |_id, d| {
             grid_content(iced::widget::text(*d))
@@ -130,7 +131,6 @@ fn size_to_content_renders_without_panic() {
         .cell_height(CellHeight::Fixed(40.0))
         .group_header(24)
         .group_padding(8)
-        .size_to_content(true)
         .on_action(Message::Grid)
         .into();
 
@@ -214,6 +214,44 @@ fn intra_group_drag_emits_move() {
     let _ = app.b;
 }
 
+#[test]
+fn wide_tile_does_not_dive_into_group_off_cursor() {
+    // Drag tile `a` (in group A) toward group B until its ghost overlaps B's
+    // columns, but stop with the cursor still LEFT of group B's box. It must
+    // not reparent INTO B: container descent keys off the cursor, not the
+    // ghost's far edge (the Image #7 dive).
+    //
+    // Geometry: 12 cols over 1200px → 100px cells; group B is cols 6–11
+    // (x∈[600,1200)). Grab `a` at (30,12); drop at (590,60). The ghost's
+    // top-left lands ≈ (560,48) → column 6, so its span (6–7) is inside B's
+    // columns, but the cursor (590) is left of B's left edge (600).
+    let app = App::new();
+    let messages = {
+        let mut ui = iced_test::Simulator::with_size(
+            Default::default(),
+            iced::Size::new(W, H),
+            app.view(),
+        );
+        drag(&mut ui, Point::new(30.0, 12.0), Point::new(590.0, 60.0));
+        ui.into_messages().collect::<Vec<_>>()
+    };
+
+    let dove_into_b = messages.iter().any(|m| {
+        matches!(
+            m,
+            Message::Grid(Action::Reparent {
+                new_parent: Some(p),
+                ..
+            }) if *p == app.group_b
+        )
+    });
+    assert!(
+        !dove_into_b,
+        "tile must not reparent into group B while the cursor is outside it; \
+         got {messages:?}"
+    );
+}
+
 // ── Content::controls overlay ───────────────────────────────────
 
 #[derive(Debug, Clone, Copy)]
@@ -231,8 +269,8 @@ struct CtrlApp {
 impl CtrlApp {
     fn new() -> Self {
         let mut state: State<&'static str> = State::new(12);
-        let group = state.add_group(0, 0, 12, 6, "G");
-        let tile = state.add_child(group, 0, 0, 3, 3, "t").unwrap();
+        let group = state.add_group([0, 0, 12, 6], Width::Shrink, "G");
+        let tile = state.add_child(group, [0, 0, 3, 3], "t").unwrap();
         Self { state, tile }
     }
 
@@ -344,10 +382,11 @@ fn trends_with_pipeline_width(
     pipeline_w: u16,
 ) -> iced_test::Simulator<'static, FitMessage> {
     let mut state: State<&'static str> = State::new(12);
-    let trends = state.add_group(0, 0, 8, 1, "Trends");
-    state.add_child(trends, 0, 0, 4, 3, "Bookings").unwrap();
+    state.fit(true);
+    let trends = state.add_group([0, 0, 8, 1], Width::Shrink, "Trends");
+    state.add_child(trends, [0, 0, 4, 3], "Bookings").unwrap();
     state
-        .add_child(trends, 4, 0, pipeline_w, 3, "Pipeline")
+        .add_child(trends, [4, 0, pipeline_w, 3], "Pipeline")
         .unwrap();
 
     let view: Element<'static, FitMessage> = sweeten::tile_grid(
@@ -365,7 +404,6 @@ fn trends_with_pipeline_width(
     .cell_height(CellHeight::Fixed(54.0))
     .group_header(32)
     .group_padding(10)
-    .size_to_content(true)
     .on_action(FitMessage::Grid)
     .into();
 
@@ -404,5 +442,115 @@ fn size_to_content_child_resize_keeps_cell_width() {
         (span_full - span_shrunk).abs() < 2.0,
         "Bookings' 4-column span (cell width) must not change when Pipeline \
          frees a column: full={span_full:.1} shrunk={span_shrunk:.1}"
+    );
+}
+
+#[test]
+fn resizing_one_stacked_tile_must_not_resize_the_other() {
+    use iced::widget::container;
+    use sweeten::core::widget::Id;
+
+    // Two tiles stacked in a Shrink group, each 2 columns wide. A column is
+    // supposed to be a fixed number of pixels, so widening the *top* tile from
+    // 2 to 3 must NOT change the *bottom* tile's pixel width.
+    //
+    // Each tile's body is a `Fill` container with a findable id, so we read the
+    // tile's true rendered width (not the text glyph bounds, which never move).
+    let measure_bottom = |top_w: u16| -> f32 {
+        let mut state: State<&'static str> = State::new(12);
+        let g = state.add_group([0, 0, 2, 1], Width::Shrink, "g");
+        state.add_child(g, [0, 0, top_w, 1], "top").unwrap();
+        state.add_child(g, [0, 1, 2, 1], "bot").unwrap();
+        state.fit(true);
+
+        let view: Element<'_, Message> = sweeten::tile_grid(
+            Box::leak(Box::new(state)),
+            |_id, label: &&'static str| {
+                grid_content(
+                    container(iced::widget::text(""))
+                        .width(Fill)
+                        .height(Fill)
+                        .id(Id::new(label)),
+                )
+            },
+        )
+        .width(Fill)
+        .height(Fill)
+        .spacing(8)
+        .cell_height(CellHeight::Fixed(54.0))
+        .group_header(0)
+        .group_padding(10)
+        .on_action(Message::Grid)
+        .into();
+
+        let mut ui = iced_test::Simulator::with_size(
+            Default::default(),
+            iced::Size::new(1100.0, 760.0),
+            view,
+        );
+        let _ = ui.simulate([Event::Window(
+            iced::window::Event::RedrawRequested(std::time::Instant::now()),
+        )]);
+        ui.find(Id::new("bot")).unwrap().bounds().width
+    };
+
+    let with_top_2 = measure_bottom(2);
+    let with_top_3 = measure_bottom(3);
+    assert!(
+        (with_top_2 - with_top_3).abs() < 1.0,
+        "widening the top tile (2 -> 3 cols) must not change the bottom \
+         tile's pixel width: {with_top_2:.1}px vs {with_top_3:.1}px",
+    );
+}
+
+#[test]
+fn group_keeps_side_gutters_between_frame_and_tiles() {
+    use iced::widget::container;
+    use sweeten::core::widget::Id;
+
+    // Uniform cells must not cost the group its side gutters: the frame
+    // extends a half-gutter beyond the group's columns, so a tile inside a
+    // group anchored at the board's left edge sits min(padding, spacing/2)
+    // pixels in from x = 0 (the frame's left edge).
+    let mut state: State<&'static str> = State::new(12);
+    let g = state.add_group([0, 0, 2, 1], Width::Shrink, "g");
+    state.add_child(g, [0, 0, 2, 1], "tile").unwrap();
+    state.fit(true);
+
+    let view: Element<'_, Message> = sweeten::tile_grid(
+        Box::leak(Box::new(state)),
+        |_id, label: &&'static str| {
+            grid_content(
+                container(iced::widget::text(""))
+                    .width(Fill)
+                    .height(Fill)
+                    .id(Id::new(label)),
+            )
+        },
+    )
+    .width(Fill)
+    .height(Fill)
+    .spacing(8)
+    .cell_height(CellHeight::Fixed(54.0))
+    .group_header(0)
+    .group_padding(10)
+    .on_action(Message::Grid)
+    .into();
+
+    let mut ui = iced_test::Simulator::with_size(
+        Default::default(),
+        iced::Size::new(1100.0, 760.0),
+        view,
+    );
+    let _ = ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+        std::time::Instant::now(),
+    ))]);
+
+    // gutter = min(group_padding, spacing / 2) = min(10, 4) = 4.
+    let x = ui.find(Id::new("tile")).unwrap().bounds().x;
+    assert!(
+        (x - 4.0).abs() < 1.0,
+        "a tile in an edge group must sit one gutter in from the frame: \
+         expected x ≈ 4.0, got {x:.1}",
     );
 }

@@ -34,7 +34,7 @@ use crate::core::{
 
 use super::content::Content;
 use super::drop::{DropChild, DropSlot, resolve_drop_y};
-use super::engine::{Internal, MoveMode};
+use super::engine::{Internal, MoveMode, fit_group_width};
 use super::item_id::ItemId;
 use super::shared::{
     self, DRAG_DEADBAND_DISTANCE, ItemAnimations, RESIZE_CORNER_REACH,
@@ -329,8 +329,8 @@ pub struct TileGrid<
     /// Pixel height reserved for a labeled group's header strip.
     group_header: f32,
     /// Pixel padding inside a container, between its border and the child
-    /// grid.
-    group_padding: f32,
+    /// grid. `None` defaults to half the grid spacing.
+    group_padding: Option<f32>,
     /// When `true`, containers are sized to fit their children (plus the
     /// header and padding) rather than using their authored row span.
     size_to_content: bool,
@@ -398,8 +398,11 @@ where
             spacing: 0.0,
             cell_height: CellHeight::default(),
             group_header: 0.0,
-            group_padding: 0.0,
-            size_to_content: false,
+            group_padding: None,
+            // Read off the state — it is the single source of truth (it
+            // commits each group's width to its content). The widget only
+            // derives the pixel-dependent *height* from it.
+            size_to_content: state.fits(),
             on_action: None,
             locked: false,
             swap_mode: SwapMode::default(),
@@ -447,20 +450,18 @@ where
     }
 
     /// Sets the pixel padding inside a container, between its border and the
-    /// child grid. Defaults to `0.0`.
-    pub fn group_padding(mut self, padding: impl Into<Pixels>) -> Self {
-        self.group_padding = padding.into().0;
-        self
-    }
-
-    /// Sizes containers to fit their children (header + child grid +
-    /// padding) instead of their authored row span. Group nodes resize
-    /// automatically as tiles are added, removed, or dragged in or out.
+    /// child grid. Defaults to half the grid [`spacing`](Self::spacing),
+    /// which gives symmetric gutters all around; call this only to override
+    /// that.
     ///
-    /// Works best with a [`CellHeight::Fixed`] cell height shared by every
-    /// level. Defaults to `false`, leaving flat grids unchanged.
-    pub fn size_to_content(mut self, size_to_content: bool) -> Self {
-        self.size_to_content = size_to_content;
+    /// Vertically this is taken as given. Horizontally it is capped at half
+    /// the spacing: one column is the same pixel width at every depth, so a
+    /// group's side gutters cannot be carved out of its columns — instead
+    /// its frame extends *outward* into the spacing around it
+    /// (Bootstrap-style half-gutters), and half the spacing per side is all
+    /// there is to take.
+    pub fn group_padding(mut self, padding: impl Into<Pixels>) -> Self {
+        self.group_padding = Some(padding.into().0);
         self
     }
 
@@ -592,6 +593,44 @@ where
         false
     }
 
+    /// The effective group padding: the configured value, or half the grid
+    /// spacing — the symmetric-gutter default.
+    fn group_pad(&self) -> f32 {
+        self.group_padding.unwrap_or(self.spacing / 2.0)
+    }
+
+    /// The horizontal gutter between a group's frame and its tiles.
+    ///
+    /// Columns are a fixed pixel width at every depth, so this inset cannot
+    /// be carved out of a group's columns — the frame extends *outward* into
+    /// the spacing around the group instead, Bootstrap-style. Half the
+    /// spacing per side is all the room there is (a neighbor may claim the
+    /// other half), so the configured padding is capped there.
+    ///
+    /// Zero on a flat (group-less) grid, so the board-edge inset that frames
+    /// make room for never disturbs a plain layout.
+    fn group_gutter(&self) -> f32 {
+        if self.child_engines.iter().all(Option::is_none) {
+            return 0.0;
+        }
+        self.group_pad().min(self.spacing / 2.0)
+    }
+
+    /// Computes `(cell_width, cell_height)` for the root grid laid out
+    /// across `total_width` pixels, net of the board's edge gutters.
+    ///
+    /// The board insets its content by [`group_gutter`](Self::group_gutter)
+    /// on each side — the "container padding" that gives a group in the
+    /// first or last column room to extend its frame outward. Every
+    /// pixel↔column conversion must go through this so placement, resizing
+    /// and drop resolution agree.
+    fn root_cell_dims(&self, total_width: f32) -> (f32, f32) {
+        self.grid_cell_dims(
+            self.root_engine.columns(),
+            total_width - 2.0 * self.group_gutter(),
+        )
+    }
+
     /// Computes `(cell_width, cell_height)` for a grid of `columns` columns
     /// laid out across `width` pixels.
     fn grid_cell_dims(&self, columns: u16, width: f32) -> (f32, f32) {
@@ -625,13 +664,18 @@ where
         resize: Option<ResizeTarget>,
     ) -> Positions {
         let mut out = Positions::default();
+        // Inset the board by the group gutter on each side, so a group in an
+        // edge column can extend its frame outward without leaving the
+        // widget's bounds.
+        let gutter = self.group_gutter();
         let area = Rectangle {
-            x: 0.0,
+            x: gutter,
             y: 0.0,
-            width: total_width,
+            width: total_width - 2.0 * gutter,
             height: 0.0,
         };
-        self.place_grid(None, area, drag, resize, &mut out);
+        let (cell_w, _) = self.root_cell_dims(total_width);
+        self.place_grid(None, area, cell_w, drag, resize, &mut out);
         out
     }
 
@@ -686,8 +730,9 @@ where
     }
 
     /// Returns the engine for the grid owned by `owner`, with the active
-    /// drag/resize preview applied and — when `size_to_content` is on —
-    /// every group child resized to fit its own content.
+    /// drag/resize preview applied and — when `size_to_content` is on — every
+    /// group grown vertically to fit its content. Width is left as committed
+    /// (the state owns it); only the pixel-dependent height is derived here.
     fn fitted_engine(
         &self,
         owner: Option<ItemId>,
@@ -700,11 +745,19 @@ where
             .unwrap_or_else(|| self.owner_engine(owner).clone());
 
         if self.size_to_content {
-            // Grow each group to fit its content, then gravity-pack. This is a
-            // *pure function of `engine`* — nothing here depends on whether a
-            // drag is in flight — so the same committed state renders the same
-            // mid-drag (preview) and after the drop (committed). That identity
-            // is what keeps the ghost and the placement from diverging.
+            // Resolve each group's box from its (possibly previewed) content,
+            // then gravity-pack.
+            //
+            // Width comes from [`fit_group_width`] — the same rule the state
+            // commits after every mutation. When idle this reprojects the
+            // committed width unchanged; mid drag/resize the `inner` engine
+            // carries the pending change, so the group tracks it live instead
+            // of snapping only on drop. The state stays the resting source of
+            // truth; this is its projection while a change is uncommitted.
+            //
+            // Height is resolved here and only here: it depends on the cell
+            // pixel height (header + padding measured in rows), which the
+            // engine can't know.
             let groups: Vec<ItemId> = engine
                 .items()
                 .filter(|node| self.is_group(node.id))
@@ -713,26 +766,12 @@ where
             for gid in groups {
                 let inner = self.fitted_engine(Some(gid), cell_h, drag, resize);
                 let used_rows = inner.get_row();
-                let used_cols = inner.get_col();
 
-                // Height = children rows + header/padding rows.
+                let width = fit_group_width(inner.get_col(), engine.columns());
                 let height =
                     (self.group_extra_rows(gid, cell_h) + used_rows).max(1);
 
-                // Width = the children's used columns, scaled from the
-                // group's inner column count to its authored outer span
-                // (so unused columns are trimmed).
-                let authored_w =
-                    engine.get(gid).map_or(1, |node| node.w).max(1);
-                let inner_cols = self
-                    .child_engine_of(gid)
-                    .map_or(1, Internal::columns)
-                    .max(1);
-                let width = (u32::from(used_cols) * u32::from(authored_w))
-                    .div_ceil(u32::from(inner_cols))
-                    as u16;
-
-                engine.resize_item(gid, width.max(1), height);
+                engine.resize_item(gid, width, height);
             }
             engine.pack_nodes();
         }
@@ -746,7 +785,7 @@ where
     /// header-to-body gap, bottom), a headerless one just the two framing
     /// pads.
     fn group_extra_rows(&self, gid: ItemId, cell_h: f32) -> u16 {
-        let pad = self.group_padding;
+        let pad = self.group_pad();
         let extra_px = if self.has_title_bar(gid) {
             self.group_header + 3.0 * pad
         } else {
@@ -763,25 +802,21 @@ where
         &self,
         owner: Option<ItemId>,
         area: Rectangle,
+        // The pixel width of one column, computed once at the root and passed
+        // down **unchanged**. One column is the same number of pixels at every
+        // depth (a 12-grid gutter system), so resizing one tile never resizes
+        // another — a tile that spans more columns just consumes more fixed
+        // cells and the fixed gutters between them.
+        cell_w: f32,
         drag: Option<DragMove>,
         resize: Option<ResizeTarget>,
         out: &mut Positions,
     ) {
-        let (cell_w, cell_h) =
-            self.grid_cell_dims(self.owner_engine(owner).columns(), area.width);
-        let engine = self.fitted_engine(owner, cell_h, drag, resize);
-
-        // For a content-fitted group, `fitted_engine` trimmed the outer width
-        // to the used column span. Divide the body by that same span (rather
-        // than the authored inner column count) so each cell keeps its
-        // authored pixel size — otherwise a child that frees up columns makes
-        // the remaining cells shrink (the resize "overshoots") and leaves a
-        // gap to the group border.
-        let cell_w = if self.size_to_content && owner.is_some() {
-            self.grid_cell_dims(engine.get_col(), area.width).0
-        } else {
-            cell_w
+        let cell_h = match self.cell_height {
+            CellHeight::Auto => cell_w,
+            CellHeight::Fixed(h) => h,
         };
+        let engine = self.fitted_engine(owner, cell_h, drag, resize);
         let regions = shared::compute_regions_for(
             &engine,
             area.width,
@@ -801,45 +836,53 @@ where
             // A node only acts as a container if it is known to this widget
             // (it always is) and has a child engine.
             if self.index_of.contains_key(&id) && self.is_group(id) {
-                out.group_rects.insert(id, rect);
+                // The frame extends a half-gutter beyond the group's column
+                // footprint on each side (Bootstrap-style nesting): the
+                // children stay on the same fixed column grid as the board,
+                // and the side gutters come from the spacing *around* the
+                // group rather than being carved out of its columns — which
+                // would shrink the cells and couple one tile's pixel width
+                // to its siblings' spans. Two groups in adjacent columns may
+                // have abutting frames; that is the model's worst case.
+                let gutter = self.group_gutter();
+                let frame = Rectangle {
+                    x: rect.x - gutter,
+                    width: rect.width + 2.0 * gutter,
+                    ..rect
+                };
+                out.group_rects.insert(id, frame);
 
-                let pad = self.group_padding;
+                let pad = self.group_pad();
                 let header = if self.has_title_bar(id) {
                     self.group_header.min((rect.height - 2.0 * pad).max(0.0))
                 } else {
                     0.0
                 };
 
-                // Vertical layout is `pad | header | pad | body | pad`: the
-                // header strip is inset from the group's top edge by the same
-                // `pad` that separates it from the body and frames the bottom
-                // and sides, so the title reads as vertically centered in its
-                // strip rather than hugging the top border. A headerless group
-                // is just `pad | body | pad`.
+                // Vertical layout is `pad | header | pad | body | pad`,
+                // inside the footprint: rows are fixed config, so vertical
+                // padding never couples and is honored as given.
                 let header_block =
                     if header > 0.0 { header + pad } else { 0.0 };
 
-                // The header strip shares the body's horizontal inset so the
-                // group title lines up with the left edge of its child tiles
-                // rather than sitting flush against the group border.
                 out.content.insert(
                     id,
                     Rectangle {
-                        x: rect.x + pad,
+                        x: rect.x,
                         y: rect.y + pad,
-                        width: (rect.width - 2.0 * pad).max(0.0),
+                        width: rect.width,
                         height: header,
                     },
                 );
 
                 let body = Rectangle {
-                    x: rect.x + pad,
+                    x: rect.x,
                     y: rect.y + pad + header_block,
-                    width: (rect.width - 2.0 * pad).max(0.0),
+                    width: rect.width,
                     height: (rect.height - 2.0 * pad - header_block).max(0.0),
                 };
                 out.bodies.insert(id, body);
-                self.place_grid(Some(id), body, drag, resize, out);
+                self.place_grid(Some(id), body, cell_w, drag, resize, out);
             } else {
                 out.content.insert(id, rect);
             }
@@ -1054,8 +1097,7 @@ where
             _ => max.width,
         };
 
-        let (_, root_cell_h) =
-            self.grid_cell_dims(self.root_engine.columns(), resolved_width);
+        let (_, root_cell_h) = self.root_cell_dims(resolved_width);
         let grid_h = self.root_height(root_cell_h);
 
         #[allow(unreachable_patterns)]
@@ -1282,15 +1324,10 @@ where
                             .get(resize_id)
                             .map(|n| (n.w, n.h))
                     {
-                        let (cell_w, cell_h) = self.grid_cell_dims(
-                            self.owner_engine(self.parent_of(resize_id))
-                                .columns(),
-                            self.owner_width(
-                                self.parent_of(resize_id),
-                                group_bodies,
-                                bounds,
-                            ),
-                        );
+                        // One column is a fixed pixel width across the whole
+                        // tree, so the resize step is the root cell size.
+                        let (cell_w, cell_h) =
+                            self.root_cell_dims(bounds.width);
                         *interaction = Interaction::Resizing {
                             id: resize_id,
                             origin: cursor_position,
@@ -1442,6 +1479,7 @@ where
                                 bodies,
                                 bounds,
                                 node_top_left,
+                                cursor_position,
                                 *id,
                                 w,
                             );
@@ -1921,12 +1959,11 @@ where
             }
         }
 
-        // Render the picked node last, on top, at the drop slot it has
-        // resolved to — *not* under the cursor. The slot is the single value
-        // (`held_drag`) that the reflow, highlight, and commit also use, so
-        // the dragged node is drawn exactly where it will land.
-        if let Some(((content, tree), item_layout, _grab_offset)) =
-            render_picked
+        // Render the picked node last, on top. The drop *slot* it resolved to
+        // is drawn as the eased ghost highlight below; the dragged node itself
+        // is pinned to the live cursor (`cursor − grab_offset`) with no easing,
+        // so the gesture stays responsive while the placeholder catches up.
+        if let Some(((content, tree), item_layout, grab_offset)) = render_picked
         {
             let dragged_id = picked_item.unwrap().0;
 
@@ -2000,9 +2037,18 @@ where
                 );
             }
 
-            // The content is laid out at `snap_bounds` (the slot); translate
-            // only by the slide animation so it settles into the slot.
-            let translation = ghost_pos_offset;
+            // The content is laid out at `snap_bounds` (the slot). Translate it
+            // to the live cursor instead, so the dragged node tracks the
+            // pointer 1:1 every frame. Only the ghost highlight above keeps the
+            // eased `ghost_offset` delay. Falls back to the slot if the cursor
+            // is momentarily unavailable.
+            let translation =
+                cursor.position().map_or(ghost_pos_offset, |cursor_pos| {
+                    Vector::new(
+                        cursor_pos.x - grab_offset.x - snap_bounds.x,
+                        cursor_pos.y - grab_offset.y - snap_bounds.y,
+                    )
+                });
 
             renderer.with_translation(translation, |renderer| {
                 // A dragged group's fill floats with it, behind its tiles, so
@@ -2159,53 +2205,50 @@ where
         }
     }
 
-    /// The pixel width of the grid owned by `owner` (root or a container's
-    /// body), from the last layout's body rects.
-    fn owner_width(
-        &self,
-        owner: Option<ItemId>,
-        bodies: &HashMap<ItemId, Rectangle>,
-        bounds: Rectangle,
-    ) -> f32 {
-        match owner {
-            None => bounds.width,
-            Some(group) => bodies.get(&group).map_or(bounds.width, |b| b.width),
-        }
-    }
-
     /// Resolves where a dragged node lands: the destination grid (`None` =
     /// root) and the `(column, row)` within it.
     ///
     /// Descends one container per turn per the edge-band model in
     /// [`drop`](super::drop): the ghost's top-left (`node_top_left`) is the
-    /// reference, so the drop matches what's drawn floating. Columns are
-    /// uniform width (a plain division); the row is resolved against each
-    /// child's *rendered* span, which is the only thing that tracks
-    /// size-to-content groups rendered taller than their stored height-1 row.
+    /// reference for order and column, so the drop matches what's drawn
+    /// floating. Columns are uniform width (a plain division); the row is
+    /// resolved against each child's *rendered* span, which is the only thing
+    /// that tracks size-to-content groups rendered taller than their stored
+    /// height-1 row.
+    ///
+    /// Descending *into* a group, though, keys off the **cursor**, not the
+    /// ghost: a group is offered as a container only while the cursor is
+    /// inside its rendered box (otherwise it resolves as a plain leaf — drop
+    /// before/after it). This mirrors GridStack, whose sub-grids claim a drag
+    /// on `pointerenter`, and stops a wide tile from diving into a neighbour
+    /// the moment its far edge merely overlaps that neighbour's columns.
+    ///
     /// Everything is read from the fixed pre-lift `rects`/`bodies` so the
     /// target is a stable function of the cursor.
+    // Cohesive geometry inputs (the captured layout plus the two drag
+    // anchors); splitting them into a struct would only add indirection.
+    #[allow(clippy::too_many_arguments)]
     fn resolve_drop(
         &self,
         rects: &HashMap<ItemId, Rectangle>,
         bodies: &HashMap<ItemId, Rectangle>,
         bounds: Rectangle,
         node_top_left: Point,
+        cursor: Point,
         dragged: ItemId,
         dragged_w: u16,
     ) -> (Option<ItemId>, u16, u16) {
         let origin = origin_offset(bounds);
+        // One column is a fixed pixel width across the whole tree.
+        let cell_w = self.root_cell_dims(bounds.width).0;
         let mut owner: Option<ItemId> = None;
 
         // Bounded by tree depth: each iteration descends into one container.
         for _ in 0..=self.items.len() {
-            let width = self.owner_width(owner, bodies, bounds);
             let body_x = match owner {
-                None => origin.x,
+                None => origin.x + self.group_gutter(),
                 Some(g) => bodies.get(&g).map_or(origin.x, |b| b.x + origin.x),
             };
-            let cell_w = self
-                .grid_cell_dims(self.owner_engine(owner).columns(), width)
-                .0;
             let cx = ((node_top_left.x - body_x) / (cell_w + self.spacing))
                 .round()
                 .max(0.0) as u16;
@@ -2224,13 +2267,20 @@ where
                         return None;
                     }
                     let r = rects.get(&id)?;
+                    // A group is descendable only while the cursor is over its
+                    // rendered box; otherwise treat it as a leaf so the drop
+                    // lands before/after it instead of inside it.
+                    let cursor_over = cursor.x >= r.x + origin.x
+                        && cursor.x <= r.x + r.width + origin.x
+                        && cursor.y >= r.y + origin.y
+                        && cursor.y <= r.y + r.height + origin.y;
                     Some(DropChild {
                         id,
                         row: node.y,
                         h: node.h,
                         top: r.y + origin.y,
                         bottom: r.y + r.height + origin.y,
-                        is_group: self.is_group(id),
+                        is_group: self.is_group(id) && cursor_over,
                     })
                 })
                 .collect();
