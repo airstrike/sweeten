@@ -198,6 +198,7 @@ where
     formatters: Vec<(Selector, Formatter)>,
     on_press: Vec<(Selector, Handler<'a, Message>)>,
     width: Length,
+    min_width: Option<f32>,
     padding_x: f32,
     padding_y: f32,
     outer_padding_x: Option<f32>,
@@ -239,6 +240,7 @@ where
             formatters: Vec::new(),
             on_press: Vec::new(),
             width: Length::Shrink,
+            min_width: None,
             padding_x: 10.0,
             padding_y: 5.0,
             outer_padding_x: None,
@@ -424,6 +426,20 @@ where
         self
     }
 
+    /// Sets the total width the table stretches its fluid columns to
+    /// fill when the parent provides no finite width — i.e. inside a
+    /// horizontally-scrollable container, whose content limits are
+    /// unbounded. Fluid columns are floored at their intrinsic widths,
+    /// so a table wider than `min_width` keeps its natural size (and
+    /// scrolls); a narrower one is stretched to `min_width` exactly as
+    /// it would be in a fixed-width parent. Ignored when the parent's
+    /// width limit is finite.
+    #[must_use]
+    pub fn min_width(mut self, min_width: impl Into<Pixels>) -> Self {
+        self.min_width = Some(min_width.into().0);
+        self
+    }
+
     /// Animates body rows in on first display, revealing each row in
     /// place via a height-clip mask with a per-row stagger. Matches
     /// framer-motion's default `motion.tr` entry timing — a
@@ -505,6 +521,7 @@ where
             formatters,
             on_press,
             width,
+            min_width,
             padding_x,
             padding_y,
             outer_padding_x,
@@ -817,6 +834,7 @@ where
             stub_column,
             on_press,
             width,
+            min_width,
             padding_x,
             padding_y,
             outer_padding_x,
@@ -1049,6 +1067,7 @@ where
     /// dispatch and hover; first matching selector wins.
     on_press: Vec<(Selector, Handler<'a, Message>)>,
     width: Length,
+    min_width: Option<f32>,
     padding_x: f32,
     padding_y: f32,
     outer_padding_x: Option<f32>,
@@ -1218,6 +1237,13 @@ where
         }
 
         // Pass 2: allocate fluid column widths over remaining space.
+        // Inside a horizontally-scrollable parent the available width
+        // is unbounded; dividing it would push every column after the
+        // first out to infinity, so the allocation budget falls back
+        // to the caller-provided `min_width` and each fluid column is
+        // floored at its intrinsic (Shrink) width — a wide table keeps
+        // its natural size and scrolls, a narrow one stretches to the
+        // budget.
         let total_factor: u16 = column_factors.iter().sum();
         if total_factor > 0 {
             let consumed: f32 = column_factors
@@ -1229,12 +1255,49 @@ where
                 .sum();
             let total_spacing =
                 spacing_x * n_cols.saturating_sub(1) as f32 + outer_x * 2.0;
-            let available_width =
-                (available.width - consumed - total_spacing).max(0.0);
+            let budget = if available.width.is_finite() {
+                available.width
+            } else {
+                self.min_width.unwrap_or(0.0)
+            };
+            let available_width = (budget - consumed - total_spacing).max(0.0);
             let unit = available_width / total_factor as f32;
             for (i, factor) in column_factors.iter().enumerate() {
                 if *factor != 0 {
                     metrics.column_widths[i] = unit * *factor as f32;
+                }
+            }
+
+            if !available.width.is_finite() {
+                // Intrinsic floor: measure each fluid column's cells at
+                // Shrink (Shrink limits flip the compression flag, so
+                // Fill-width cells report their natural size) and keep
+                // the wider of the floor and the budget share.
+                for row in self.layout_rows.iter() {
+                    if let RowSpec::PerColumn { cell_range, .. } = row {
+                        for (col_offset, cell_idx) in
+                            cell_range.clone().enumerate()
+                        {
+                            if column_factors[col_offset] == 0 {
+                                continue;
+                            }
+                            let limits = layout::Limits::new(
+                                Size::ZERO,
+                                Size::new(f32::INFINITY, available.height),
+                            )
+                            .width(Length::Shrink)
+                            .height(Length::Shrink);
+                            let node =
+                                self.cells[cell_idx].as_widget_mut().layout(
+                                    &mut tree.children[cell_idx],
+                                    renderer,
+                                    &limits,
+                                );
+                            metrics.column_widths[col_offset] = metrics
+                                .column_widths[col_offset]
+                                .max(node.size().width);
+                        }
+                    }
                 }
             }
 
