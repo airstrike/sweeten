@@ -122,6 +122,37 @@ impl<T> Grid<T> {
         self.nodes.len()
     }
 
+    /// Walks this subtree, pushing every leaf (a node with no children) as
+    /// `(id, parent, &data)` onto `out`. `parent` is the id of the group
+    /// node directly containing the leaf, or `None` at the root. Group nodes
+    /// are descended but never emitted — they carry no leaf payload.
+    fn collect_leaves<'a>(
+        &'a self,
+        parent: Option<ItemId>,
+        out: &mut Vec<(ItemId, Option<ItemId>, &'a T)>,
+    ) {
+        for (&id, node) in &self.nodes {
+            match node.children.as_ref() {
+                Some(child) => child.collect_leaves(Some(id), out),
+                None => out.push((id, parent, &node.data)),
+            }
+        }
+    }
+
+    /// Mutable [`collect_leaves`](Self::collect_leaves).
+    fn collect_leaves_mut<'a>(
+        &'a mut self,
+        parent: Option<ItemId>,
+        out: &mut Vec<(ItemId, Option<ItemId>, &'a mut T)>,
+    ) {
+        for (&id, node) in &mut self.nodes {
+            match node.children.as_mut() {
+                Some(child) => child.collect_leaves_mut(Some(id), out),
+                None => out.push((id, parent, &mut node.data)),
+            }
+        }
+    }
+
     /// Returns `true` if this level has no nodes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -559,6 +590,31 @@ impl<T> State<T> {
             .nodes
             .iter_mut()
             .map(|(&id, node)| (id, &mut node.data))
+    }
+
+    /// Returns an iterator over every **leaf** in the tree, paired with the
+    /// id of the group that directly contains it (`None` at the root).
+    ///
+    /// Unlike [`iter`](Self::iter), which yields only root-level nodes, this
+    /// descends into groups and yields each leaf tile no matter how deep it
+    /// is nested. Group (container) nodes are walked but never yielded — they
+    /// hold no leaf payload of their own. Leaves are returned in id order
+    /// within each grid, parents before their descendants.
+    pub fn iter_leaves(
+        &self,
+    ) -> impl Iterator<Item = (ItemId, Option<ItemId>, &T)> {
+        let mut out = Vec::new();
+        self.root.collect_leaves(None, &mut out);
+        out.into_iter()
+    }
+
+    /// Mutable [`iter_leaves`](Self::iter_leaves).
+    pub fn iter_leaves_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (ItemId, Option<ItemId>, &mut T)> {
+        let mut out = Vec::new();
+        self.root.collect_leaves_mut(None, &mut out);
+        out.into_iter()
     }
 
     /// Returns the number of root-level nodes.
@@ -1233,6 +1289,53 @@ mod tests {
             8,
             "authored width is preserved when size_to_content is off"
         );
+    }
+
+    #[test]
+    fn iter_leaves_descends_groups_with_parent() {
+        // root: a leaf, a group {child1, child2}, and a nested group.
+        let mut state: State<&str> = State::new(12);
+        let root_leaf = state.add([0, 0, 2, 2], "root_leaf");
+        let group = state.add_group([2, 0, 6, 4], Width::Shrink, "group");
+        let c1 = state.add_child(group, [0, 0, 2, 2], "c1").unwrap();
+        let c2 = state.add_child(group, [2, 0, 2, 2], "c2").unwrap();
+
+        let leaves: Vec<_> = state.iter_leaves().collect();
+        // Three leaves; the group node itself is not a leaf.
+        assert_eq!(leaves.len(), 3);
+
+        let root = leaves.iter().find(|(id, ..)| *id == root_leaf).unwrap();
+        assert_eq!(root.1, None, "root leaf has no parent");
+        assert_eq!(*root.2, "root_leaf");
+
+        for (id, parent, data) in &leaves {
+            if *id == c1 || *id == c2 {
+                assert_eq!(
+                    *parent,
+                    Some(group),
+                    "grouped child sees its group"
+                );
+            }
+            assert_ne!(*id, group, "group node is not yielded as a leaf");
+            let _ = data;
+        }
+    }
+
+    #[test]
+    fn iter_leaves_mut_reaches_nested_data() {
+        let mut state: State<String> = State::new(12);
+        let group = state.add_group([0, 0, 6, 4], Width::Shrink, "g".into());
+        state
+            .add_child(group, [0, 0, 2, 2], "child".into())
+            .unwrap();
+
+        for (_, _, data) in state.iter_leaves_mut() {
+            data.push('!');
+        }
+
+        let touched: Vec<_> =
+            state.iter_leaves().map(|(_, _, d)| d.clone()).collect();
+        assert_eq!(touched, vec!["child!".to_string()]);
     }
 
     #[test]
