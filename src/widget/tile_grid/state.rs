@@ -285,6 +285,14 @@ impl<T> Grid<T> {
 pub struct State<T> {
     /// The root grid.
     root: Grid<T>,
+    /// A sibling grid the widget never lays out, draws, or drags — it is
+    /// invisible to every widget pass, which only ever reads [`root`](Self::root).
+    /// Its leaves still participate in the data-facing surface
+    /// ([`iter_leaves`](Self::iter_leaves), [`get`](Self::get)) so a caller can
+    /// render them through a separate (non-dragged) region while keeping ONE
+    /// `State`, ONE dispatch path, and ONE persistence snapshot. The id
+    /// allocator is shared, so rail ids never collide with root ids.
+    rail: Grid<T>,
     /// Monotonic global id allocator shared across every nested grid.
     next_id: usize,
     /// When set, every committing mutation re-fits each group's width to its
@@ -305,6 +313,7 @@ impl<T> State<T> {
     pub fn new(columns: u16) -> Self {
         Self {
             root: Grid::new(columns),
+            rail: Grid::new(columns),
             next_id: 0,
             fit: false,
         }
@@ -345,6 +354,38 @@ impl<T> State<T> {
         state
     }
 
+    /// Creates a new [`State`] from two configurations: a `main` arrangement
+    /// (the widget-rendered tree) and a `rail` arrangement (a sibling grid the
+    /// widget never touches, see [`rail`](Self::rail)).
+    ///
+    /// Ids are minted from a single global allocator threaded across both
+    /// configurations, so a rail leaf is globally unique against every main
+    /// leaf — [`get`](Self::get) / [`iter_leaves`](Self::iter_leaves) reach
+    /// either side by id with no collision. The `rail` columns are taken from
+    /// its own configuration; only `main` governs the root engine.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either `config.columns` is 0.
+    #[must_use]
+    pub fn with_configurations(
+        main: impl Into<Configuration<T>>,
+        rail: impl Into<Configuration<T>>,
+    ) -> Self {
+        let main = main.into();
+        let rail = rail.into();
+        let mut state = Self::new(main.columns);
+        state.rail = Grid::new(rail.columns);
+        state.root.engine.set_max_rows(main.max_rows);
+        state.rail.engine.set_max_rows(rail.max_rows);
+
+        let mut next_id = 0;
+        build_into(&mut state.root, main.items, &mut next_id, main.float);
+        build_into(&mut state.rail, rail.items, &mut next_id, rail.float);
+        state.next_id = next_id;
+        state
+    }
+
     /// Allocates the next global [`ItemId`].
     fn alloc_id(&mut self) -> ItemId {
         let id = ItemId(self.next_id);
@@ -356,6 +397,14 @@ impl<T> State<T> {
     #[must_use]
     pub fn root(&self) -> &Grid<T> {
         &self.root
+    }
+
+    /// Returns the sibling rail grid — the leaves the widget never lays out
+    /// or draws, intended for rendering through a separate (non-dragged)
+    /// region. See the [`rail`](Self::rail) field.
+    #[must_use]
+    pub fn rail(&self) -> &Grid<T> {
+        &self.rail
     }
 
     /// Returns the number of columns in the root grid.
@@ -555,14 +604,25 @@ impl<T> State<T> {
     }
 
     /// Returns a reference to the user data for the given node.
+    ///
+    /// Searches the root tree first, then the sibling [`rail`](Self::rail), so
+    /// a rail leaf is reachable by id exactly like a root leaf.
     #[must_use]
     pub fn get(&self, id: ItemId) -> Option<&T> {
-        self.root.find_node(id).map(|node| &node.data)
+        self.root
+            .find_node(id)
+            .or_else(|| self.rail.find_node(id))
+            .map(|node| &node.data)
     }
 
     /// Returns a mutable reference to the user data for the given node.
+    ///
+    /// Searches the root tree first, then the sibling [`rail`](Self::rail).
     pub fn get_mut(&mut self, id: ItemId) -> Option<&mut T> {
-        self.root.find_node_mut(id).map(|node| &mut node.data)
+        if self.root.find_node(id).is_some() {
+            return self.root.find_node_mut(id).map(|node| &mut node.data);
+        }
+        self.rail.find_node_mut(id).map(|node| &mut node.data)
     }
 
     /// Returns the full [`Node`] for the given id, anywhere in the tree.
@@ -572,10 +632,14 @@ impl<T> State<T> {
     }
 
     /// Returns the grid item (position/size) for the given ID.
+    ///
+    /// Searches the root tree first, then the sibling [`rail`](Self::rail), so
+    /// a rail leaf's geometry is reachable for a layout snapshot.
     #[must_use]
     pub fn get_item(&self, id: ItemId) -> Option<&engine::Node> {
         self.root
             .grid_containing(id)
+            .or_else(|| self.rail.grid_containing(id))
             .and_then(|grid| grid.engine.get(id))
     }
 
@@ -600,11 +664,15 @@ impl<T> State<T> {
     /// is nested. Group (container) nodes are walked but never yielded — they
     /// hold no leaf payload of their own. Leaves are returned in id order
     /// within each grid, parents before their descendants.
+    /// Leaves from both the root tree and the sibling [`rail`](Self::rail) are
+    /// yielded (root first, then rail), so data dispatch over a `State` reaches
+    /// rail tiles for free even though the widget never renders them.
     pub fn iter_leaves(
         &self,
     ) -> impl Iterator<Item = (ItemId, Option<ItemId>, &T)> {
         let mut out = Vec::new();
         self.root.collect_leaves(None, &mut out);
+        self.rail.collect_leaves(None, &mut out);
         out.into_iter()
     }
 
@@ -614,6 +682,20 @@ impl<T> State<T> {
     ) -> impl Iterator<Item = (ItemId, Option<ItemId>, &mut T)> {
         let mut out = Vec::new();
         self.root.collect_leaves_mut(None, &mut out);
+        self.rail.collect_leaves_mut(None, &mut out);
+        out.into_iter()
+    }
+
+    /// Returns an iterator over every leaf in the sibling [`rail`](Self::rail)
+    /// grid only, paired with the id of the group that directly contains it
+    /// (`None` at the rail root). The rail-only counterpart of
+    /// [`iter_leaves`](Self::iter_leaves) — the briefing region renders these
+    /// without touching the widget-drawn root tree.
+    pub fn rail_leaves(
+        &self,
+    ) -> impl Iterator<Item = (ItemId, Option<ItemId>, &T)> {
+        let mut out = Vec::new();
+        self.rail.collect_leaves(None, &mut out);
         out.into_iter()
     }
 
@@ -1336,6 +1418,54 @@ mod tests {
         let touched: Vec<_> =
             state.iter_leaves().map(|(_, _, d)| d.clone()).collect();
         assert_eq!(touched, vec!["child!".to_string()]);
+    }
+
+    #[test]
+    fn rail_leaf_reached_by_iter_leaves_and_get_but_not_in_root() {
+        // A sibling rail grid is built alongside the main one. Its leaf is
+        // reachable through the data-facing surface (`iter_leaves`, `get`,
+        // `get_item`) with a globally-unique id, yet it is NOT part of the
+        // widget-rendered `root` tree.
+        let state: State<&str> = State::with_configurations(
+            Configuration::new(12)
+                .with_item([0, 0, 4, 2], "main_a")
+                .with_item([4, 0, 4, 2], "main_b"),
+            Configuration::new(4).with_item([0, 0, 4, 2], "rail_x"),
+        );
+
+        // The rail leaf is yielded by iter_leaves alongside the root leaves.
+        let leaves: Vec<_> = state.iter_leaves().map(|(_, _, d)| *d).collect();
+        assert!(leaves.contains(&"main_a"));
+        assert!(leaves.contains(&"main_b"));
+        assert!(leaves.contains(&"rail_x"));
+
+        // Find the rail leaf's id and confirm it is reachable by `get` and
+        // `get_item`, with geometry from the rail grid.
+        let rail_id = state
+            .iter_leaves()
+            .find(|(_, _, d)| **d == "rail_x")
+            .map(|(id, ..)| id)
+            .expect("rail leaf is enumerated");
+        assert_eq!(state.get(rail_id), Some(&"rail_x"));
+        assert!(state.get_item(rail_id).is_some(), "rail leaf has geometry");
+
+        // The id is globally unique against the root leaves.
+        let root_ids: Vec<_> = state.root().iter().map(|(id, _)| id).collect();
+        assert!(
+            !root_ids.contains(&rail_id),
+            "rail leaf id never collides with a root id"
+        );
+
+        // It is NOT in the widget-rendered root tree.
+        assert!(
+            state.root().find_node(rail_id).is_none(),
+            "rail leaf is excluded from the root tree the widget lays out"
+        );
+        // But it IS in the rail tree.
+        assert!(
+            state.rail().find_node(rail_id).is_some(),
+            "rail leaf lives in the sibling rail grid"
+        );
     }
 
     #[test]

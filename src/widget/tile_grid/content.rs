@@ -179,6 +179,30 @@ where
         self.hug_height = true;
         self
     }
+
+    /// Renders this [`Content`]'s body as a standalone styled [`Element`],
+    /// outside any [`TileGrid`].
+    ///
+    /// The container styling set via [`style`](Self::style) is applied; the
+    /// body fills the element. Drag/resize/title-bar/controls are dropped —
+    /// they only have meaning inside the grid widget. Use this to render an
+    /// item's card in a separate, non-dragged region (e.g. a fixed sidebar
+    /// column) while keeping the same per-tile view code.
+    ///
+    /// [`TileGrid`]: super::TileGrid
+    #[must_use]
+    pub fn into_panel(self) -> Element<'a, Message, Theme, Renderer>
+    where
+        Message: 'a,
+        Theme: 'a,
+        Renderer: 'a,
+    {
+        container(self.body)
+            .width(core::Length::Fill)
+            .height(core::Length::Fill)
+            .class(self.class)
+            .into()
+    }
 }
 
 impl<Message, Theme, Renderer> Content<'_, Message, Theme, Renderer>
