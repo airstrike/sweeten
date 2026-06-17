@@ -133,7 +133,6 @@ pub enum DragPhase {
 /// }
 /// ```
 #[derive(Debug, Clone, Copy)]
-#[non_exhaustive]
 pub enum Action {
     /// An item was clicked.
     Click(ItemId),
@@ -644,8 +643,16 @@ where
     }
 
     /// Total root-grid height, for `Length::Shrink` resolution.
+    ///
+    /// Measured from the *fitted* engine, not `root_engine`: groups are
+    /// authored one row tall and only grown to fit their children at layout
+    /// time (height is never committed). Resolving `Shrink` from the committed
+    /// rows would clamp the widget's bounds above its drawn content, leaving
+    /// drag/resize dead below the first rows — presses are gated on
+    /// `position_over(bounds)`.
     fn root_height(&self, cell_h: f32) -> f32 {
-        let rows = f32::from(self.root_engine.get_row());
+        let rows =
+            f32::from(self.fitted_engine(None, cell_h, None, None).get_row());
         if rows == 0.0 {
             0.0
         } else {
@@ -766,8 +773,17 @@ where
             for gid in groups {
                 let inner = self.fitted_engine(Some(gid), cell_h, drag, resize);
                 let used_rows = inner.get_row();
+                let used_cols = inner.get_col();
 
-                let width = fit_group_width(inner.get_col(), engine.columns());
+                // An empty group has no content to shrink to: keep its
+                // committed width rather than collapsing to a single column.
+                // The state's `fit_widths` skips empties for the same reason,
+                // so this keeps the two fit passes in agreement.
+                let width = if used_cols == 0 {
+                    engine.get(gid).map_or(1, |node| node.w)
+                } else {
+                    fit_group_width(used_cols, engine.columns())
+                };
                 let height =
                     (self.group_extra_rows(gid, cell_h) + used_rows).max(1);
 
