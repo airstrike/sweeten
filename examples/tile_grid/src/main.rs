@@ -229,10 +229,7 @@ impl Example {
 
         for &(x, y, w, h) in &positions {
             state.add(
-                x,
-                y,
-                w,
-                h,
+                (x, y, w, h),
                 Item {
                     id: items_created,
                     is_pinned: false,
