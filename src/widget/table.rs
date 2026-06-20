@@ -121,7 +121,7 @@ where
 
         let (columns, views): (Vec<_>, Vec<_>) = columns
             .map(|column| {
-                width = width.enclose(column.width);
+                width = width.cross(column.width);
 
                 headers.push(column.header);
 
@@ -155,9 +155,9 @@ where
         for row in rows {
             for view in &views {
                 let cell = view(row.clone());
-                let size_hint = cell.as_widget().size_hint();
+                let size = cell.as_widget().size();
 
-                height = height.enclose(size_hint.height);
+                height = height.stack(size.height);
 
                 cells.push(cell);
             }
@@ -317,15 +317,13 @@ where
         })
     }
 
-    fn children(&self) -> Vec<widget::Tree> {
-        self.cells
-            .iter()
-            .map(|cell| widget::Tree::new(cell.as_widget()))
-            .collect()
-    }
+    fn diff(&mut self, tree: &mut widget::Tree) {
+        tree.diff_children(&mut self.cells);
 
-    fn diff(&self, tree: &mut widget::Tree) {
-        tree.diff_children(&self.cells);
+        for cell in &self.cells {
+            let size = cell.as_widget().size();
+            self.height = self.height.stack(size.height);
+        }
     }
 
     fn layout(
@@ -340,7 +338,11 @@ where
 
         let limits = limits.width(self.width).height(self.height);
         let available = limits.max();
-        let table_fluid = self.width.fluid();
+        let table_fluid = if self.width.fill_factor() == 0 {
+            Length::Shrink
+        } else {
+            Length::Fill
+        };
 
         let mut cells = Vec::with_capacity(self.cells.len());
         cells.resize(self.cells.len(), layout::Node::default());

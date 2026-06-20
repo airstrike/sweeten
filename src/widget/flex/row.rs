@@ -257,18 +257,11 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
 where
     Renderer: crate::core::Renderer,
 {
-    fn children(&self) -> Vec<Tree> {
-        self.children
-            .iter()
-            .map(|c| Tree::new(c.content().as_widget()))
-            .collect()
-    }
-
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         tree.diff_children_custom(
-            &self.children,
-            |state, child| state.diff(child.content().as_widget()),
-            |child| Tree::new(child.content().as_widget()),
+            &mut self.children,
+            |state, child| state.diff(child.content_mut()),
+            |child| Tree::new(child.content()),
         );
     }
 

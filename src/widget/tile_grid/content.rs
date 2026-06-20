@@ -256,15 +256,15 @@ where
         }
     }
 
-    pub(super) fn diff(&self, tree: &mut Tree) {
+    pub(super) fn diff(&mut self, tree: &mut Tree) {
         if tree.children.len() == 3 {
-            if let Some(title_bar) = self.title_bar.as_ref() {
+            if let Some(title_bar) = self.title_bar.as_mut() {
                 title_bar.diff(&mut tree.children[1]);
             }
-            if let Some(controls) = self.controls.as_ref() {
+            if let Some(controls) = self.controls.as_mut() {
                 tree.children[2].diff(controls);
             }
-            tree.children[0].diff(&self.body);
+            tree.children[0].diff(&mut self.body);
         } else {
             *tree = self.state();
         }

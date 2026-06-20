@@ -455,14 +455,7 @@ where
         })
     }
 
-    fn children(&self) -> Vec<Tree> {
-        // Child trees live on `State<T>` directly. The slot-based
-        // machinery doesn't handle a changing child count across
-        // swaps without tearing down tree state each time.
-        Vec::new()
-    }
-
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         let state = tree.state.downcast_mut::<State<T>>();
 
         if state.current_value != self.value {
@@ -479,22 +472,22 @@ where
             state.previous_tree = old_tree;
             state.previous_layout = state.current_layout.take();
 
-            let element = (self.view)(&state.current_value);
+            let mut element = (self.view)(&state.current_value);
             state.current_tree = Tree::new(element.as_widget());
-            state.current_tree.diff(element.as_widget());
+            state.current_tree.diff(&mut element);
 
             state.progress = Animation::new(0.0_f32)
                 .duration(self.duration)
                 .easing(self.easing);
             state.pending_start = true;
         } else {
-            let element = (self.view)(&state.current_value);
-            state.current_tree.diff(element.as_widget());
+            let mut element = (self.view)(&state.current_value);
+            state.current_tree.diff(&mut element);
         }
 
         if let Some(prev) = state.previous_value.as_ref() {
-            let prev_element = (self.view)(prev);
-            state.previous_tree.diff(prev_element.as_widget());
+            let mut prev_element = (self.view)(prev);
+            state.previous_tree.diff(&mut prev_element);
         }
     }
 
@@ -548,9 +541,9 @@ where
         // with the same `(h, v)` collapse to aligning the current
         // directly within the resolved area.
         layout::positioned(
-            &limits.max_width(self.max_width).max_height(self.max_height),
-            self.width,
-            self.height,
+            limits,
+            self.width.max(self.max_width),
+            self.height.max(self.max_height),
             self.padding,
             |inner_limits| {
                 let inner_limits = inner_limits.loose();

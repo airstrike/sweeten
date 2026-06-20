@@ -1060,11 +1060,7 @@ where
         tree::State::new(Memory::default())
     }
 
-    fn children(&self) -> Vec<Tree> {
-        self.contents.iter().map(Content::state).collect()
-    }
-
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         let Memory { order, .. } = tree.state.downcast_ref();
 
         // ItemId is monotonically increasing and the flat list is sorted by
@@ -1082,7 +1078,7 @@ where
         });
 
         tree.diff_children_custom(
-            &self.contents,
+            &mut self.contents,
             |state, content| content.diff(state),
             Content::state,
         );
