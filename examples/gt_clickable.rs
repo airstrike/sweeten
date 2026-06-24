@@ -13,18 +13,19 @@
 //! `cells::column_labels().columns(...)` so headers tint along with
 //! their column.
 //!
-//! Also demonstrates gt's outer border (`.border(1.0)`) and
-//! sticky-header behavior inside a fixed-height `scrollable`.
+//! Also demonstrates gt's outer border (`.border(1.0)`), corner
+//! `radius`, and internal `.scrollable(true)` mode inside a
+//! height-constrained card container.
 //!
 //! Run with: `cargo run --example gt_clickable`
 
 use std::collections::BTreeSet;
 
-use iced::widget::{center, column, scrollable, text};
-use iced::{Background, Element, Theme, color};
+use iced::widget::{center, column, container, text};
+use iced::{Background, Color, Element, Theme, color};
 
 use sweeten::widget::gt;
-use sweeten::widget::gt::{Cell, CellStyle, Column, cells};
+use sweeten::widget::gt::{BorderStyle, Cell, CellStyle, Column, Sides, cells};
 
 pub fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -162,9 +163,25 @@ impl App {
             .padding_y(6.0)
             .separator_y(1.0)
             .border(1.0)
-            .sticky_header(true)
-            // Visualization. Three calls — at most one of `row_set` /
-            // `col_set` is non-empty, so only one tints anything.
+            .radius(8.0)
+            .scrollable(true)
+            .style(|theme: &Theme| {
+                let p = theme.palette();
+                gt::Style {
+                    background: Some(Color::WHITE.into()),
+                    border: p.background.strong.color.into(),
+                    sticky_background: Color::WHITE.into(),
+                    scrollbar: Color {
+                        a: 0.4,
+                        ..p.background.strong.color
+                    }
+                    .into(),
+                    ..gt::default(theme)
+                }
+            })
+            // Visualization. Three calls — at most one of
+            // `row_set` / `col_set` is non-empty, so only one
+            // tints anything.
             .tab_style(
                 cells::body().rows(move |i| row_set.contains(&i)),
                 highlight.clone(),
@@ -174,8 +191,18 @@ impl App {
                 highlight.clone(),
             )
             .tab_style(cells::column_labels().columns(col_set), highlight)
-            // Specific handler — country body cell drills (first-match
-            // wins over the broad body fallback below).
+            .tab_style(
+                cells::column_labels(),
+                CellStyle {
+                    borders: Some(BorderStyle {
+                        sides: Sides::bottom(),
+                        ..BorderStyle::default()
+                    }),
+                    ..CellStyle::default()
+                },
+            )
+            // Specific handler — country body cell drills
+            // (first-match wins over the broad body fallback).
             .on_press(cells::body().columns(["country"]), |c| {
                 Message::DrillCountry {
                     row: c.coord.row,
@@ -190,25 +217,31 @@ impl App {
             })
             .fmt(cells::body(), gt::decimal(1));
 
+        let card = container(table).height(180.0);
+
         let instructions = text(
-            "Click body cells to toggle row selection; click headers to \
-             toggle column selection. Picking one clears the other. The \
-             country column drills (specific handler wins).",
+            "Click body cells to toggle row selection; click \
+             headers to toggle column selection. Picking one \
+             clears the other. The country column drills \
+             (specific handler wins).",
         )
         .size(13);
         let action = text(&self.last_action).size(14);
         let state = text(self.selection.describe()).size(14);
 
         center(
-            column![
-                instructions,
-                scrollable(table).height(220.0),
-                action,
-                state
-            ]
-            .spacing(20.0),
+            column![instructions, card, action, state]
+                .spacing(20.0)
+                .width(520.0),
         )
         .padding(20.0)
+        .style(|theme: &Theme| {
+            let p = theme.palette();
+            container::Style {
+                background: Some(p.background.weak.color.into()),
+                ..container::Style::default()
+            }
+        })
         .into()
     }
 }

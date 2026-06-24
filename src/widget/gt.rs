@@ -207,6 +207,7 @@ where
     border: f32,
     radius: core::border::Radius,
     sticky_header: bool,
+    scrollable: bool,
     show_header: bool,
     animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
@@ -249,6 +250,7 @@ where
             border: 0.0,
             radius: core::border::Radius::default(),
             sticky_header: false,
+            scrollable: false,
             show_header: true,
             animate_on_load: false,
             class: <Theme as Catalog>::default(),
@@ -476,6 +478,23 @@ where
         self
     }
 
+    /// Makes the table handle scrolling internally.
+    ///
+    /// When enabled the widget splits into a fixed header region
+    /// (title / subtitle / units / column labels) and a scrollable
+    /// body region. The header is drawn outside the body clip so
+    /// per-cell fills render correctly at all scroll positions, and a
+    /// thin proportional scrollbar appears when the body overflows.
+    ///
+    /// Supersedes [`sticky_header`](Self::sticky_header) — when
+    /// scrollable the header is naturally fixed so the translate-based
+    /// sticky codepath is skipped.
+    #[must_use]
+    pub fn scrollable(mut self, scrollable: bool) -> Self {
+        self.scrollable = scrollable;
+        self
+    }
+
     /// Whether to render the column-labels header row. Defaults to
     /// `true`; set `false` for header-less data (e.g. a spreadsheet
     /// range with no header row) so a blank label strip isn't drawn.
@@ -530,6 +549,7 @@ where
             border,
             radius,
             sticky_header,
+            scrollable,
             show_header,
             animate_on_load,
             class,
@@ -843,6 +863,7 @@ where
             border,
             radius,
             sticky_header,
+            scrollable,
             animate_on_load,
             class,
         }
@@ -1076,6 +1097,7 @@ where
     border: f32,
     radius: core::border::Radius,
     sticky_header: bool,
+    scrollable: bool,
     animate_on_load: bool,
     class: <Theme as Catalog>::Class<'a>,
 }
@@ -1084,6 +1106,7 @@ struct Metrics {
     column_widths: Vec<f32>,
     row_heights: Vec<f32>,
     table_width: f32,
+    total_natural_height: f32,
     /// Per-cell stride rectangle (full cell area incl. padding) in
     /// table-relative coords. Populated in `layout()` so `draw()` can
     /// paint backgrounds and borders against the row-stride box rather
@@ -1103,6 +1126,7 @@ struct Metrics {
 struct State {
     metrics: Metrics,
     animation: Option<LoadAnimation>,
+    scroll_offset: f32,
 }
 
 /// Drives the per-row entrance reveal when
@@ -1157,10 +1181,12 @@ where
                 column_widths: vec![0.0; self.columns.len()],
                 row_heights: vec![0.0; self.layout_rows.len()],
                 table_width: 0.0,
+                total_natural_height: 0.0,
                 cell_rects: vec![Rectangle::default(); self.cells.len()],
                 modifiers: keyboard::Modifiers::default(),
             },
             animation,
+            scroll_offset: 0.0,
         })
     }
 
@@ -1416,6 +1442,7 @@ where
         } else {
             y - spacing_y + self.padding_y
         };
+        metrics.total_natural_height = total_height;
 
         let intrinsic = limits.resolve(
             self.width,
@@ -1472,17 +1499,76 @@ where
             }
         }
 
-        for ((cell, child), cell_layout) in self
+        // Scroll-wheel handling for the internal scrollable.
+        if self.scrollable
+            && let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
+        {
+            let bounds = layout.bounds();
+            if cursor.is_over(bounds) {
+                let state = tree.state.downcast_mut::<State>();
+                let header_h = self.sticky_strip_height(&state.metrics);
+                let body_visible = (bounds.height - header_h).max(0.0);
+                let body_natural =
+                    (state.metrics.total_natural_height - header_h).max(0.0);
+                let max_scroll = (body_natural - body_visible).max(0.0);
+                if max_scroll > 0.0 {
+                    let dy = match delta {
+                        mouse::ScrollDelta::Lines { y, .. } => y * 28.0,
+                        mouse::ScrollDelta::Pixels { y, .. } => *y,
+                    };
+                    state.scroll_offset =
+                        (state.scroll_offset - dy).clamp(0.0, max_scroll);
+                    shell.capture_event();
+                    shell.request_redraw();
+                }
+            }
+        }
+
+        let scroll_state = if self.scrollable {
+            let state = tree.state.downcast_ref::<State>();
+            let header_h = self.sticky_strip_height(&state.metrics);
+            Some((state.scroll_offset, header_h, self.sticky_cell_count()))
+        } else {
+            None
+        };
+
+        for (i, ((cell, child), cell_layout)) in self
             .cells
             .iter_mut()
             .zip(&mut tree.children)
             .zip(layout.children())
+            .enumerate()
         {
+            let cell_cursor =
+                if let Some((offset, header_h, sticky_count)) = scroll_state {
+                    if i < sticky_count {
+                        cursor
+                    } else {
+                        match cursor.position() {
+                            Some(p) => {
+                                let bounds = layout.bounds();
+                                let body_top = bounds.y + header_h;
+                                let body_bot = bounds.y + bounds.height;
+                                if p.y >= body_top && p.y <= body_bot {
+                                    mouse::Cursor::Available(Point::new(
+                                        p.x,
+                                        p.y + offset,
+                                    ))
+                                } else {
+                                    mouse::Cursor::Unavailable
+                                }
+                            }
+                            None => mouse::Cursor::Unavailable,
+                        }
+                    }
+                } else {
+                    cursor
+                };
             cell.as_widget_mut().update(
                 child,
                 event,
                 cell_layout,
-                cursor,
+                cell_cursor,
                 renderer,
                 shell,
                 viewport,
@@ -1514,16 +1600,37 @@ where
         let metrics = &tree.state.downcast_ref::<State>().metrics;
         let stub = self.stub_column.as_deref();
 
-        // Sticky-header edge case: when the sticky strip is active,
-        // hit-testing here resolves to the ORIGINAL cell at its scrolled
-        // position, not the duplicated sticky cell painted on top.
-        // Clicks landing on the sticky strip therefore won't fire unless
-        // the original cell is also under the cursor. Acceptable for v1
-        // — sticky-header rows are typically column labels, which today
-        // are most users' fallback non-interactive content.
-        let hit = self.cell_meta.iter().enumerate().find(|(i, _)| {
-            cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
-        });
+        let hit = if let Some((offset, header_h, sticky_count)) = scroll_state {
+            let in_body = cursor
+                .position()
+                .is_some_and(|p| p.y >= bounds.y + header_h);
+            self.cell_meta.iter().enumerate().find(|(i, _)| {
+                if *i < sticky_count {
+                    !in_body
+                        && cursor.is_over(
+                            self.absolute_cell_rect(metrics, bounds, *i),
+                        )
+                } else {
+                    if !in_body {
+                        return false;
+                    }
+                    let rect = self.absolute_cell_rect(metrics, bounds, *i);
+                    let shifted = Rectangle {
+                        y: rect.y - offset,
+                        ..rect
+                    };
+                    cursor.is_over(shifted)
+                }
+            })
+        } else {
+            // Sticky-header edge case: when the sticky strip is
+            // active, hit-testing resolves to the ORIGINAL cell
+            // position, not the duplicated sticky cell painted on
+            // top. Acceptable for v1.
+            self.cell_meta.iter().enumerate().find(|(i, _)| {
+                cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
+            })
+        };
 
         if let Some((_, meta)) = hit {
             let coord = meta.coord.as_borrowed();
@@ -1578,169 +1685,217 @@ where
             .map(|_| build_cell_row(&self.layout_rows, self.cells.len()));
 
         let sticky_height = self.sticky_strip_height(metrics);
-        let shift = if self.sticky_header && sticky_height > 0.0 {
-            let raw = (viewport.y - bounds.y).max(0.0);
-            let max = (bounds.height - sticky_height).max(0.0);
-            raw.min(max)
-        } else {
-            0.0
-        };
-        let sticky_active = shift > 0.0;
         let sticky_cell_count = self.sticky_cell_count();
 
-        // Cell backgrounds first. We use the row-stride rect captured
-        // during `layout()` so chrome (fills, borders) lines up across
-        // a row even when one cell wraps onto more lines than its
-        // row-mates — laying out against `cell_layout.bounds()` would
-        // tie chrome to each cell's intrinsic text height.
-        for i in 0..self.cells.len() {
-            if sticky_active && i < sticky_cell_count {
-                continue;
-            }
-            let rect = self.absolute_cell_rect(metrics, bounds, i);
-            let progress = row_progress
-                .as_ref()
-                .zip(cell_row.as_ref())
-                .map(|(p, cr)| p[cr[i] as usize])
-                .unwrap_or(1.0);
-            // Skip rows whose local window hasn't started — drawing
-            // them would just be a no-op clipped to zero height.
-            if progress <= 0.0 {
-                continue;
-            }
-            if progress >= 1.0 {
-                self.draw_cell_fill(renderer, &self.cell_meta[i], rect, bounds);
-            } else {
-                let clip = row_clip_rect(rect, progress);
-                renderer.with_layer(clip, |renderer| {
-                    self.draw_cell_fill(
-                        renderer,
-                        &self.cell_meta[i],
-                        rect,
-                        bounds,
-                    );
-                });
-            }
-        }
-
-        // Row separators.
-        if self.separator_y > 0.0 {
-            self.draw_row_separators(renderer, bounds, metrics, table_style);
-        }
-        if self.separator_x > 0.0 {
-            self.draw_column_separators(renderer, bounds, metrics, table_style);
-        }
-
-        // Explicit per-cell borders, drawn AFTER the separator lattice so
-        // a `Sides::*` border wins over the table separators at every
-        // intersection — e.g. a header underline / top rule reads as one
-        // continuous line instead of being notched by the vertical
-        // column separators crossing it.
-        for i in 0..self.cells.len() {
-            if sticky_active && i < sticky_cell_count {
-                continue;
-            }
-            let rect = self.absolute_cell_rect(metrics, bounds, i);
-            let progress = row_progress
-                .as_ref()
-                .zip(cell_row.as_ref())
-                .map(|(p, cr)| p[cr[i] as usize])
-                .unwrap_or(1.0);
-            if progress <= 0.0 {
-                continue;
-            }
-            if progress >= 1.0 {
-                self.draw_cell_border(
-                    renderer,
-                    &self.cell_meta[i],
-                    rect,
+        if let Some(bg) = table_style.background {
+            renderer.fill_quad(
+                renderer::Quad {
                     bounds,
-                );
-            } else {
-                let clip = row_clip_rect(rect, progress);
-                renderer.with_layer(clip, |renderer| {
-                    self.draw_cell_border(
-                        renderer,
-                        &self.cell_meta[i],
-                        rect,
-                        bounds,
-                    );
-                });
-            }
-        }
-
-        // Cell content.
-        for (i, ((cell, child), cell_layout)) in self
-            .cells
-            .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .enumerate()
-        {
-            if sticky_active && i < sticky_cell_count {
-                continue;
-            }
-            let progress = row_progress
-                .as_ref()
-                .zip(cell_row.as_ref())
-                .map(|(p, cr)| p[cr[i] as usize])
-                .unwrap_or(1.0);
-            if progress <= 0.0 {
-                continue;
-            }
-            let draw_content = |renderer: &mut Renderer| {
-                cell.as_widget().draw(
-                    child,
-                    renderer,
-                    theme,
-                    defaults,
-                    cell_layout,
-                    cursor,
-                    viewport,
-                );
-            };
-            if progress >= 1.0 {
-                draw_content(renderer);
-            } else {
-                let rect = self.absolute_cell_rect(metrics, bounds, i);
-                let clip = row_clip_rect(rect, progress);
-                renderer.with_layer(clip, draw_content);
-            }
-        }
-
-        if sticky_active {
-            let strip_height = sticky_height;
-            let strip_y = bounds.y + shift;
-            let strip_rect = Rectangle {
-                x: bounds.x,
-                y: strip_y,
-                width: bounds.width,
-                height: strip_height + self.padding_y,
-            };
-
-            renderer.with_layer(strip_rect, |renderer| {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: Rectangle {
-                            x: bounds.x,
-                            y: strip_y,
-                            width: bounds.width,
-                            height: strip_height,
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
+                    border: core::Border {
+                        radius: self.radius,
+                        ..core::Border::default()
                     },
-                    table_style.sticky_background,
-                );
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                bg,
+            );
+        }
 
-                let sticky_viewport = Rectangle {
-                    y: viewport.y - shift,
-                    ..*viewport
-                };
+        if self.scrollable {
+            let header_h = sticky_height;
+            let body_clip = Rectangle {
+                x: bounds.x,
+                y: bounds.y + header_h,
+                width: bounds.width,
+                height: (bounds.height - header_h).max(0.0),
+            };
+            let body_visible = body_clip.height;
+            let body_natural =
+                (metrics.total_natural_height - header_h).max(0.0);
+            let max_scroll = (body_natural - body_visible).max(0.0);
+            let eff_scroll = state.scroll_offset.min(max_scroll);
+            let body_bounds = Rectangle {
+                height: metrics.total_natural_height,
+                ..bounds
+            };
+            // Inner bottom of the border in pre-translation coords.
+            // Fills are inset to this line; the arc-derived radius
+            // for bottom corners is measured from here.
+            let inner_bottom =
+                bounds.y + bounds.height + eff_scroll - self.border;
 
+            // --- Body (clipped to the region below the header,
+            //     translated by -scroll_offset) ---
+            renderer.with_layer(body_clip, |renderer| {
                 renderer.with_translation(
-                    Vector::new(0.0, shift),
+                    Vector::new(0.0, -eff_scroll),
                     |renderer| {
+                        // Body cell fills — inset by the border
+                        // width at table edges, with corner radius
+                        // derived from the inner border arc.
+                        for i in sticky_cell_count..self.cells.len() {
+                            let fill = match self.cell_meta[i].style.fill {
+                                Some(f) => f,
+                                None => continue,
+                            };
+                            let rect = self.absolute_cell_rect(
+                                metrics,
+                                body_bounds,
+                                i,
+                            );
+                            let p = row_progress
+                                .as_ref()
+                                .zip(cell_row.as_ref())
+                                .map(|(rp, cr)| rp[cr[i] as usize])
+                                .unwrap_or(1.0);
+                            if p <= 0.0 {
+                                continue;
+                            }
+                            let bw = self.border;
+                            let mut fr = Self::clip_to_bounds(
+                                Rectangle {
+                                    x: rect.x - self.separator_x / 2.0,
+                                    y: rect.y,
+                                    width: rect.width + self.separator_x,
+                                    height: rect.height,
+                                },
+                                body_bounds,
+                            );
+                            // Inset at table edges by border width.
+                            let eps = 0.5;
+                            let at_left = fr.x <= body_bounds.x + eps;
+                            let at_right = fr.x + fr.width
+                                >= body_bounds.x + body_bounds.width - eps;
+                            if at_left {
+                                let dx = body_bounds.x + bw - fr.x;
+                                fr.x += dx;
+                                fr.width -= dx;
+                            }
+                            if at_right {
+                                fr.width = body_bounds.x + body_bounds.width
+                                    - bw
+                                    - fr.x;
+                            }
+                            // Bottom: clamp to inner_bottom.
+                            let fill_bot = fr.y + fr.height;
+                            if fill_bot > inner_bottom {
+                                fr.height = (inner_bottom - fr.y).max(0.0);
+                            }
+                            if fr.width <= 0.0 || fr.height <= 0.0 {
+                                continue;
+                            }
+                            // Arc-derived corner radius.
+                            let dy_bot = inner_bottom - (fr.y + fr.height);
+                            let ri_bl = (self.radius.bottom_left - bw).max(0.0);
+                            let ri_br =
+                                (self.radius.bottom_right - bw).max(0.0);
+                            let r_bl = if at_left {
+                                arc_derived_radius(ri_bl, dy_bot)
+                            } else {
+                                0.0
+                            };
+                            let r_br = if at_right {
+                                arc_derived_radius(ri_br, dy_bot)
+                            } else {
+                                0.0
+                            };
+                            let radius = core::border::Radius {
+                                top_left: 0.0,
+                                top_right: 0.0,
+                                bottom_left: r_bl,
+                                bottom_right: r_br,
+                            };
+                            let draw_fill = |renderer: &mut Renderer| {
+                                renderer.fill_quad(
+                                    renderer::Quad {
+                                        bounds: fr,
+                                        border: core::Border {
+                                            radius,
+                                            ..core::Border::default()
+                                        },
+                                        snap: true,
+                                        ..renderer::Quad::default()
+                                    },
+                                    fill,
+                                );
+                            };
+                            if p >= 1.0 {
+                                draw_fill(renderer);
+                            } else {
+                                let clip = row_clip_rect(fr, p);
+                                renderer.with_layer(clip, draw_fill);
+                            }
+                        }
+
+                        // Separators scroll with the body;
+                        // the clip hides those in the header
+                        // zone.
+                        if self.separator_y > 0.0 {
+                            let vis_border = Rectangle {
+                                y: bounds.y + eff_scroll,
+                                ..bounds
+                            };
+                            self.draw_row_separators(
+                                renderer,
+                                body_bounds,
+                                vis_border,
+                                metrics,
+                                table_style,
+                            );
+                        }
+                        if self.separator_x > 0.0 {
+                            self.draw_column_separators(
+                                renderer,
+                                body_bounds,
+                                metrics,
+                                table_style,
+                            );
+                        }
+
+                        // Body cell borders.
+                        for i in sticky_cell_count..self.cells.len() {
+                            let rect = self.absolute_cell_rect(
+                                metrics,
+                                body_bounds,
+                                i,
+                            );
+                            let p = row_progress
+                                .as_ref()
+                                .zip(cell_row.as_ref())
+                                .map(|(rp, cr)| rp[cr[i] as usize])
+                                .unwrap_or(1.0);
+                            if p <= 0.0 {
+                                continue;
+                            }
+                            if p >= 1.0 {
+                                self.draw_cell_border(
+                                    renderer,
+                                    &self.cell_meta[i],
+                                    rect,
+                                    body_bounds,
+                                );
+                            } else {
+                                let clip = row_clip_rect(rect, p);
+                                renderer.with_layer(clip, |renderer| {
+                                    self.draw_cell_border(
+                                        renderer,
+                                        &self.cell_meta[i],
+                                        rect,
+                                        body_bounds,
+                                    );
+                                });
+                            }
+                        }
+
+                        // Body cell content. Viewport is shifted
+                        // to pre-translation coords so text
+                        // widgets at natural positions beyond the
+                        // clamped bounds don't get viewport-culled.
+                        let body_vp = Rectangle {
+                            y: viewport.y + eff_scroll,
+                            ..*viewport
+                        };
                         for (i, ((cell, child), cell_layout)) in self
                             .cells
                             .iter()
@@ -1748,90 +1903,345 @@ where
                             .zip(layout.children())
                             .enumerate()
                         {
-                            if i >= sticky_cell_count {
-                                break;
+                            if i < sticky_cell_count {
+                                continue;
                             }
-                            let rect =
-                                self.absolute_cell_rect(metrics, bounds, i);
-                            self.draw_cell_chrome(
-                                renderer,
-                                &self.cell_meta[i],
-                                rect,
-                                bounds,
-                            );
-                            cell.as_widget().draw(
-                                child,
-                                renderer,
-                                theme,
-                                defaults,
-                                cell_layout,
-                                cursor,
-                                &sticky_viewport,
-                            );
+                            let p = row_progress
+                                .as_ref()
+                                .zip(cell_row.as_ref())
+                                .map(|(rp, cr)| rp[cr[i] as usize])
+                                .unwrap_or(1.0);
+                            if p <= 0.0 {
+                                continue;
+                            }
+                            let draw_content = |renderer: &mut Renderer| {
+                                cell.as_widget().draw(
+                                    child,
+                                    renderer,
+                                    theme,
+                                    defaults,
+                                    cell_layout,
+                                    cursor,
+                                    &body_vp,
+                                );
+                            };
+                            if p >= 1.0 {
+                                draw_content(renderer);
+                            } else {
+                                let rect = self.absolute_cell_rect(
+                                    metrics,
+                                    body_bounds,
+                                    i,
+                                );
+                                let clip = row_clip_rect(rect, p);
+                                renderer.with_layer(clip, draw_content);
+                            }
                         }
                     },
                 );
             });
+
+            // --- Header (drawn on top, clipped to bounds) ---
+            renderer.with_layer(bounds, |renderer| {
+                for i in 0..sticky_cell_count {
+                    let rect = self.absolute_cell_rect(metrics, bounds, i);
+                    self.draw_cell_fill(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                }
+                if (self.separator_y > 0.0 || self.separator_x > 0.0)
+                    && sticky_cell_count > 0
+                {
+                    let hdr_clip = Rectangle {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: header_h.min(bounds.height),
+                    };
+                    renderer.with_layer(hdr_clip, |renderer| {
+                        if self.separator_y > 0.0 {
+                            self.draw_row_separators(
+                                renderer,
+                                bounds,
+                                bounds,
+                                metrics,
+                                table_style,
+                            );
+                        }
+                        if self.separator_x > 0.0 {
+                            self.draw_column_separators(
+                                renderer,
+                                bounds,
+                                metrics,
+                                table_style,
+                            );
+                        }
+                    });
+                }
+                for i in 0..sticky_cell_count {
+                    let rect = self.absolute_cell_rect(metrics, bounds, i);
+                    self.draw_cell_border(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                }
+                for (i, ((cell, child), cell_layout)) in self
+                    .cells
+                    .iter()
+                    .zip(&tree.children)
+                    .zip(layout.children())
+                    .enumerate()
+                {
+                    if i >= sticky_cell_count {
+                        break;
+                    }
+                    cell.as_widget().draw(
+                        child,
+                        renderer,
+                        theme,
+                        defaults,
+                        cell_layout,
+                        cursor,
+                        viewport,
+                    );
+                }
+            });
+
+            // Scrollbar.
+            if max_scroll > 0.0 {
+                self.draw_scrollbar(
+                    renderer,
+                    bounds,
+                    header_h,
+                    eff_scroll,
+                    max_scroll,
+                    table_style,
+                );
+            }
+        } else {
+            // Non-scrollable path (with sticky-header support).
+            let shift = if self.sticky_header && sticky_height > 0.0 {
+                let raw = (viewport.y - bounds.y).max(0.0);
+                let max = (bounds.height - sticky_height).max(0.0);
+                raw.min(max)
+            } else {
+                0.0
+            };
+            let sticky_active = shift > 0.0;
+
+            for i in 0..self.cells.len() {
+                if sticky_active && i < sticky_cell_count {
+                    continue;
+                }
+                let rect = self.absolute_cell_rect(metrics, bounds, i);
+                let progress = row_progress
+                    .as_ref()
+                    .zip(cell_row.as_ref())
+                    .map(|(p, cr)| p[cr[i] as usize])
+                    .unwrap_or(1.0);
+                if progress <= 0.0 {
+                    continue;
+                }
+                if progress >= 1.0 {
+                    self.draw_cell_fill(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                } else {
+                    let clip = row_clip_rect(rect, progress);
+                    renderer.with_layer(clip, |renderer| {
+                        self.draw_cell_fill(
+                            renderer,
+                            &self.cell_meta[i],
+                            rect,
+                            bounds,
+                        );
+                    });
+                }
+            }
+
+            if self.separator_y > 0.0 {
+                self.draw_row_separators(
+                    renderer,
+                    bounds,
+                    bounds,
+                    metrics,
+                    table_style,
+                );
+            }
+            if self.separator_x > 0.0 {
+                self.draw_column_separators(
+                    renderer,
+                    bounds,
+                    metrics,
+                    table_style,
+                );
+            }
+
+            for i in 0..self.cells.len() {
+                if sticky_active && i < sticky_cell_count {
+                    continue;
+                }
+                let rect = self.absolute_cell_rect(metrics, bounds, i);
+                let progress = row_progress
+                    .as_ref()
+                    .zip(cell_row.as_ref())
+                    .map(|(p, cr)| p[cr[i] as usize])
+                    .unwrap_or(1.0);
+                if progress <= 0.0 {
+                    continue;
+                }
+                if progress >= 1.0 {
+                    self.draw_cell_border(
+                        renderer,
+                        &self.cell_meta[i],
+                        rect,
+                        bounds,
+                    );
+                } else {
+                    let clip = row_clip_rect(rect, progress);
+                    renderer.with_layer(clip, |renderer| {
+                        self.draw_cell_border(
+                            renderer,
+                            &self.cell_meta[i],
+                            rect,
+                            bounds,
+                        );
+                    });
+                }
+            }
+
+            for (i, ((cell, child), cell_layout)) in self
+                .cells
+                .iter()
+                .zip(&tree.children)
+                .zip(layout.children())
+                .enumerate()
+            {
+                if sticky_active && i < sticky_cell_count {
+                    continue;
+                }
+                let progress = row_progress
+                    .as_ref()
+                    .zip(cell_row.as_ref())
+                    .map(|(p, cr)| p[cr[i] as usize])
+                    .unwrap_or(1.0);
+                if progress <= 0.0 {
+                    continue;
+                }
+                let draw_content = |renderer: &mut Renderer| {
+                    cell.as_widget().draw(
+                        child,
+                        renderer,
+                        theme,
+                        defaults,
+                        cell_layout,
+                        cursor,
+                        viewport,
+                    );
+                };
+                if progress >= 1.0 {
+                    draw_content(renderer);
+                } else {
+                    let rect = self.absolute_cell_rect(metrics, bounds, i);
+                    let clip = row_clip_rect(rect, progress);
+                    renderer.with_layer(clip, draw_content);
+                }
+            }
+
+            if sticky_active {
+                let strip_y = bounds.y + shift;
+                let strip_rect = Rectangle {
+                    x: bounds.x,
+                    y: strip_y,
+                    width: bounds.width,
+                    height: sticky_height + self.padding_y,
+                };
+
+                renderer.with_layer(strip_rect, |renderer| {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: Rectangle {
+                                x: bounds.x,
+                                y: strip_y,
+                                width: bounds.width,
+                                height: sticky_height,
+                            },
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        table_style.sticky_background,
+                    );
+
+                    let sticky_viewport = Rectangle {
+                        y: viewport.y - shift,
+                        ..*viewport
+                    };
+
+                    renderer.with_translation(
+                        Vector::new(0.0, shift),
+                        |renderer| {
+                            for (i, ((cell, child), cell_layout)) in self
+                                .cells
+                                .iter()
+                                .zip(&tree.children)
+                                .zip(layout.children())
+                                .enumerate()
+                            {
+                                if i >= sticky_cell_count {
+                                    break;
+                                }
+                                let rect =
+                                    self.absolute_cell_rect(metrics, bounds, i);
+                                self.draw_cell_chrome(
+                                    renderer,
+                                    &self.cell_meta[i],
+                                    rect,
+                                    bounds,
+                                );
+                                cell.as_widget().draw(
+                                    child,
+                                    renderer,
+                                    theme,
+                                    defaults,
+                                    cell_layout,
+                                    cursor,
+                                    &sticky_viewport,
+                                );
+                            }
+                        },
+                    );
+                });
+            }
         }
 
         // Outer border, drawn last so it sits on top of cell chrome
-        // and (when active) the sticky strip's top edge.
+        // and (when active) the sticky strip's top edge. Drawn as a
+        // single quad so `self.radius` produces rounded corners.
         if self.border > 0.0 {
-            // Top
+            let border_color = match table_style.border {
+                Background::Color(c) => c,
+                _ => Color::BLACK,
+            };
             renderer.fill_quad(
                 renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x,
-                        y: bounds.y,
-                        width: bounds.width,
-                        height: self.border,
-                    },
-                    snap: true,
-                    ..renderer::Quad::default()
-                },
-                table_style.border,
-            );
-            // Bottom
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x,
-                        y: bounds.y + bounds.height - self.border,
-                        width: bounds.width,
-                        height: self.border,
-                    },
-                    snap: true,
-                    ..renderer::Quad::default()
-                },
-                table_style.border,
-            );
-            // Left
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x,
-                        y: bounds.y,
+                    bounds,
+                    border: core::Border {
+                        color: border_color,
                         width: self.border,
-                        height: bounds.height,
+                        radius: self.radius,
                     },
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                table_style.border,
-            );
-            // Right
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x: bounds.x + bounds.width - self.border,
-                        y: bounds.y,
-                        width: self.border,
-                        height: bounds.height,
-                    },
-                    snap: true,
-                    ..renderer::Quad::default()
-                },
-                table_style.border,
+                Color::TRANSPARENT,
             );
         }
     }
@@ -1875,12 +2285,40 @@ where
             return from_children;
         }
 
-        let metrics = &tree.state.downcast_ref::<State>().metrics;
+        let state = tree.state.downcast_ref::<State>();
+        let metrics = &state.metrics;
         let stub = self.stub_column.as_deref();
 
-        let hit = self.cell_meta.iter().enumerate().find(|(i, _)| {
-            cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
-        });
+        let hit = if self.scrollable {
+            let offset = state.scroll_offset;
+            let header_h = self.sticky_strip_height(metrics);
+            let sticky_count = self.sticky_cell_count();
+            let in_body = cursor
+                .position()
+                .is_some_and(|p| p.y >= bounds.y + header_h);
+            self.cell_meta.iter().enumerate().find(|(i, _)| {
+                if *i < sticky_count {
+                    !in_body
+                        && cursor.is_over(
+                            self.absolute_cell_rect(metrics, bounds, *i),
+                        )
+                } else {
+                    if !in_body {
+                        return false;
+                    }
+                    let rect = self.absolute_cell_rect(metrics, bounds, *i);
+                    let shifted = Rectangle {
+                        y: rect.y - offset,
+                        ..rect
+                    };
+                    cursor.is_over(shifted)
+                }
+            })
+        } else {
+            self.cell_meta.iter().enumerate().find(|(i, _)| {
+                cursor.is_over(self.absolute_cell_rect(metrics, bounds, *i))
+            })
+        };
 
         if let Some((_, meta)) = hit {
             let coord = meta.coord.as_borrowed();
@@ -2002,6 +2440,78 @@ where
             y,
             width: (right - x).max(0.0),
             height: (bottom - y).max(0.0),
+        }
+    }
+
+    /// Scrollbar thumb for [`Table::scrollable`] mode. 2 px wide,
+    /// right edge of the body region, proportional height.
+    fn draw_scrollbar(
+        &self,
+        renderer: &mut Renderer,
+        bounds: Rectangle,
+        header_h: f32,
+        scroll: f32,
+        max_scroll: f32,
+        style: Style,
+    ) {
+        const WIDTH: f32 = 2.0;
+        let ri = (self.radius.bottom_right - self.border).max(0.0);
+        let clip_bot = bounds.y + bounds.height - self.border - ri;
+        let body_h = (bounds.height - header_h).max(0.0);
+        if body_h <= 0.0 || max_scroll <= 0.0 {
+            return;
+        }
+        let total_body = body_h + max_scroll;
+        let thumb_h = (body_h / total_body * body_h).max(4.0);
+        let track = body_h - thumb_h;
+        let rail_top = bounds.y + header_h;
+        let thumb_y = rail_top + scroll / max_scroll * track;
+        let clip_rect = |mut r: Rectangle| -> Rectangle {
+            let bot = (r.y + r.height).min(clip_bot);
+            r.height = (bot - r.y).max(0.0);
+            r
+        };
+        if let Some(track_bg) = style.scrollbar_track {
+            let rail = clip_rect(Rectangle {
+                x: bounds.x + bounds.width - WIDTH,
+                y: rail_top,
+                width: WIDTH,
+                height: body_h,
+            });
+            if rail.height > 0.0 {
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: rail,
+                        border: core::Border {
+                            radius: (WIDTH / 2.0).into(),
+                            ..core::Border::default()
+                        },
+                        snap: true,
+                        ..renderer::Quad::default()
+                    },
+                    track_bg,
+                );
+            }
+        }
+        let thumb = clip_rect(Rectangle {
+            x: bounds.x + bounds.width - WIDTH,
+            y: thumb_y,
+            width: WIDTH,
+            height: thumb_h,
+        });
+        if thumb.height > 0.0 {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: thumb,
+                    border: core::Border {
+                        radius: (WIDTH / 2.0).into(),
+                        ..core::Border::default()
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                style.scrollbar,
+            );
         }
     }
 
@@ -2193,10 +2703,57 @@ where
         }
     }
 
+    /// X-inset for a row separator at absolute `sep_y` so it stays
+    /// inside the border's inner arc. Returns `border_width` when
+    /// outside the arc zone, more when inside.
+    fn separator_edge_inset(&self, sep_y: f32, bounds: Rectangle) -> f32 {
+        let bw = self.border;
+        let inner_top = bounds.y + bw;
+        let inner_bottom = bounds.y + bounds.height - bw;
+
+        let ri_tl = (self.radius.top_left - bw).max(0.0);
+        let ri_bl = (self.radius.bottom_left - bw).max(0.0);
+        let ri_tr = (self.radius.top_right - bw).max(0.0);
+        let ri_br = (self.radius.bottom_right - bw).max(0.0);
+        let ri_left = ri_tl.max(ri_bl);
+        let ri_right = ri_tr.max(ri_br);
+
+        let left_inset = if ri_left > 0.0 {
+            let dy_top = sep_y - inner_top;
+            let dy_bot = inner_bottom - sep_y;
+            if dy_top < ri_tl {
+                bw + ri_tl - (dy_top * (2.0 * ri_tl - dy_top)).max(0.0).sqrt()
+            } else if dy_bot < ri_bl {
+                bw + ri_bl - (dy_bot * (2.0 * ri_bl - dy_bot)).max(0.0).sqrt()
+            } else {
+                bw
+            }
+        } else {
+            bw
+        };
+
+        let right_inset = if ri_right > 0.0 {
+            let dy_top = sep_y - inner_top;
+            let dy_bot = inner_bottom - sep_y;
+            if dy_top < ri_tr {
+                bw + ri_tr - (dy_top * (2.0 * ri_tr - dy_top)).max(0.0).sqrt()
+            } else if dy_bot < ri_br {
+                bw + ri_br - (dy_bot * (2.0 * ri_br - dy_bot)).max(0.0).sqrt()
+            } else {
+                bw
+            }
+        } else {
+            bw
+        };
+
+        left_inset.max(right_inset)
+    }
+
     fn draw_row_separators(
         &self,
         renderer: &mut Renderer,
         bounds: Rectangle,
+        border_rect: Rectangle,
         metrics: &Metrics,
         style: Style,
     ) {
@@ -2245,14 +2802,30 @@ where
                 bounds,
             );
             if sep.width > 0.0 && sep.height > 0.0 {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: sep,
-                        snap: true,
-                        ..renderer::Quad::default()
-                    },
-                    style.separator_y,
-                );
+                let margin = self.border + 1.0;
+                let too_close_top = sep.y < border_rect.y + margin;
+                let too_close_bot = sep.y + sep.height
+                    > border_rect.y + border_rect.height - margin;
+                if too_close_top || too_close_bot {
+                    y += self.separator_y + self.padding_y;
+                    continue;
+                }
+                let inset = self.separator_edge_inset(sep.y, border_rect);
+                let sep = Rectangle {
+                    x: sep.x + inset,
+                    width: (sep.width - inset * 2.0).max(0.0),
+                    ..sep
+                };
+                if sep.width > 0.0 {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: sep,
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        style.separator_y,
+                    );
+                }
             }
             y += self.separator_y + self.padding_y;
         }
@@ -2413,6 +2986,20 @@ fn row_clip_rect(rect: Rectangle, progress: f32) -> Rectangle {
         width: rect.width,
         height: (rect.height * progress).max(0.0),
     }
+}
+
+/// Given an inner corner radius `ri` and a distance `dy` above the
+/// inner rect bottom, returns the fill corner radius that follows
+/// the quarter-circle arc. At `dy = 0` (flush with bottom) the
+/// fill radius equals `ri`; at `dy >= ri` it's zero.
+fn arc_derived_radius(ri: f32, dy: f32) -> f32 {
+    if ri <= 0.0 || dy >= ri {
+        return 0.0;
+    }
+    if dy <= 0.0 {
+        return ri;
+    }
+    ri - (dy * (2.0 * ri - dy)).sqrt()
 }
 
 /// Evaluates framer-motion's default keyframe ease curve at `t` —

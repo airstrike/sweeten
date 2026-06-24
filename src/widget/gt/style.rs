@@ -219,6 +219,11 @@ impl BorderStyle {
 /// Table-level appearance for a [`Table`](super::Table).
 #[derive(Debug, Clone, Copy)]
 pub struct Style {
+    /// Opaque fill behind the entire table, drawn with the table's
+    /// [`radius`](super::Table::radius). Set this when the table has
+    /// rounded corners so the corner areas are filled by the table
+    /// itself rather than leaking through to whatever sits behind it.
+    pub background: Option<Background>,
     /// Color of the horizontal line separator drawn between rows.
     pub separator_x: Background,
     /// Color of the vertical line separator drawn between columns.
@@ -229,6 +234,14 @@ pub struct Style {
     /// Background fill drawn behind the sticky header block, so that
     /// scrolling data rows don't show through.
     pub sticky_background: Background,
+    /// Color of the scrollbar track (rail) drawn when
+    /// [`Table::scrollable`](super::Table::scrollable) content
+    /// overflows. `None` hides the track.
+    pub scrollbar_track: Option<Background>,
+    /// Color of the scrollbar thumb drawn when
+    /// [`Table::scrollable`](super::Table::scrollable) content
+    /// overflows.
+    pub scrollbar: Background,
     /// Default text color when no [`TextStyle::color`] override applies.
     pub text: Color,
     /// Color used for the title block text when no override applies.
@@ -279,10 +292,17 @@ impl Catalog for crate::Theme {
 pub fn default(theme: &crate::Theme) -> Style {
     let palette = theme.palette();
     Style {
+        background: None,
         separator_x: palette.background.weak.color.into(),
         separator_y: palette.background.weak.color.into(),
         border: palette.background.weak.color.into(),
         sticky_background: palette.background.base.color.into(),
+        scrollbar_track: None,
+        scrollbar: Color {
+            a: 0.35,
+            ..palette.background.base.text
+        }
+        .into(),
         text: palette.background.base.text,
         title: palette.background.base.text,
         muted: palette.background.weakest.text,
