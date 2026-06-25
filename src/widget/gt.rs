@@ -1853,7 +1853,14 @@ where
                             );
                         }
 
-                        // Body cell borders.
+                        // Body cell borders — horizontal rules
+                        // are inset by the same arc logic as row
+                        // separators so they don't overflow the
+                        // border's rounded corners.
+                        let vis_border_for_borders = Rectangle {
+                            y: bounds.y + eff_scroll,
+                            ..bounds
+                        };
                         for i in sticky_cell_count..self.cells.len() {
                             let rect = self.absolute_cell_rect(
                                 metrics,
@@ -1868,23 +1875,20 @@ where
                             if p <= 0.0 {
                                 continue;
                             }
-                            if p >= 1.0 {
-                                self.draw_cell_border(
+                            let draw_border = |renderer: &mut Renderer| {
+                                self.draw_cell_border_scrollable(
                                     renderer,
                                     &self.cell_meta[i],
                                     rect,
                                     body_bounds,
+                                    vis_border_for_borders,
                                 );
+                            };
+                            if p >= 1.0 {
+                                draw_border(renderer);
                             } else {
                                 let clip = row_clip_rect(rect, p);
-                                renderer.with_layer(clip, |renderer| {
-                                    self.draw_cell_border(
-                                        renderer,
-                                        &self.cell_meta[i],
-                                        rect,
-                                        body_bounds,
-                                    );
-                                });
+                                renderer.with_layer(clip, draw_border);
                             }
                         }
 
@@ -2456,49 +2460,41 @@ where
     ) {
         const WIDTH: f32 = 2.0;
         let ri = (self.radius.bottom_right - self.border).max(0.0);
-        let clip_bot = bounds.y + bounds.height - self.border - ri;
+        let rail_top = bounds.y + header_h;
+        let rail_h = (bounds.height - header_h - self.border - ri).max(0.0);
         let body_h = (bounds.height - header_h).max(0.0);
-        if body_h <= 0.0 || max_scroll <= 0.0 {
+        if rail_h <= 0.0 || body_h <= 0.0 || max_scroll <= 0.0 {
             return;
         }
         let total_body = body_h + max_scroll;
-        let thumb_h = (body_h / total_body * body_h).max(4.0);
-        let track = body_h - thumb_h;
-        let rail_top = bounds.y + header_h;
+        let thumb_h = (body_h / total_body * rail_h).max(4.0).min(rail_h);
+        let track = rail_h - thumb_h;
         let thumb_y = rail_top + scroll / max_scroll * track;
-        let clip_rect = |mut r: Rectangle| -> Rectangle {
-            let bot = (r.y + r.height).min(clip_bot);
-            r.height = (bot - r.y).max(0.0);
-            r
-        };
         if let Some(track_bg) = style.scrollbar_track {
-            let rail = clip_rect(Rectangle {
-                x: bounds.x + bounds.width - WIDTH,
-                y: rail_top,
-                width: WIDTH,
-                height: body_h,
-            });
-            if rail.height > 0.0 {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: rail,
-                        border: core::Border {
-                            radius: (WIDTH / 2.0).into(),
-                            ..core::Border::default()
-                        },
-                        snap: true,
-                        ..renderer::Quad::default()
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x: bounds.x + bounds.width - WIDTH,
+                        y: rail_top,
+                        width: WIDTH,
+                        height: rail_h,
                     },
-                    track_bg,
-                );
-            }
+                    border: core::Border {
+                        radius: (WIDTH / 2.0).into(),
+                        ..core::Border::default()
+                    },
+                    snap: true,
+                    ..renderer::Quad::default()
+                },
+                track_bg,
+            );
         }
-        let thumb = clip_rect(Rectangle {
+        let thumb = Rectangle {
             x: bounds.x + bounds.width - WIDTH,
             y: thumb_y,
             width: WIDTH,
             height: thumb_h,
-        });
+        };
         if thumb.height > 0.0 {
             renderer.fill_quad(
                 renderer::Quad {
@@ -2571,6 +2567,84 @@ where
                     },
                     fill,
                 );
+            }
+        }
+    }
+
+    /// Like [`draw_cell_border`] but horizontal rules (top/bottom)
+    /// are inset by the border arc so they don't overflow the
+    /// table's rounded corners when scrolling.
+    fn draw_cell_border_scrollable(
+        &self,
+        renderer: &mut Renderer,
+        meta: &CellMeta,
+        cell_rect: Rectangle,
+        bounds: Rectangle,
+        border_rect: Rectangle,
+    ) {
+        if let Some(border) = meta.style.borders {
+            let color = border
+                .color
+                .map(Background::from)
+                .unwrap_or(Background::Color(Color::BLACK));
+            let width = border.width.unwrap_or(1.0);
+            let mut draw_border = |rect: Rectangle| {
+                let clipped = Self::clip_to_bounds(rect, bounds);
+                if clipped.width > 0.0 && clipped.height > 0.0 {
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: clipped,
+                            snap: true,
+                            ..renderer::Quad::default()
+                        },
+                        color,
+                    );
+                }
+            };
+            let bridge = self.separator_x;
+            let eps = 0.5;
+            let at_left = cell_rect.x <= bounds.x + eps + bridge;
+            let at_right = cell_rect.x + cell_rect.width
+                >= bounds.x + bounds.width - eps - bridge;
+            if border.sides.top {
+                let y = (cell_rect.y - width / 2.0).max(bounds.y);
+                let inset = self.separator_edge_inset(y, border_rect);
+                let l = if at_left { inset } else { 0.0 };
+                let r = if at_right { inset } else { 0.0 };
+                draw_border(Rectangle {
+                    x: cell_rect.x - bridge / 2.0 + l,
+                    y,
+                    width: cell_rect.width + bridge - l - r,
+                    height: width,
+                });
+            }
+            if border.sides.bottom {
+                let y = cell_rect.y + cell_rect.height - width / 2.0;
+                let inset = self.separator_edge_inset(y, border_rect);
+                let l = if at_left { inset } else { 0.0 };
+                let r = if at_right { inset } else { 0.0 };
+                draw_border(Rectangle {
+                    x: cell_rect.x - bridge / 2.0 + l,
+                    y,
+                    width: cell_rect.width + bridge - l - r,
+                    height: width,
+                });
+            }
+            if border.sides.left {
+                draw_border(Rectangle {
+                    x: cell_rect.x - width / 2.0,
+                    y: cell_rect.y,
+                    width,
+                    height: cell_rect.height,
+                });
+            }
+            if border.sides.right {
+                draw_border(Rectangle {
+                    x: cell_rect.x + cell_rect.width - width / 2.0,
+                    y: cell_rect.y,
+                    width,
+                    height: cell_rect.height,
+                });
             }
         }
     }
