@@ -4,6 +4,7 @@
 - [Mouse Area](#mouse-area)
 - [Pick List](#pick-list)
 - [Fit Text](#fit-text)
+- [Table](#table)
 
 Run any example using:
 
@@ -64,4 +65,17 @@ binary-searched fit in action.
 
 ```bash
 cargo run --example fit_text
+```
+
+---
+
+## Table
+
+Demonstrates the table widget with optional column headers, sticky header,
+header underline, and table border. Toggle the "Show header" checkbox to
+switch columns between headed and headerless mode; when all columns are
+headerless the header row and separator are omitted.
+
+```bash
+cargo run --example table
 ```

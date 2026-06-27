@@ -50,6 +50,8 @@
 //!   changes (150ms cubic-bezier ease).
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
+//! - [`table`] — A data table with optional column headers, sticky header,
+//!   header underline, and table border.
 //! - [`text_input`] — A text input field, with support for [`on_focus`] and
 //!   [`on_blur`] messages.
 //! - [`toggler`] — A toggler switch with smooth animation between states.
@@ -79,6 +81,7 @@
 //! [`pick_list`]: mod@widget::pick_list
 //! [`progress_bar`]: mod@widget::progress_bar
 //! [`row`]: mod@widget::row
+//! [`table`]: mod@widget::table
 //! [`text_input`]: mod@widget::text_input
 //! [`toggler`]: mod@widget::toggler
 //! [`transition`]: mod@widget::transition

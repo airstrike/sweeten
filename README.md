@@ -144,6 +144,33 @@ column(items.iter().map(|s| s.as_str().into()))
     .into()
 ```
 
+### `Table`
+
+Column headers are optional: pass `None` to `table::column()` for a
+headerless column, and when every column is headerless the header row is
+skipped entirely. Additional features on top of upstream:
+
+- `.sticky_header(true)` pins the header row when scrolling inside a
+  parent scrollable
+- `.header_underline_height(px)` draws a distinct separator below the
+  header (independent thickness and color from regular row separators)
+- `.border(px)` draws an outline around the entire table
+
+```rust
+use sweeten::widget::table::{self, table};
+
+table(
+    [
+        table::column(Some(text("Name").into()), |r: Row| text(r.name).into()),
+        table::column(None, |r: Row| text(r.age).into()),
+    ],
+    rows,
+)
+.sticky_header(true)
+.header_underline_height(2)
+.border(1)
+```
+
 ### `FitText`
 
 A text widget that auto-scales its font size to fit the bounds it is laid
@@ -196,6 +223,7 @@ cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
 cargo run --example transition
+cargo run --example table
 cargo run --example checkbox
 cargo run --example progress_bar
 ```

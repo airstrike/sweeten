@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `transition` widget that animates a slide between values when its data changes.
 - Animated `checkbox` widget. [#16](https://github.com/airstrike/sweeten/pull/16)
 - Self-animating `progress_bar` widget. [#17](https://github.com/airstrike/sweeten/pull/17)
+- `table` widget with optional column headers, sticky header, header underline, and table border.
 - README sections for `button`, `toggler`, and `transition`.
 
 ### Changed
