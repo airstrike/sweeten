@@ -71,9 +71,9 @@ pub enum Direction {
 /// New variants slot in here; each gets its own private `*_transforms`
 /// function below that produces the visual transforms for both children
 /// at a given animation progress. Slide is the only mode today; future
-/// modes (`Crossfade`, `Fade`, `Wipe`, `Hero`, …) will extend [`Content`]
+/// modes (`Crossfade`, `Fade`, `Wipe`, `Hero`, …) will extend `Content`
 /// with the additional knobs they need (alpha for the fades, a per-child
-/// clip rect for wipe, etc.) and add a match arm in [`transforms`].
+/// clip rect for wipe, etc.) and add a match arm in `transforms`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// Slide the new content into the canonical position from the edge
