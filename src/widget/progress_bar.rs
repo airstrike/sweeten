@@ -246,7 +246,7 @@ where
         layout::atomic(limits, self.width(), self.height())
     }
 
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         let state = tree.state.downcast_mut::<State>();
         if state.animated.value() != self.value {
             // Re-target without snapping: `Animation::go_mut` interpolates

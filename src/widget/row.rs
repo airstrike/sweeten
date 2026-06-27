@@ -196,11 +196,9 @@ where
         child: impl Into<Element<'a, Message, Theme, Renderer>>,
     ) -> Self {
         let child = child.into();
-        let child_size = child.as_widget().size_hint();
+        let child_size = child.as_widget().size();
 
         if !child_size.is_void() {
-            self.width = self.width.enclose(child_size.width);
-            self.height = self.height.enclose(child_size.height);
             self.children.push(child);
         }
 
@@ -516,12 +514,17 @@ where
         })
     }
 
-    fn children(&self) -> Vec<Tree> {
-        self.children.iter().map(Tree::new).collect()
-    }
+    fn diff(&mut self, tree: &mut Tree) {
+        tree.diff_children(&mut self.children);
 
-    fn diff(&self, tree: &mut Tree) {
-        tree.diff_children(&self.children);
+        if self.width.is_fit() || self.height.is_fit() {
+            for child in &self.children {
+                let size = child.as_widget().size();
+
+                self.width = self.width.stack(size.width);
+                self.height = self.height.cross(size.height);
+            }
+        }
 
         let action = &mut tree.state.downcast_mut::<WidgetState>().action;
 
@@ -1255,11 +1258,7 @@ where
         self.row.state()
     }
 
-    fn children(&self) -> Vec<Tree> {
-        self.row.children()
-    }
-
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         self.row.diff(tree);
     }
 
