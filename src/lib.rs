@@ -42,6 +42,8 @@
 //!   reordering via [`on_drag`](widget::column::Column::on_drag).
 //! - [`fit_text`] — A text widget that auto-scales its font size to fit the
 //!   available bounds, up to a configurable ceiling.
+//! - [`list`] — A virtualized list that only materializes visible items,
+//!   suitable for large or unbounded data sets.
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
@@ -77,6 +79,7 @@
 //! [`checkbox`]: mod@widget::checkbox
 //! [`column`]: mod@widget::column
 //! [`fit_text`]: mod@widget::fit_text
+//! [`list`]: mod@widget::list
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`progress_bar`]: mod@widget::progress_bar

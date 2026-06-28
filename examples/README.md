@@ -4,6 +4,7 @@
 - [Mouse Area](#mouse-area)
 - [Pick List](#pick-list)
 - [Fit Text](#fit-text)
+- [List](#list)
 - [Table](#table)
 
 Run any example using:
@@ -65,6 +66,18 @@ binary-searched fit in action.
 
 ```bash
 cargo run --example fit_text
+```
+
+---
+
+## List
+
+A virtualized list of 1,000 items. Only the rows visible in the viewport
+are materialized into widgets. Each row can be updated (expanding its
+height) or removed to demonstrate incremental tree reconciliation.
+
+```bash
+cargo run --example list
 ```
 
 ---
