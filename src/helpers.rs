@@ -8,6 +8,7 @@ use crate::widget::button::{self, Button};
 use crate::widget::checkbox::{self, Checkbox};
 use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
+use crate::widget::list::{self, List};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::progress_bar::{self, ProgressBar};
 use crate::widget::row::{self, Row};
@@ -160,6 +161,20 @@ where
     Renderer: core::Renderer,
 {
     Table::new(columns, rows)
+}
+
+/// Creates a new virtualized [`List`] backed by `content`.
+///
+/// Only items visible in the current viewport are materialized into
+/// widgets, making this suitable for large or unbounded data sets.
+pub fn list<'a, T, Message, Theme, Renderer>(
+    content: &'a list::Content<T>,
+    view_item: impl Fn(usize, &'a T) -> Element<'a, Message, Theme, Renderer> + 'a,
+) -> List<'a, T, Message, Theme, Renderer>
+where
+    Renderer: core::Renderer,
+{
+    List::new(content, view_item)
 }
 
 /// Creates a new [`Checkbox`].

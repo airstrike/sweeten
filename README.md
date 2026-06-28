@@ -171,6 +171,23 @@ table(
 .border(1)
 ```
 
+### `List`
+
+A virtualized list that only materializes visible items, ported from iced's
+`feat/list-widget-redux` branch. Suitable for large or unbounded data sets
+where creating a widget per row would be too expensive.
+
+```rust
+use sweeten::widget::list;
+
+let content = list::Content::from_iter(
+    (0..10_000).map(|id| format!("Item {id}"))
+);
+
+list(&content, |_index, label| text(label).into())
+    .spacing(5)
+```
+
 ### `FitText`
 
 A text widget that auto-scales its font size to fit the bounds it is laid
@@ -222,6 +239,7 @@ cargo run --example mouse_area
 cargo run --example pick_list
 cargo run --example text_input
 cargo run --example fit_text
+cargo run --example list
 cargo run --example transition
 cargo run --example table
 cargo run --example checkbox
