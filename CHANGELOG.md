@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Animated `checkbox` widget. [#16](https://github.com/airstrike/sweeten/pull/16)
 - Self-animating `progress_bar` widget. [#17](https://github.com/airstrike/sweeten/pull/17)
 - `table` widget with optional column headers, sticky header, header underline, and table border.
+- `list` widget for virtualized lists (only visible items are materialized).
+  Modified from hecrj's `List` widget on iced's `feat/list-widget-reloaded`
+  branch. [#19](https://github.com/airstrike/sweeten/pull/19)
 - README sections for `button`, `toggler`, and `transition`.
 
 ### Changed
