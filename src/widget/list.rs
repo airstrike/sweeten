@@ -541,8 +541,6 @@ where
                 }
             }
 
-            // Forward RedrawRequested to all visible elements so child
-            // widgets (buttons, etc.) can compute their visual status.
             for (element, (index, item_layout, tree)) in self
                 .visible_elements
                 .iter_mut()
