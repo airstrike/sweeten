@@ -423,7 +423,7 @@ where
         }
 
         let max_width = match self.width {
-            Length::Shrink => {
+            Length::Shrink | Length::Fit => {
                 state.options.resize_with(options.len(), Default::default);
 
                 for (option, paragraph) in
