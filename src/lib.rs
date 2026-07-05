@@ -53,8 +53,9 @@
 //!   option content, and keyboard navigation with typeahead.
 //! - [`progress_bar`] — A progress bar that self-animates between value
 //!   changes (150ms cubic-bezier ease).
-//! - [`radio`] — A radio button with smooth animation when the selection
-//!   changes.
+//! - [`radio`] — A focus-managed radio group (one tab stop, arrow-key
+//!   navigation, selection follows focus) with smooth animation when the
+//!   selection changes.
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`table`] — A grid-like visual representation of data distributed in

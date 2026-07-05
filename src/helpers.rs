@@ -10,7 +10,7 @@ use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::progress_bar::{self, ProgressBar};
-use crate::widget::radio::{self, Single};
+use crate::widget::radio::{self, Content, Group};
 use crate::widget::row::{self, Row};
 use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
@@ -237,29 +237,32 @@ where
     Checkbox::new(is_checked)
 }
 
-/// Creates a new [`Single`] radio button for the given `value`, showing
-/// as selected when it matches the current `selected` value.
+/// Creates a new focus-managed [`Group`] of radio buttons from the current
+/// `selected` value, the set of `options`, and a `view` function producing
+/// each option's label.
 ///
-/// This is a sweetened version of [`iced`'s `radio`] with a smooth
-/// animation when the selection changes — the dot fades and scales in
-/// (or out) while the fill and border colors interpolate in unison.
+/// The group is a single tab stop (the WAI-ARIA "radiogroup"): the arrow
+/// keys rove between the enabled options while selection follows focus, and
+/// each button animates the selection dot smoothly instead of snapping.
 ///
-/// Unlike upstream, the click callback is a builder — the returned
-/// [`Single`] is disabled until [`on_toggle`] is called — and the
-/// `selected` value may be `None`, which is the usual state on init.
+/// The returned [`Group`] is disabled until [`on_select`] is called to set
+/// the message produced when an option is chosen; the `selected` value may
+/// be `None`, which is the usual state on init. For a lone button in a
+/// bespoke layout, reach for [`radio::single`](radio::single).
 ///
-/// [`iced`'s `radio`]: https://docs.iced.rs/iced/widget/radio/index.html
-/// [`on_toggle`]: Single::on_toggle
-pub fn radio<'a, V, Message, Theme, Renderer>(
-    value: V,
+/// [`on_select`]: Group::on_select
+pub fn radio<'a, V, T, Message, Theme, Renderer>(
     selected: Option<V>,
-) -> Single<'a, V, Message, Theme, Renderer>
+    options: impl IntoIterator<Item = V>,
+    view: impl Fn(&V) -> T,
+) -> Group<'a, V, Message, Theme, Renderer>
 where
-    V: Eq,
+    V: Eq + Clone,
+    T: Into<Content<'a, Theme, Renderer>>,
     Theme: radio::Catalog + 'a,
     Renderer: core::text::Renderer,
 {
-    Single::new(value, selected)
+    Group::new(selected, options, view)
 }
 
 /// Creates a new [`Toggler`].
