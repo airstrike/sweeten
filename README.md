@@ -94,26 +94,44 @@ mouse_area("Click me and I'll tell you where!",)
 
 ### `PickList`
 
+<<<<<<< HEAD
 A sweetened version of `iced`'s `PickList` which accepts an optional closure to
 disable some items. Use it like:
+=======
+Supports titled groups of options, clearing the selection with a "None"
+entry, disabling items (inline or via a predicate), arbitrary widgets as
+option content, focus (Tab reaches it, Enter/Space/arrows open it), and
+keyboard interaction — arrow keys, Home/End, and typeahead move the
+highlighted option, Enter selects it, and Escape closes the menu:
+>>>>>>> 9b7c4fb (feat: overhaul pick_list into a full select control)
 
 ```rust
+use sweeten::pick_list;
+use sweeten::widget::pick_list::{group, options};
+
 pick_list(
-    &Language::ALL[..],
-    Some(|languages: &[Language]| {
-        languages
-            .iter()
-            .map(|lang| matches!(lang, Language::Javascript))
-            .collect()
-    }),
     self.selected_language,
-    Message::Pick,
+    options![
+        None,
+        group("Imperative", [Language::C, Language::Javascript]),
+        group("Functional", [Language::Elm, Language::Haskell]),
+    ],
+    Language::to_string,
 )
+.on_select(Message::Pick)
+.on_deselect(Message::Clear)
+.separator(true)
+.disabled(|language| matches!(language, Language::Javascript))
 .placeholder("Choose a language...");
 ```
 
+<<<<<<< HEAD
 > Note that the compiler is not currently able to infer the type of the closure,
 > so you may need to specify it explicitly as shown above.
+=======
+The view function may return a `String` or any `Element`, so options can
+carry icons or custom layouts.
+>>>>>>> 9b7c4fb (feat: overhaul pick_list into a full select control)
 
 ### `TextInput`
 

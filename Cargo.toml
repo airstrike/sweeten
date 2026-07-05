@@ -30,7 +30,7 @@ unicode-segmentation = "1.11.0"
 
 [dev-dependencies]
 iced.version = "0.15.0-dev"
-iced.features = ["advanced", "markdown"]
+iced.features = ["advanced", "image", "markdown", "svg"]
 iced_test.version = "0.15.0-dev"
 criterion = { version = "0.8", features = ["html_reports"] }
 
@@ -61,6 +61,7 @@ cosmic-text = { git = "https://github.com/airstrike/cosmic-text", branch = "dev"
 # iced_core.path = "../iced/core"
 # iced_runtime.path = "../iced/runtime"
 # iced_widget.path = "../iced/widget"
+# iced_test.path = "../iced/test"
 
 [package.metadata.docs.rs]
 all-features = true

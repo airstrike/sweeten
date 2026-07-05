@@ -49,7 +49,8 @@
 //! - [`mouse_area`] — A container for capturing mouse events where all handlers
 //!   receive the cursor position as a [`Point`].
 //! - [`pick_list`] — A dropdown list of selectable options, with support for
-//!   disabling items.
+//!   disabling items, group labels and separators, arbitrary widgets as
+//!   option content, and keyboard navigation with typeahead.
 //! - [`progress_bar`] — A progress bar that self-animates between value
 //!   changes (150ms cubic-bezier ease).
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
@@ -115,6 +116,8 @@ pub use widget::button;
 pub use widget::checkbox;
 #[doc(hidden)]
 pub use widget::overlay;
+#[doc(hidden)]
+pub use widget::pick_list;
 #[doc(hidden)]
 pub use widget::text_input;
 // Re-export iced_widget::text so toggler (and future widgets) can use

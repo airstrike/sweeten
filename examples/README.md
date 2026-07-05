@@ -45,15 +45,14 @@ cargo run --example mouse_area
 
 ## Pick List
 
-Shows how to use the pick list with disabled items functionality.
+Shows the sweetened pick list: titled groups built with the `options!`
+macro, a "None" entry that clears the selection, inline and dynamic
+disabling, rich option content (the Rust row carries a ferris svg),
+keyboard navigation with typeahead, and Tab focus.
 
 ```bash
 cargo run --example pick_list
 ```
-
-<div align="center">
-  <img src="../assets/pick_list.gif" alt="Pick List Demo">
-</div>
 
 ---
 

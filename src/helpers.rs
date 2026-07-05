@@ -108,7 +108,11 @@ where
 /// Creates a new [`PickList`].
 ///
 /// This is a sweetened version of [`iced`'s `pick_list`] with support for
-/// disabling items in the dropdown via [`disabled`].
+/// disabling items in the dropdown via [`disabled`], titled groups of
+/// options via [`group`] and the [`options!`] macro, and arbitrary
+/// widgets as option content — the view function may return a `String`
+/// or anything else that converts into a [`Content`], like an
+/// [`Element`].
 ///
 /// The returned [`PickList`] is disabled until [`on_select`] is called to
 /// set the message produced when an option is picked.
@@ -116,20 +120,23 @@ where
 /// [`iced`'s `pick_list`]: https://docs.iced.rs/iced/widget/pick_list/index.html
 /// [`disabled`]: PickList::disabled
 /// [`on_select`]: PickList::on_select
-pub fn pick_list<'a, T, L, V, Message, Theme, Renderer>(
+/// [`group`]: pick_list::group
+/// [`options!`]: crate::widget::pick_list::options!
+/// [`Content`]: pick_list::Content
+pub fn pick_list<'a, T, V, Message, Theme, Renderer, W>(
     selected: Option<V>,
-    options: L,
-    to_string: impl Fn(&T) -> String + 'a,
-) -> PickList<'a, T, L, V, Message, Theme, Renderer>
+    options: impl Into<pick_list::Options<'a, T, Theme, Renderer>>,
+    view: impl Fn(&T) -> W + 'a,
+) -> PickList<'a, T, V, Message, Theme, Renderer>
 where
     T: PartialEq + Clone + 'a,
-    L: Borrow<[T]> + 'a,
     V: Borrow<T> + 'a,
     Message: Clone,
     Theme: pick_list::Catalog + menu::Catalog,
     Renderer: core::text::Renderer,
+    W: Into<pick_list::Content<'a, Theme, Renderer>>,
 {
-    PickList::new(selected, options, to_string)
+    PickList::new(selected, options, view)
 }
 
 /// Creates a new [`MouseArea`] for capturing mouse events.
