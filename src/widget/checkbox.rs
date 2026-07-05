@@ -11,6 +11,7 @@
 //!    is_checked: bool,
 //! }
 //!
+//! #[derive(Clone)]
 //! enum Message {
 //!     CheckboxToggled(bool),
 //! }
@@ -34,6 +35,7 @@
 use crate::animation::cubic_bezier;
 use crate::core::alignment;
 use crate::core::animation::Easing;
+use crate::core::keyboard::{self, key};
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
@@ -42,12 +44,14 @@ use crate::core::theme::palette;
 use crate::core::time::Instant;
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
     Animation, Background, Border, Color, Element, Event, Layout, Length,
     Pixels, Rectangle, Shell, Size, Theme, Widget,
 };
+use crate::widget::focus;
 
 /// A box that can be checked.
 ///
@@ -62,6 +66,7 @@ use crate::core::{
 ///    is_checked: bool,
 /// }
 ///
+/// #[derive(Clone)]
 /// enum Message {
 ///     CheckboxToggled(bool),
 /// }
@@ -93,10 +98,13 @@ pub struct Checkbox<
 {
     is_checked: bool,
     on_toggle: Option<Box<dyn Fn(bool) -> Message + 'a>>,
+    on_focus: Option<Message>,
+    on_blur: Option<Message>,
+    id: Option<widget::Id>,
     label: Option<text::Fragment<'a>>,
     width: Length,
     size: f32,
-    spacing: f32,
+    gap: f32,
     text_size: Option<Pixels>,
     line_height: text::LineHeight,
     shaping: text::Shaping,
@@ -115,6 +123,9 @@ where
     /// The default size of a [`Checkbox`].
     const DEFAULT_SIZE: f32 = 16.0;
 
+    /// The default gap between a [`Checkbox`] and its label.
+    const DEFAULT_GAP: f32 = 6.0;
+
     /// Creates a new [`Checkbox`].
     ///
     /// It expects:
@@ -123,10 +134,13 @@ where
         Checkbox {
             is_checked,
             on_toggle: None,
+            on_focus: None,
+            on_blur: None,
+            id: None,
             label: None,
             width: Length::Shrink,
             size: Self::DEFAULT_SIZE,
-            spacing: Self::DEFAULT_SIZE / 2.0,
+            gap: Self::DEFAULT_GAP,
             text_size: None,
             line_height: text::LineHeight::default(),
             shaping: text::Shaping::default(),
@@ -175,6 +189,24 @@ where
         self
     }
 
+    /// Sets the message produced when the [`Checkbox`] gains keyboard focus.
+    pub fn on_focus(mut self, on_focus: Message) -> Self {
+        self.on_focus = Some(on_focus);
+        self
+    }
+
+    /// Sets the message produced when the [`Checkbox`] loses keyboard focus.
+    pub fn on_blur(mut self, on_blur: Message) -> Self {
+        self.on_blur = Some(on_blur);
+        self
+    }
+
+    /// Sets the [`widget::Id`] of the [`Checkbox`], for programmatic focus.
+    pub fn id(mut self, id: impl Into<widget::Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
     /// Sets the size of the [`Checkbox`].
     pub fn size(mut self, size: impl Into<Pixels>) -> Self {
         self.size = size.into().0;
@@ -187,9 +219,9 @@ where
         self
     }
 
-    /// Sets the spacing between the [`Checkbox`] and the text.
-    pub fn spacing(mut self, spacing: impl Into<Pixels>) -> Self {
-        self.spacing = spacing.into().0;
+    /// Sets the gap between the [`Checkbox`] and its label.
+    pub fn gap(mut self, gap: impl Into<Pixels>) -> Self {
+        self.gap = gap.into().0;
         self
     }
 
@@ -265,11 +297,30 @@ struct State<P: text::Paragraph> {
     /// outside and dragging in (or pressing in and dragging out before
     /// release) must not toggle.
     is_pressed: bool,
+    focus: Option<focus::Source>,
+    was_focused: bool,
+}
+
+impl<P: text::Paragraph> operation::Focusable for State<P> {
+    fn is_focused(&self) -> bool {
+        self.focus.is_some()
+    }
+
+    fn focus(&mut self) {
+        // Only focus operations (Tab / programmatic) call this, so it is
+        // always keyboard-style focus that should show the ring.
+        self.focus = Some(focus::Source::Keyboard);
+    }
+
+    fn unfocus(&mut self) {
+        self.focus = None;
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Checkbox<'_, Message, Theme, Renderer>
 where
+    Message: Clone,
     Renderer: text::Renderer,
     Theme: Catalog,
 {
@@ -290,6 +341,8 @@ where
             now: None,
             last_is_checked: self.is_checked,
             is_pressed: false,
+            focus: None,
+            was_focused: false,
         })
     }
 
@@ -308,11 +361,7 @@ where
     ) -> layout::Node {
         layout::next_to_each_other(
             &limits.width(self.width),
-            if self.label.is_some() {
-                self.spacing
-            } else {
-                0.0
-            },
+            if self.label.is_some() { self.gap } else { 0.0 },
             |_| layout::Node::new(Size::new(self.size, self.size)),
             |limits| {
                 if let Some(label) = self.label.as_deref() {
@@ -376,6 +425,20 @@ where
             }
         }
 
+        // React to focus changes coming from operations (e.g. focus_next):
+        // publish on_focus / on_blur on the transition edge.
+        let is_focused = state.focus.is_some();
+        if is_focused != state.was_focused {
+            if is_focused {
+                if let Some(on_focus) = &self.on_focus {
+                    shell.publish(on_focus.clone());
+                }
+            } else if let Some(on_blur) = &self.on_blur {
+                shell.publish(on_blur.clone());
+            }
+            state.was_focused = is_focused;
+        }
+
         // Toggle on release, but only when *both* press and release
         // happened inside the bounds — pressing outside and dragging
         // in, or pressing inside and dragging out before release, must
@@ -383,12 +446,31 @@ where
         // gate the publish on a fresh "still inside" bounds check.
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-            | Event::Touch(touch::Event::FingerPressed { .. })
-                if self.on_toggle.is_some()
-                    && cursor.is_over(layout.bounds()) =>
-            {
-                state.is_pressed = true;
-                shell.capture_event();
+            | Event::Touch(touch::Event::FingerPressed { .. }) => {
+                if self.on_toggle.is_some() && cursor.is_over(layout.bounds()) {
+                    state.is_pressed = true;
+
+                    if state.focus.is_none() {
+                        state.was_focused = true;
+                        if let Some(on_focus) = &self.on_focus {
+                            shell.publish(on_focus.clone());
+                        }
+                    }
+
+                    // Clicking focuses the checkbox for keyboard use, but is
+                    // a pointer interaction, so it must not paint the ring.
+                    state.focus = Some(focus::Source::Mouse);
+                    shell.capture_event();
+                } else if state.focus.is_some()
+                    && !cursor.is_over(layout.bounds())
+                {
+                    // A press elsewhere blurs.
+                    state.focus = None;
+                    state.was_focused = false;
+                    if let Some(on_blur) = &self.on_blur {
+                        shell.publish(on_blur.clone());
+                    }
+                }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerLifted { .. })
@@ -403,6 +485,18 @@ where
                     shell.publish((on_toggle)(!self.is_checked));
                     shell.capture_event();
                 }
+            }
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key::Named::Space),
+                ..
+            }) if state.focus.is_some() && self.on_toggle.is_some() => {
+                // Space toggles the focused checkbox and re-arms keyboard
+                // focus so the ring stays showing.
+                state.focus = Some(focus::Source::Keyboard);
+                if let Some(on_toggle) = &self.on_toggle {
+                    shell.publish((on_toggle)(!self.is_checked));
+                }
+                shell.capture_event();
             }
             _ => {}
         }
@@ -526,6 +620,21 @@ where
             let layout = children.next().unwrap();
             let bounds = layout.bounds();
 
+            if state.focus == Some(focus::Source::Keyboard) {
+                // Soft :focus-visible halo hugging the box, in the checked
+                // accent so it reads correctly under any theme.
+                let ring_color = theme
+                    .style(&self.class, Status::Active { is_checked: true })
+                    .border
+                    .color;
+                focus::ring(
+                    renderer,
+                    bounds,
+                    style.border.radius.top_left,
+                    ring_color,
+                );
+            }
+
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
@@ -607,11 +716,17 @@ where
 
     fn operate(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         layout: Layout<'_>,
         _renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
+        let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+
+        if self.on_toggle.is_some() {
+            operation.focusable(self.id.as_ref(), layout.bounds(), state);
+        }
+
         if let Some(label) = self.label.as_deref() {
             operation.text(None, layout.bounds(), label);
         }
@@ -621,7 +736,7 @@ where
 impl<'a, Message, Theme, Renderer> From<Checkbox<'a, Message, Theme, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
-    Message: 'a,
+    Message: 'a + Clone,
     Theme: 'a + Catalog,
     Renderer: 'a + text::Renderer,
 {

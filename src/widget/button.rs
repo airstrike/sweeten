@@ -45,6 +45,7 @@ use crate::core::{
     Background, Color, Element, Event, Layout, Length, Padding, Rectangle,
     Shadow, Shell, Size, Theme, Vector, Widget,
 };
+use crate::widget::focus;
 
 /// A generic widget that produces a message when pressed.
 ///
@@ -247,22 +248,24 @@ where
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct State {
-    is_focused: bool,
+    focus: Option<focus::Source>,
     was_focused: bool,
     is_pressed: bool,
 }
 
 impl operation::Focusable for State {
     fn is_focused(&self) -> bool {
-        self.is_focused
+        self.focus.is_some()
     }
 
     fn focus(&mut self) {
-        self.is_focused = true;
+        // Only focus operations (Tab / programmatic) call this, so it is
+        // always keyboard-style focus that should show the ring.
+        self.focus = Some(focus::Source::Keyboard);
     }
 
     fn unfocus(&mut self) {
-        self.is_focused = false;
+        self.focus = None;
     }
 }
 
@@ -360,6 +363,30 @@ where
             viewport,
         );
 
+        // A press landing outside the button blurs it, even if another
+        // widget has already captured the event — losing focus because the
+        // user clicked elsewhere must not depend on who handled that click.
+        // This runs *before* the `is_event_captured` guard below, which a
+        // captured sibling press (e.g. selecting a radio option) would
+        // otherwise trip, leaving the button stuck showing focus.
+        if matches!(
+            event,
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                | Event::Touch(touch::Event::FingerPressed { .. })
+        ) && !cursor.is_over(layout.bounds())
+        {
+            let state = tree.state.downcast_mut::<State>();
+
+            if state.focus.is_some() {
+                state.focus = None;
+                state.was_focused = false;
+
+                if let Some(on_blur) = &self.on_blur {
+                    shell.publish(on_blur.clone());
+                }
+            }
+        }
+
         if shell.is_event_captured() {
             return;
         }
@@ -367,15 +394,16 @@ where
         // Detect focus changes from operations (e.g., Tab key)
         {
             let state = tree.state.downcast_mut::<State>();
-            if state.is_focused != state.was_focused {
-                if state.is_focused {
+            let is_focused = state.focus.is_some();
+            if is_focused != state.was_focused {
+                if is_focused {
                     if let Some(on_focus) = &self.on_focus {
                         shell.publish(on_focus.clone());
                     }
                 } else if let Some(on_blur) = &self.on_blur {
                     shell.publish(on_blur.clone());
                 }
-                state.was_focused = state.is_focused;
+                state.was_focused = is_focused;
             }
         }
 
@@ -385,25 +413,23 @@ where
                 let state = tree.state.downcast_mut::<State>();
                 let bounds = layout.bounds();
 
-                if cursor.is_over(bounds) {
-                    if self.on_press.is_some() {
-                        state.is_pressed = true;
-                        shell.capture_event();
+                // Blur on an outside press is handled before the capture
+                // guard above; here we only need to focus + arm the press
+                // when the cursor is over the button.
+                if cursor.is_over(bounds) && self.on_press.is_some() {
+                    state.is_pressed = true;
+                    shell.capture_event();
 
-                        if !state.is_focused {
-                            state.is_focused = true;
-                            state.was_focused = true;
-                            if let Some(on_focus) = &self.on_focus {
-                                shell.publish(on_focus.clone());
-                            }
+                    if state.focus.is_none() {
+                        state.was_focused = true;
+                        if let Some(on_focus) = &self.on_focus {
+                            shell.publish(on_focus.clone());
                         }
                     }
-                } else if state.is_focused {
-                    state.is_focused = false;
-                    state.was_focused = false;
-                    if let Some(on_blur) = &self.on_blur {
-                        shell.publish(on_blur.clone());
-                    }
+
+                    // Clicking focuses the button for keyboard use, but is
+                    // a pointer interaction, so it must not paint the ring.
+                    state.focus = Some(focus::Source::Mouse);
                 }
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
@@ -432,12 +458,15 @@ where
             Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
                 let state = tree.state.downcast_mut::<State>();
 
-                if state.is_focused
+                if state.focus.is_some()
                     && let Some(on_press) = &self.on_press
                 {
                     match key.as_ref() {
                         keyboard::Key::Named(key::Named::Enter)
                         | keyboard::Key::Named(key::Named::Space) => {
+                            // A keyboard activation re-arms keyboard focus,
+                            // so the ring reappears after a prior click.
+                            state.focus = Some(focus::Source::Keyboard);
                             shell.publish(on_press.get());
                             shell.capture_event();
                         }
@@ -455,7 +484,7 @@ where
             Status::Disabled
         } else if is_hovered && state.is_pressed {
             Status::Pressed
-        } else if state.is_focused {
+        } else if state.focus == Some(focus::Source::Keyboard) {
             Status::Focused { is_hovered }
         } else if is_hovered {
             Status::Hovered

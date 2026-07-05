@@ -51,6 +51,9 @@
 //!   option content, and keyboard navigation with typeahead.
 //! - [`progress_bar`] — A progress bar that self-animates between value
 //!   changes (150ms cubic-bezier ease).
+//! - [`radio`] — A focus-managed radio group (one tab stop, arrow-key
+//!   navigation, selection follows focus) with smooth animation when the
+//!   selection changes.
 //! - [`row`] — Distribute content horizontally, with support for drag-and-drop
 //!   reordering via [`on_drag`](widget::row::Row::on_drag).
 //! - [`table`] — A data table with optional column headers, sticky header,
@@ -84,6 +87,7 @@
 //! [`mouse_area`]: mod@widget::mouse_area
 //! [`pick_list`]: mod@widget::pick_list
 //! [`progress_bar`]: mod@widget::progress_bar
+//! [`radio`]: mod@widget::radio
 //! [`row`]: mod@widget::row
 //! [`table`]: mod@widget::table
 //! [`text_input`]: mod@widget::text_input
@@ -117,6 +121,8 @@ pub use widget::checkbox;
 pub use widget::overlay;
 #[doc(hidden)]
 pub use widget::pick_list;
+#[doc(hidden)]
+pub use widget::radio;
 #[doc(hidden)]
 pub use widget::text_input;
 // Re-export iced_widget::text so toggler (and future widgets) can use

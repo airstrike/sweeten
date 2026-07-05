@@ -11,6 +11,7 @@ use crate::widget::fit_text::{self, FitText};
 use crate::widget::list::{self, List};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::progress_bar::{self, ProgressBar};
+use crate::widget::radio::{self, Content, Group};
 use crate::widget::row::{self, Row};
 use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
@@ -199,6 +200,34 @@ where
     Renderer: core::text::Renderer,
 {
     Checkbox::new(is_checked)
+}
+
+/// Creates a new focus-managed [`Group`] of radio buttons from the current
+/// `selected` value, the set of `options`, and a `view` function producing
+/// each option's label.
+///
+/// The group is a single tab stop (the WAI-ARIA "radiogroup"): the arrow
+/// keys rove between the enabled options while selection follows focus, and
+/// each button animates the selection dot smoothly instead of snapping.
+///
+/// The returned [`Group`] is disabled until [`on_select`] is called to set
+/// the message produced when an option is chosen; the `selected` value may
+/// be `None`, which is the usual state on init. For a lone button in a
+/// bespoke layout, reach for [`radio::single`](radio::single).
+///
+/// [`on_select`]: Group::on_select
+pub fn radio<'a, V, T, Message, Theme, Renderer>(
+    selected: Option<V>,
+    options: impl IntoIterator<Item = V>,
+    view: impl Fn(&V) -> T,
+) -> Group<'a, V, Message, Theme, Renderer>
+where
+    V: Eq + Clone,
+    T: Into<Content<'a, Theme, Renderer>>,
+    Theme: radio::Catalog + 'a,
+    Renderer: core::text::Renderer,
+{
+    Group::new(selected, options, view)
 }
 
 /// Creates a new [`Toggler`].
