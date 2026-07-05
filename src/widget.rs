@@ -33,7 +33,7 @@ pub use fit_text::FitText;
 pub use mouse_area::MouseArea;
 pub use pick_list::PickList;
 pub use progress_bar::ProgressBar;
-pub use radio::Radio;
+pub use radio::Single;
 pub use row::Row;
 pub use table::Table;
 pub use text_input::TextInput;

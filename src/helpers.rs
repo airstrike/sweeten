@@ -10,7 +10,7 @@ use crate::widget::column::{self, Column};
 use crate::widget::fit_text::{self, FitText};
 use crate::widget::pick_list::{self, PickList};
 use crate::widget::progress_bar::{self, ProgressBar};
-use crate::widget::radio::{self, Radio};
+use crate::widget::radio::{self, Single};
 use crate::widget::row::{self, Row};
 use crate::widget::table::{self, Table};
 use crate::widget::text_input::{self, TextInput};
@@ -237,29 +237,29 @@ where
     Checkbox::new(is_checked)
 }
 
-/// Creates a new [`Radio`] button for the given `value`, showing as
-/// selected when it matches the current `selected` value.
+/// Creates a new [`Single`] radio button for the given `value`, showing
+/// as selected when it matches the current `selected` value.
 ///
 /// This is a sweetened version of [`iced`'s `radio`] with a smooth
 /// animation when the selection changes — the dot fades and scales in
 /// (or out) while the fill and border colors interpolate in unison.
 ///
 /// Unlike upstream, the click callback is a builder — the returned
-/// [`Radio`] is disabled until [`on_toggle`] is called — and the
+/// [`Single`] is disabled until [`on_toggle`] is called — and the
 /// `selected` value may be `None`, which is the usual state on init.
 ///
 /// [`iced`'s `radio`]: https://docs.iced.rs/iced/widget/radio/index.html
-/// [`on_toggle`]: Radio::on_toggle
+/// [`on_toggle`]: Single::on_toggle
 pub fn radio<'a, V, Message, Theme, Renderer>(
     value: V,
     selected: Option<V>,
-) -> Radio<'a, V, Message, Theme, Renderer>
+) -> Single<'a, V, Message, Theme, Renderer>
 where
     V: Eq,
     Theme: radio::Catalog + 'a,
     Renderer: core::text::Renderer,
 {
-    Radio::new(value, selected)
+    Single::new(value, selected)
 }
 
 /// Creates a new [`Toggler`].
