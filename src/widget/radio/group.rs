@@ -65,9 +65,10 @@ use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Animation, Background, Border, Color, Element, Event, Layout, Length,
-    Pixels, Point, Rectangle, Shell, Size, Widget,
+    Animation, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle,
+    Shell, Size, Widget,
 };
+use crate::widget::focus;
 
 use super::content::Content;
 use super::dot;
@@ -110,8 +111,10 @@ pub struct Group<
     on_blur: Option<Message>,
     id: Option<widget::Id>,
     width: Length,
+    horizontal: bool,
     size: f32,
-    spacing: f32,
+    spacing: Option<f32>,
+    gap: f32,
     text_size: Option<Pixels>,
     line_height: text::LineHeight,
     shaping: text::Shaping,
@@ -128,9 +131,17 @@ where
     /// The default size of each radio button in a [`Group`].
     pub const DEFAULT_SIZE: f32 = 16.0;
 
-    /// The default spacing of a [`Group`], used both between rows and
-    /// between a button and its label.
+    /// The default spacing between options in a vertical [`Group`].
     pub const DEFAULT_SPACING: f32 = 8.0;
+
+    /// The default spacing between options in a horizontal [`Group`],
+    /// wider than the vertical default so each label stays visually bound
+    /// to its own button rather than drifting toward the next option.
+    pub const DEFAULT_HORIZONTAL_SPACING: f32 = 16.0;
+
+    /// The default gap between a button and its label. Tighter than the
+    /// inter-option spacing so the circle and its label read as one unit.
+    pub const DEFAULT_GAP: f32 = 6.0;
 
     /// Creates a new [`Group`] from the current `selected` value, the set of
     /// `options`, and a `view` function producing each option's label
@@ -160,8 +171,10 @@ where
             on_blur: None,
             id: None,
             width: Length::Shrink,
+            horizontal: false,
             size: Self::DEFAULT_SIZE,
-            spacing: Self::DEFAULT_SPACING,
+            spacing: None,
+            gap: Self::DEFAULT_GAP,
             text_size: None,
             line_height: text::LineHeight::default(),
             shaping: text::Shaping::default(),
@@ -227,16 +240,39 @@ where
         self
     }
 
+    /// Lays the options out in a row instead of a column.
+    ///
+    /// Keyboard navigation is unchanged: the arrow keys rove between the
+    /// enabled options in either orientation.
+    pub fn horizontal(mut self, horizontal: bool) -> Self {
+        self.horizontal = horizontal;
+        self
+    }
+
     /// Sets the size of each radio button in the [`Group`].
     pub fn size(mut self, size: impl Into<Pixels>) -> Self {
         self.size = size.into().0;
         self
     }
 
-    /// Sets the spacing of the [`Group`], used both between rows and between
-    /// a button and its label.
+    /// Sets the spacing between options in the [`Group`] — the same meaning
+    /// as spacing on a [`Column`](crate::widget::Column) or
+    /// [`Row`](crate::widget::Row).
+    ///
+    /// When left unset, this defaults to
+    /// [`DEFAULT_SPACING`](Self::DEFAULT_SPACING) in a vertical group and
+    /// the wider
+    /// [`DEFAULT_HORIZONTAL_SPACING`](Self::DEFAULT_HORIZONTAL_SPACING) in a
+    /// horizontal one.
     pub fn spacing(mut self, spacing: impl Into<Pixels>) -> Self {
-        self.spacing = spacing.into().0;
+        self.spacing = Some(spacing.into().0);
+        self
+    }
+
+    /// Sets the gap between each button and its label, defaulting to
+    /// [`DEFAULT_GAP`](Self::DEFAULT_GAP).
+    pub fn gap(mut self, gap: impl Into<Pixels>) -> Self {
+        self.gap = gap.into().0;
         self
     }
 
@@ -394,7 +430,7 @@ impl<P: text::Paragraph> ItemState<P> {
 struct State<P: text::Paragraph> {
     items: Vec<ItemState<P>>,
     now: Option<Instant>,
-    is_focused: bool,
+    focus: Option<focus::Source>,
     was_focused: bool,
     focused: Option<usize>,
     pressed: Option<usize>,
@@ -402,15 +438,17 @@ struct State<P: text::Paragraph> {
 
 impl<P: text::Paragraph> operation::Focusable for State<P> {
     fn is_focused(&self) -> bool {
-        self.is_focused
+        self.focus.is_some()
     }
 
     fn focus(&mut self) {
-        self.is_focused = true;
+        // Only focus operations (Tab / programmatic) call this, so it is
+        // always keyboard-style focus that should show the ring.
+        self.focus = Some(focus::Source::Keyboard);
     }
 
     fn unfocus(&mut self) {
-        self.is_focused = false;
+        self.focus = None;
         self.focused = None;
     }
 }
@@ -433,7 +471,7 @@ where
                 .map(|i| ItemState::new(self.is_selected(i)))
                 .collect(),
             now: None,
-            is_focused: false,
+            focus: None,
             was_focused: false,
             focused: None,
             pressed: None,
@@ -480,7 +518,12 @@ where
         self.reconcile(state);
 
         let size = self.size;
-        let spacing = self.spacing;
+        let gap = self.gap;
+        let spacing = self.spacing.unwrap_or(if self.horizontal {
+            Self::DEFAULT_HORIZONTAL_SPACING
+        } else {
+            Self::DEFAULT_SPACING
+        });
         let text_size = self.text_size;
         let line_height = self.line_height;
         let font = self.font;
@@ -488,9 +531,12 @@ where
 
         let limits = limits.width(self.width);
 
+        let horizontal = self.horizontal;
         let mut nodes = Vec::with_capacity(self.content.len());
-        let mut y = 0.0;
-        let mut width = 0.0_f32;
+        // `main` advances along the layout axis (down for a column, across
+        // for a row); `cross` tracks the widest / tallest option.
+        let mut main = 0.0;
+        let mut cross = 0.0_f32;
 
         for ((content, item), child) in self
             .content
@@ -500,7 +546,7 @@ where
         {
             let row = layout::next_to_each_other(
                 &limits,
-                spacing,
+                gap,
                 |_| layout::Node::new(Size::new(size, size)),
                 |limits| match content {
                     Content::Text(fragment) => widget::text::layout(
@@ -532,14 +578,25 @@ where
             );
 
             let row_size = row.size();
-            width = width.max(row_size.width);
-            nodes.push(row.move_to(Point::new(0.0, y)));
-            y += row_size.height + spacing;
+
+            if horizontal {
+                cross = cross.max(row_size.height);
+                nodes.push(row.move_to(Point::new(main, 0.0)));
+                main += row_size.width + spacing;
+            } else {
+                cross = cross.max(row_size.width);
+                nodes.push(row.move_to(Point::new(0.0, main)));
+                main += row_size.height + spacing;
+            }
         }
 
-        // Trim the trailing inter-row spacing off the overall height.
-        let height = (y - spacing).max(0.0);
-        let intrinsic = Size::new(width, height);
+        // Trim the trailing inter-option spacing off the main axis.
+        let extent = (main - spacing).max(0.0);
+        let intrinsic = if horizontal {
+            Size::new(extent, cross)
+        } else {
+            Size::new(cross, extent)
+        };
 
         layout::Node::with_children(
             limits.resolve(self.width, Length::Shrink, intrinsic),
@@ -605,8 +662,9 @@ where
 
         // React to focus changes coming from operations (e.g. focus_next):
         // land the roving focus and publish on_focus / on_blur.
-        if state.is_focused != state.was_focused {
-            if state.is_focused {
+        let is_focused = state.focus.is_some();
+        if is_focused != state.was_focused {
+            if is_focused {
                 if state.focused.is_none() {
                     state.focused = self.initial_focus();
                 }
@@ -618,7 +676,7 @@ where
                 shell.publish(on_blur.clone());
             }
 
-            state.was_focused = state.is_focused;
+            state.was_focused = is_focused;
         }
 
         match event {
@@ -627,8 +685,7 @@ where
                 if self.on_select.is_some() =>
             {
                 if let Some(i) = self.item_under(cursor, layout) {
-                    if !state.is_focused {
-                        state.is_focused = true;
+                    if state.focus.is_none() {
                         state.was_focused = true;
 
                         if let Some(on_focus) = &self.on_focus {
@@ -636,11 +693,16 @@ where
                         }
                     }
 
+                    // Clicking focuses the group for keyboard use, but is a
+                    // pointer interaction, so it must not paint the ring.
+                    state.focus = Some(focus::Source::Mouse);
                     state.focused = Some(i);
                     state.pressed = Some(i);
                     shell.capture_event();
-                } else if state.is_focused && !cursor.is_over(layout.bounds()) {
-                    state.is_focused = false;
+                } else if state.focus.is_some()
+                    && !cursor.is_over(layout.bounds())
+                {
+                    state.focus = None;
                     state.was_focused = false;
                     state.focused = None;
 
@@ -663,7 +725,20 @@ where
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(named),
                 ..
-            }) if state.is_focused && self.on_select.is_some() => {
+            }) if state.focus.is_some() && self.on_select.is_some() => {
+                // Arrow / Space navigation re-arms keyboard focus so the
+                // ring reappears after a prior mouse click (focus-visible).
+                if matches!(
+                    named,
+                    key::Named::ArrowDown
+                        | key::Named::ArrowRight
+                        | key::Named::ArrowUp
+                        | key::Named::ArrowLeft
+                        | key::Named::Space
+                ) {
+                    state.focus = Some(focus::Source::Keyboard);
+                }
+
                 let on_select = self.on_select.as_ref().unwrap();
 
                 match named {
@@ -772,8 +847,10 @@ where
                 _ => theme.style(&self.class, status),
             };
 
-            if state.is_focused && state.focused == Some(i) {
-                draw_focus_ring(renderer, row.bounds(), ring_color);
+            if state.focus == Some(focus::Source::Keyboard)
+                && state.focused == Some(i)
+            {
+                draw_focus_ring(renderer, dot_layout.bounds(), ring_color);
             }
 
             let progress =
@@ -810,26 +887,18 @@ where
     }
 }
 
-/// Draws a rounded ring just outside `bounds`, marking the focused option.
+/// Draws a soft circular halo hugging the focused option's dot.
+///
+/// This is the analog of shadcn's `focus-visible:ring/50` glow around the
+/// control itself — a semi-transparent band right outside the circle, not
+/// a hard outline wrapping the whole row. `bounds` is the dot's bounds.
 fn draw_focus_ring<Renderer: crate::core::Renderer>(
     renderer: &mut Renderer,
     bounds: Rectangle,
     color: Color,
 ) {
-    let ring = bounds.expand(3.0);
-
-    renderer.fill_quad(
-        renderer::Quad {
-            bounds: ring,
-            border: Border {
-                radius: (ring.height / 2.0).into(),
-                width: 2.0,
-                color,
-            },
-            ..renderer::Quad::default()
-        },
-        Background::Color(Color::TRANSPARENT),
-    );
+    // Hug the dot as a full circle; `focus::ring` adds the band gap.
+    focus::ring(renderer, bounds, bounds.height / 2.0, color);
 }
 
 impl<'a, V, Message, Theme, Renderer>

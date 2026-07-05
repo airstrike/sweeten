@@ -11,22 +11,43 @@
 //! Run with: `cargo run --example radio`
 //!
 //! [`radio`]: sweeten::widget::radio
-use iced::widget::{center, column, container, row, text};
-use iced::{Center, Element, Fill, Theme};
+use iced::Task;
+use iced::widget::{center, container, text};
+use iced::{
+    Center, Element, Fill, Subscription, Theme, keyboard, keyboard::key,
+};
 
-use sweeten::widget::{button, radio};
+use sweeten::widget::operation::{focus_next, focus_previous};
+use sweeten::widget::{button, checkbox, column, radio, row};
 
 fn main() -> iced::Result {
     iced::application(App::default, App::update, App::view)
+        .subscription(App::subscription)
         .title("sweeten • radio")
         .theme(|app: &App| app.theme.clone())
-        .window_size((420.0, 360.0))
+        .window_size((520.0, 500.0))
+        .settings(iced::Settings {
+            default_text_size: 13.0.into(),
+            ..Default::default()
+        })
         .run()
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Message {
+    Selected(Choice),
+    Clear,
+    Focused,
+    Blurred,
+    SetHorizontal(bool),
+    FocusNext,
+    FocusPrevious,
 }
 
 struct App {
     selection: Option<Choice>,
     is_focused: bool,
+    horizontal: bool,
     theme: Theme,
 }
 
@@ -35,6 +56,7 @@ impl Default for App {
         Self {
             selection: None,
             is_focused: false,
+            horizontal: false,
             theme: Theme::Oxocarbon,
         }
     }
@@ -61,22 +83,19 @@ impl Choice {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum Message {
-    Selected(Choice),
-    Clear,
-    Focused,
-    Blurred,
-}
-
 impl App {
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Selected(choice) => self.selection = Some(choice),
             Message::Clear => self.selection = None,
             Message::Focused => self.is_focused = true,
             Message::Blurred => self.is_focused = false,
+            Message::SetHorizontal(horizontal) => self.horizontal = horizontal,
+            Message::FocusNext => return focus_next().discard(),
+            Message::FocusPrevious => return focus_previous().discard(),
         }
+
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -84,19 +103,18 @@ impl App {
             .on_select(Message::Selected)
             .on_focus(Message::Focused)
             .on_blur(Message::Blurred)
-            .spacing(14.0);
-
-        let hint = if self.is_focused {
-            "Group focused — arrow keys move, Space selects"
-        } else {
-            "Tab to focus the group"
-        };
+            .horizontal(self.horizontal)
+            .spacing(14);
 
         let body = column![
-            choices,
-            text(hint).size(13.0),
+            checkbox(self.horizontal)
+                .label("Horizontal")
+                .on_toggle(Message::SetHorizontal),
+            container(choices).height(120),
+            text("Press Tab to focus the next widget.\nThe radio group supports keyboard navigation."),
+            text(format!("Radio is{}focused.", if self.is_focused { " " } else { " not " })),
             row![
-                button(text("Clear").size(14.0))
+                button(text("Clear"))
                     .on_press(Message::Clear)
                     .padding([6.0, 14.0])
             ]
@@ -108,5 +126,22 @@ impl App {
             .width(Fill)
             .height(Fill)
             .into()
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        keyboard::listen().filter_map(|event| match event {
+            keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key::Named::Tab),
+                modifiers,
+                ..
+            } => {
+                if modifiers.shift() {
+                    Some(Message::FocusPrevious)
+                } else {
+                    Some(Message::FocusNext)
+                }
+            }
+            _ => None,
+        })
     }
 }

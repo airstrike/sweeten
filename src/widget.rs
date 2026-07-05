@@ -12,6 +12,7 @@ pub mod column;
 pub mod drag;
 pub mod fit_text;
 pub mod flex;
+pub mod focus;
 pub mod gt;
 pub mod mouse_area;
 pub mod operation;

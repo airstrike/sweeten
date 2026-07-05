@@ -94,7 +94,7 @@ pub struct Single<
     label: Option<text::Fragment<'a>>,
     width: Length,
     size: f32,
-    spacing: f32,
+    gap: f32,
     text_size: Option<Pixels>,
     line_height: text::LineHeight,
     shaping: text::Shaping,
@@ -114,8 +114,8 @@ where
     /// The default size of a [`Single`] radio button.
     pub const DEFAULT_SIZE: f32 = 16.0;
 
-    /// The default spacing of a [`Single`] radio button.
-    pub const DEFAULT_SPACING: f32 = 8.0;
+    /// The default gap between a [`Single`] radio button and its label.
+    pub const DEFAULT_GAP: f32 = 6.0;
 
     /// Creates a new [`Single`] radio button.
     ///
@@ -136,7 +136,7 @@ where
             label: None,
             width: Length::Shrink,
             size: Self::DEFAULT_SIZE,
-            spacing: Self::DEFAULT_SPACING,
+            gap: Self::DEFAULT_GAP,
             text_size: None,
             line_height: text::LineHeight::default(),
             shaping: text::Shaping::default(),
@@ -192,9 +192,9 @@ where
         self
     }
 
-    /// Sets the spacing between the [`Single`] radio button and the text.
-    pub fn spacing(mut self, spacing: impl Into<Pixels>) -> Self {
-        self.spacing = spacing.into().0;
+    /// Sets the gap between the [`Single`] radio button and its label.
+    pub fn gap(mut self, gap: impl Into<Pixels>) -> Self {
+        self.gap = gap.into().0;
         self
     }
 
@@ -333,11 +333,7 @@ where
     ) -> layout::Node {
         layout::next_to_each_other(
             &limits.width(self.width),
-            if self.label.is_some() {
-                self.spacing
-            } else {
-                0.0
-            },
+            if self.label.is_some() { self.gap } else { 0.0 },
             |_| layout::Node::new(Size::new(self.size, self.size)),
             |limits| {
                 if let Some(label) = self.label.as_deref() {
