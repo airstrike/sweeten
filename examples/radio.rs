@@ -1,15 +1,16 @@
-//! Demonstrates sweeten's animated [`radio`].
+//! Demonstrates sweeten's focus-managed [`radio`] group.
 //!
-//! Picking an option fades and scales the dot into the chosen radio
-//! while it fades out of the previously-selected one, instead of the
-//! dot snapping the moment the selection flips. The selection starts
-//! as `None` — the usual state on init — and a "Clear" button resets
-//! it so the deselect animation is easy to see.
+//! The whole set of buttons is a single tab stop (the WAI-ARIA
+//! "radiogroup"): press Tab to move focus between the group and the
+//! "Clear" button, then use the arrow keys to rove between options — the
+//! selection follows focus — or Space to select the focused one. Picking an
+//! option fades and scales the dot into the chosen radio while it fades out
+//! of the previously-selected one, instead of the dot snapping the moment
+//! the selection flips.
 //!
 //! Run with: `cargo run --example radio`
 //!
 //! [`radio`]: sweeten::widget::radio
-
 use iced::widget::{center, column, container, row, text};
 use iced::{Center, Element, Fill, Theme};
 
@@ -25,6 +26,7 @@ fn main() -> iced::Result {
 
 struct App {
     selection: Option<Choice>,
+    is_focused: bool,
     theme: Theme,
 }
 
@@ -32,6 +34,7 @@ impl Default for App {
     fn default() -> Self {
         Self {
             selection: None,
+            is_focused: false,
             theme: Theme::Oxocarbon,
         }
     }
@@ -62,6 +65,8 @@ impl Choice {
 enum Message {
     Selected(Choice),
     Clear,
+    Focused,
+    Blurred,
 }
 
 impl App {
@@ -69,20 +74,27 @@ impl App {
         match message {
             Message::Selected(choice) => self.selection = Some(choice),
             Message::Clear => self.selection = None,
+            Message::Focused => self.is_focused = true,
+            Message::Blurred => self.is_focused = false,
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let choices = Choice::ALL.into_iter().fold(column![], |col, choice| {
-            col.push(
-                radio(choice, self.selection)
-                    .label(choice.label())
-                    .on_toggle(Message::Selected),
-            )
-        });
+        let choices = radio(self.selection, Choice::ALL, |c| c.label())
+            .on_select(Message::Selected)
+            .on_focus(Message::Focused)
+            .on_blur(Message::Blurred)
+            .spacing(14.0);
+
+        let hint = if self.is_focused {
+            "Group focused — arrow keys move, Space selects"
+        } else {
+            "Tab to focus the group"
+        };
 
         let body = column![
-            choices.spacing(14.0),
+            choices,
+            text(hint).size(13.0),
             row![
                 button(text("Clear").size(14.0))
                     .on_press(Message::Clear)
