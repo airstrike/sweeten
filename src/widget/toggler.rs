@@ -345,6 +345,10 @@ where
                             shaping: self.text_shaping,
                             wrapping: self.wrapping,
                             ellipsis: text::Ellipsis::None,
+                            letter_spacing: Default::default(),
+                            font_features: Default::default(),
+                            font_variations: Default::default(),
+                            weight: Default::default(),
                         },
                     )
                 } else {

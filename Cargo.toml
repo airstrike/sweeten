@@ -26,12 +26,15 @@ iced.features = ["advanced", "markdown", "svg", "tokio"]
 iced_test.version = "0.15.0-dev"
 tokio = { version = "1", features = ["time"] }
 
+# This branch tracks the airstrike span-padding stack (rich_editor era),
+# which adds text fields master doesn't have yet.
 [patch.crates-io]
-iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_core = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_runtime = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_widget = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_test = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced = { git = "https://github.com/airstrike/iced.git", branch = "span-padding" }
+iced_core = { git = "https://github.com/airstrike/iced.git", branch = "span-padding" }
+iced_runtime = { git = "https://github.com/airstrike/iced.git", branch = "span-padding" }
+iced_widget = { git = "https://github.com/airstrike/iced.git", branch = "span-padding" }
+iced_test = { git = "https://github.com/airstrike/iced.git", branch = "span-padding" }
+cosmic-text = { git = "https://github.com/airstrike/cosmic-text", branch = "span-padding" }
 
 # Uncomment to test against local iced checkout
 # [patch.crates-io]

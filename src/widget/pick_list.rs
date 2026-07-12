@@ -636,12 +636,16 @@ where
             wrapping: text::Wrapping::None,
             ellipsis: self.ellipsis,
             hint_factor: renderer.scale_factor(),
+            letter_spacing: Default::default(),
+            font_features: Default::default(),
+            font_variations: Default::default(),
+            weight: Default::default(),
         };
 
         if let Some(Content::Text(placeholder)) = &self.placeholder {
             let _ = state.placeholder.update(Text {
                 content: placeholder,
-                ..option_text
+                ..option_text.clone()
             });
         }
 
@@ -666,7 +670,7 @@ where
             for (label, paragraph) in labels.zip(state.options.iter_mut()) {
                 let _ = paragraph.update(Text {
                     content: &label,
-                    ..option_text
+                    ..option_text.clone()
                 });
             }
 
@@ -1086,6 +1090,10 @@ where
                     wrapping: text::Wrapping::None,
                     ellipsis: text::Ellipsis::None,
                     hint_factor: None,
+                    letter_spacing: Default::default(),
+                    font_features: Default::default(),
+                    font_variations: Default::default(),
+                    weight: Default::default(),
                 },
                 Point::new(
                     bounds.x + bounds.width - self.padding.right,
@@ -1141,6 +1149,10 @@ where
                         wrapping: text::Wrapping::None,
                         ellipsis: self.ellipsis,
                         hint_factor: renderer.scale_factor(),
+                        letter_spacing: Default::default(),
+                        font_features: Default::default(),
+                        font_variations: Default::default(),
+                        weight: Default::default(),
                     },
                     Point::new(bounds.x + self.padding.left, bounds.center_y()),
                     if is_selected {

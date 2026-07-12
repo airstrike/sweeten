@@ -406,6 +406,10 @@ where
                 wrapping: self.format.wrapping,
                 ellipsis: self.format.ellipsis,
                 hint_factor,
+                letter_spacing: Default::default(),
+                font_features: Default::default(),
+                font_variations: Default::default(),
+                weight: Default::default(),
             });
 
             state.paragraph.min_bounds()
@@ -474,6 +478,10 @@ fn fit<P: Paragraph>(
             wrapping: format.wrapping,
             ellipsis: format.ellipsis,
             hint_factor,
+            letter_spacing: Default::default(),
+            font_features: Default::default(),
+            font_variations: Default::default(),
+            weight: Default::default(),
         });
         p.min_bounds()
     };
