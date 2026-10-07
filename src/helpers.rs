@@ -42,16 +42,16 @@ macro_rules! row {
         $crate::widget::Row::new()
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::widget::Row::with_children([$($crate::core::Element::from($x)),+])
+        $crate::widget::Row::with_children([$($crate::core::Widget::_boxed($x)),+])
     );
 }
 
 /// Creates a new [`Row`] with the given children.
-pub fn row<'a, Message, Theme, Renderer>(
-    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-) -> Row<'a, Message, Theme, Renderer>
+pub fn row<'a, Message, Theme, W>(
+    children: impl IntoIterator<Item = W>,
+) -> Row<'a, Message, Theme, W>
 where
-    Renderer: core::Renderer,
+    W: Meta,
     Theme: row::Catalog,
 {
     Row::with_children(children)
