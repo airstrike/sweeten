@@ -236,12 +236,11 @@ where
 /// animation when toggling between states.
 ///
 /// [`iced`'s `toggler`]: https://docs.iced.rs/iced/widget/toggler/index.html
-pub fn toggler<'a, Message, Theme, Renderer>(
+pub fn toggler<'a, Message, Theme>(
     is_toggled: bool,
-) -> Toggler<'a, Message, Theme, Renderer>
+) -> Toggler<'a, Message, Theme>
 where
     Theme: toggler::Catalog,
-    Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
 }
