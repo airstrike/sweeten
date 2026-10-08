@@ -142,12 +142,7 @@ where
 ///
 /// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
 /// [`Point`]: crate::core::Point
-pub fn mouse_area<'a, Message, Theme, Renderer>(
-    widget: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> MouseArea<'a, Message, Theme, Renderer>
-where
-    Renderer: core::Renderer,
-{
+pub fn mouse_area<'a, Message, W>(widget: W) -> MouseArea<'a, Message, W> {
     MouseArea::new(widget)
 }
 
