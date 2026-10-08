@@ -42,7 +42,7 @@
 //!     }
 //! }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &State) -> impl Widget<Message> {
 //!     radio(state.selection, Choice::ALL, |choice| choice.label())
 //!         .on_select(Message::Selected)
 //!         .spacing(14.0)
@@ -61,12 +61,13 @@ use crate::core::text;
 use crate::core::time::Instant;
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::Meta;
 use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Animation, Color, Element, Event, Layout, Length, Pixels, Point, Rectangle,
-    Shell, Size, Widget,
+    Animation, Color, Event, Font, Layout, Length, Pixels, Rectangle, Shell,
+    Size, Vector, Widget,
 };
 use crate::widget::focus;
 
@@ -116,9 +117,9 @@ pub struct Group<
     spacing: Option<f32>,
     gap: f32,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     class: Theme::Class<'a>,
 }
 
@@ -176,7 +177,7 @@ where
             spacing: None,
             gap: Self::DEFAULT_GAP,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             font: None,
             class: Theme::default(),
@@ -287,7 +288,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -298,7 +299,7 @@ where
     }
 
     /// Sets the text font of the labels in the [`Group`].
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
@@ -374,13 +375,14 @@ where
     fn item_under(
         &self,
         cursor: mouse::Cursor,
-        layout: Layout<'_>,
+        tree_children: &[Tree],
+        layout: Layout,
     ) -> Option<usize> {
         layout
-            .children()
+            .iter(&tree_children)
             .enumerate()
-            .find(|(i, row)| {
-                cursor.is_over(row.bounds()) && self.is_enabled(*i)
+            .find(|(i, (layout, _))| {
+                cursor.is_over(layout.bounds()) && self.is_enabled(*i)
             })
             .map(|(i, _)| i)
     }
@@ -405,7 +407,7 @@ where
 
 /// Per-option animation and text state owned by the [`Group`].
 struct ItemState<P: text::Paragraph> {
-    paragraph: widget::text::State<P>,
+    paragraph: text::paragraph::Plain<P>,
     animation: Animation<bool>,
     last_is_selected: bool,
 }
@@ -413,7 +415,7 @@ struct ItemState<P: text::Paragraph> {
 impl<P: text::Paragraph> ItemState<P> {
     fn new(is_selected: bool) -> Self {
         ItemState {
-            paragraph: widget::text::State::default(),
+            paragraph: text::paragraph::Plain::default(),
             animation: Animation::new(is_selected)
                 .very_quick()
                 // cubic-bezier(0, 0, 0.2, 1) — Tailwind v4's `--ease-out`,
@@ -453,6 +455,16 @@ impl<P: text::Paragraph> operation::Focusable for State<P> {
     }
 }
 
+impl<V, Message, Theme, Renderer> Meta
+    for Group<'_, V, Message, Theme, Renderer>
+where
+    V: Eq + Clone,
+    Message: Clone,
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+}
+
 impl<V, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Group<'_, V, Message, Theme, Renderer>
 where
@@ -486,14 +498,23 @@ where
 
         tree.diff_children_custom(
             &mut self.content,
-            |tree, content| {
+            |option, content| {
+                option.children.truncate(2);
+                option.children.resize_with(2, Tree::empty);
+
                 if let Content::Element(element) = content {
-                    tree.diff(element.as_widget_mut());
+                    option.children[1].diff(element);
                 }
             },
-            |content| match content {
-                Content::Element(element) => Tree::new(element.as_widget()),
-                Content::Text(_) => Tree::empty(),
+            |content| Tree {
+                children: vec![
+                    Tree::empty(),
+                    match content {
+                        Content::Element(element) => Tree::new(element),
+                        Content::Text(_) => Tree::empty(),
+                    },
+                ],
+                ..Tree::empty()
             },
         );
     }
@@ -510,7 +531,7 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let Tree {
             state, children, ..
         } = tree;
@@ -530,9 +551,9 @@ where
         let shaping = self.shaping;
 
         let limits = limits.width(self.width);
+        let content_limits = limits.shrink(Size::new(size + gap, 0.0));
 
         let horizontal = self.horizontal;
-        let mut nodes = Vec::with_capacity(self.content.len());
         // `main` advances along the layout axis (down for a column, across
         // for a row); `cross` tracks the widest / tallest option.
         let mut main = 0.0;
@@ -544,44 +565,47 @@ where
             .zip(state.items.iter_mut())
             .zip(children.iter_mut())
         {
-            let row = layout::next_to_each_other(
-                &limits,
+            let content_size = match content {
+                Content::Text(fragment) => widget::text::layout(
+                    &mut item.paragraph,
+                    renderer,
+                    &content_limits,
+                    fragment,
+                    widget::text::Format {
+                        width: Length::Shrink,
+                        height: Length::Shrink,
+                        line_height,
+                        size: text_size,
+                        font,
+                        align_x: text::Alignment::Default,
+                        align_y: alignment::Vertical::Top,
+                        shaping,
+                        wrapping: text::Wrapping::default(),
+                        ellipsis: text::Ellipsis::None,
+                    },
+                ),
+                Content::Element(element) => {
+                    element.layout(child, renderer, &content_limits);
+                    child.size
+                }
+            };
+
+            layout::next_to_each_other(
+                child,
+                Size::new(size, size),
+                content_size,
                 gap,
-                |_| layout::Node::new(Size::new(size, size)),
-                |limits| match content {
-                    Content::Text(fragment) => widget::text::layout(
-                        &mut item.paragraph,
-                        renderer,
-                        limits,
-                        fragment,
-                        widget::text::Format {
-                            width: Length::Shrink,
-                            height: Length::Shrink,
-                            line_height,
-                            size: text_size,
-                            font,
-                            align_x: text::Alignment::Default,
-                            align_y: alignment::Vertical::Top,
-                            shaping,
-                            wrapping: text::Wrapping::default(),
-                            ellipsis: text::Ellipsis::None,
-                        },
-                    ),
-                    Content::Element(element) => {
-                        element.as_widget_mut().layout(child, renderer, limits)
-                    }
-                },
             );
 
-            let row_size = row.size();
+            let row_size = child.size;
 
             if horizontal {
                 cross = cross.max(row_size.height);
-                nodes.push(row.move_to(Point::new(main, 0.0)));
+                child.translation = Vector::new(main, 0.0);
                 main += row_size.width + spacing;
             } else {
                 cross = cross.max(row_size.width);
-                nodes.push(row.move_to(Point::new(0.0, main)));
+                child.translation = Vector::new(0.0, main);
                 main += row_size.height + spacing;
             }
         }
@@ -594,16 +618,14 @@ where
             Size::new(cross, extent)
         };
 
-        layout::Node::with_children(
-            limits.resolve(self.width, Length::Shrink, intrinsic),
-            nodes,
-        )
+        tree.size = limits.resolve(self.width, Length::Shrink, intrinsic);
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
@@ -618,7 +640,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -680,7 +702,8 @@ where
             | Event::Touch(touch::Event::FingerPressed { .. })
                 if self.on_select.is_some() =>
             {
-                if let Some(i) = self.item_under(cursor, layout) {
+                if let Some(i) = self.item_under(cursor, &tree.children, layout)
+                {
                     if state.focus.is_none() {
                         state.was_focused = true;
 
@@ -711,7 +734,8 @@ where
             | Event::Touch(touch::Event::FingerLifted { .. })
             | Event::Touch(touch::Event::FingerLost { .. }) => {
                 if let Some(i) = state.pressed.take()
-                    && self.item_under(cursor, layout) == Some(i)
+                    && self.item_under(cursor, &tree.children, layout)
+                        == Some(i)
                     && let Some(on_select) = &self.on_select
                 {
                     shell.publish(on_select(self.options[i].clone()));
@@ -782,13 +806,13 @@ where
 
     fn mouse_interaction(
         &self,
-        _tree: &Tree,
-        layout: Layout<'_>,
+        tree: &Tree,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        if self.item_under(cursor, layout).is_some() {
+        if self.item_under(cursor, &tree.children, layout).is_some() {
             mouse::Interaction::Pointer
         } else {
             mouse::Interaction::default()
@@ -801,7 +825,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -813,17 +837,21 @@ where
             .style(&self.class, Status::Active { is_selected: true })
             .border_color;
 
-        for (i, row) in layout.children().enumerate() {
-            let mut cells = row.children();
-            let dot_layout = cells.next().unwrap();
-            let label_layout = cells.next().unwrap();
+        for (i, (row_layout, row_tree)) in
+            layout.iter(&tree.children).enumerate()
+        {
+            let mut cells = row_layout.iter(&row_tree.children);
+            let (dot_layout, _) = cells.next().unwrap();
+            let (label_layout, _) = cells.next().unwrap();
 
             let item = &state.items[i];
             let is_selected = self.is_selected(i);
 
             let status = if !self.is_enabled(i) {
                 Status::Disabled { is_selected }
-            } else if state.focused == Some(i) || cursor.is_over(row.bounds()) {
+            } else if state.focused == Some(i)
+                || cursor.is_over(row_layout.bounds())
+            {
                 Status::Hovered { is_selected }
             } else {
                 Status::Active { is_selected }
@@ -863,12 +891,14 @@ where
                         item.paragraph.raw(),
                         crate::text::Style {
                             color: style.text_color,
+                            selection: None,
                         },
+                        theme.selection(),
                         viewport,
                     );
                 }
                 Content::Element(element) => {
-                    element.as_widget().draw(
+                    element.draw(
                         &tree.children[i],
                         renderer,
                         theme,
@@ -895,20 +925,4 @@ fn draw_focus_ring<Renderer: crate::core::Renderer>(
 ) {
     // Hug the dot as a full circle; `focus::ring` adds the band gap.
     focus::ring(renderer, bounds, bounds.height / 2.0, color);
-}
-
-impl<'a, V, Message, Theme, Renderer>
-    From<Group<'a, V, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    V: 'a + Eq + Clone,
-    Message: 'a + Clone,
-    Theme: 'a + Catalog,
-    Renderer: 'a + text::Renderer,
-{
-    fn from(
-        group: Group<'a, V, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(group)
-    }
 }
