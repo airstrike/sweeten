@@ -76,12 +76,11 @@ where
 /// [`iced`'s `button`]: https://docs.iced.rs/iced/widget/button/index.html
 /// [`on_focus`]: Button::on_focus
 /// [`on_blur`]: Button::on_blur
-pub fn button<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Button<'a, Message, Theme, Renderer>
+pub fn button<'a, Message, W, Theme>(
+    content: W,
+) -> Button<'a, Message, W, Theme>
 where
-    Renderer: core::Renderer,
-    Theme: button::Catalog,
+    Theme: button::Catalog + 'a,
 {
     Button::new(content)
 }
