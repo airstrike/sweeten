@@ -276,13 +276,12 @@ where
 ///
 /// Whenever `value` changes (as detected by [`PartialEq`]), the widget
 /// animates a slide transition between the previous and new content.
-pub fn transition<'a, T, Message, Theme, Renderer>(
+pub fn transition<'a, W, T>(
     value: T,
-    view: impl Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a,
-) -> Transition<'a, T, Message, Theme, Renderer>
+    view: impl Fn(&T) -> W + 'a,
+) -> Transition<'a, W, T>
 where
     T: Clone + PartialEq + 'static,
-    Renderer: core::Renderer,
 {
     transition::Transition::new(value, view)
 }
