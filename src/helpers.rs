@@ -169,13 +169,10 @@ where
 ///
 /// Only items visible in the current viewport are materialized into
 /// widgets, making this suitable for large or unbounded data sets.
-pub fn list<'a, T, Message, Theme, Renderer>(
+pub fn list<'a, T, W>(
     content: &'a list::Content<T>,
-    view_item: impl Fn(usize, &'a T) -> Element<'a, Message, Theme, Renderer> + 'a,
-) -> List<'a, T, Message, Theme, Renderer>
-where
-    Renderer: core::Renderer,
-{
+    view_item: impl Fn(usize, &'a T) -> W + 'a,
+) -> List<'a, T, W> {
     List::new(content, view_item)
 }
 
