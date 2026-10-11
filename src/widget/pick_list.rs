@@ -46,7 +46,7 @@
 //!     FruitSelected(Fruit),
 //! }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &State) -> impl Widget<Message> {
 //!     let fruits = [
 //!         Fruit::Apple,
 //!         Fruit::Orange,
@@ -63,7 +63,6 @@
 //!     .on_select(Message::FruitSelected)
 //!     .disabled(|fruit| matches!(fruit, Fruit::Tomato))
 //!     .placeholder("Select your favorite fruit...")
-//!     .into()
 //! }
 //!
 //! impl std::fmt::Display for Fruit {
@@ -97,7 +96,7 @@
 //! # enum Message { Picked(Food), Cleared }
 //! # struct State { pick: Option<Food> }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &State) -> impl Widget<Message> {
 //!     pick_list(
 //!         state.pick,
 //!         options![
@@ -110,7 +109,6 @@
 //!     .on_select(Message::Picked)
 //!     .on_deselect(Message::Cleared)
 //!     .separator(true)
-//!     .into()
 //! }
 //! ```
 use crate::core::alignment;
@@ -125,13 +123,14 @@ use crate::core::text::paragraph;
 use crate::core::text::{self, Text};
 use crate::core::touch;
 use crate::core::widget;
+use crate::core::widget::Meta;
 use crate::core::widget::Operation;
 use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Background, Border, Color, Element, Event, Layout, Length, Padding, Pixels,
-    Point, Rectangle, Shell, Size, Theme, Vector, Widget,
+    Background, Border, Color, Element, Event, Font, Layout, Length, Padding,
+    Pixels, Point, Rectangle, Shell, Size, Theme, Vector, Widget,
 };
 use crate::overlay::menu::{self, Menu};
 
@@ -165,7 +164,7 @@ use std::f32;
 ///     FruitSelected(Fruit),
 /// }
 ///
-/// fn view(state: &State) -> Element<'_, Message> {
+/// fn view(state: &State) -> impl Widget<Message> {
 ///     let fruits = [
 ///         Fruit::Apple,
 ///         Fruit::Orange,
@@ -180,7 +179,6 @@ use std::f32;
 ///     )
 ///     .on_select(Message::FruitSelected)
 ///     .placeholder("Select your favorite fruit...")
-///     .into()
 /// }
 ///
 /// fn update(state: &mut State, message: Message) {
@@ -235,11 +233,11 @@ pub struct PickList<
     padding: Padding,
     radius: Option<border::Radius>,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     ellipsis: text::Ellipsis,
-    font: Option<Renderer::Font>,
-    handle: Handle<Renderer::Font>,
+    font: Option<Font>,
+    handle: Handle<Font>,
     class: <Theme as Catalog>::Class<'a>,
     menu_class: <Theme as menu::Catalog>::Class<'a>,
     last_status: Option<Status>,
@@ -307,7 +305,7 @@ where
             padding: crate::button::DEFAULT_PADDING,
             radius: None,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             ellipsis: text::Ellipsis::End,
             font: None,
@@ -441,7 +439,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -458,13 +456,13 @@ where
     }
 
     /// Sets the font of the [`PickList`].
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
 
     /// Sets the [`Handle`] of the [`PickList`].
-    pub fn handle(mut self, handle: Handle<Renderer::Font>) -> Self {
+    pub fn handle(mut self, handle: Handle<Font>) -> Self {
         self.handle = handle;
         self
     }
@@ -572,6 +570,17 @@ where
     }
 }
 
+impl<'a, T, V, Message, Theme, Renderer> Meta
+    for PickList<'a, T, V, Message, Theme, Renderer>
+where
+    T: PartialEq + Clone,
+    V: Borrow<T> + 'a,
+    Message: Clone,
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+}
+
 impl<'a, T, V, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for PickList<'a, T, V, Message, Theme, Renderer>
 where
@@ -614,21 +623,22 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
-        let text_size =
-            self.text_size.unwrap_or_else(|| renderer.default_size());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let text_size = self.text_size.unwrap_or_else(|| renderer.text_size());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
 
         let option_text = Text {
             content: "",
             bounds: Size::new(
                 f32::INFINITY,
-                self.line_height.to_absolute(text_size).into(),
+                line_height.to_absolute(text_size).into(),
             ),
             size: text_size,
-            line_height: self.line_height,
+            line_height,
             font,
             align_x: text::Alignment::Default,
             align_y: alignment::Vertical::Center,
@@ -713,24 +723,23 @@ where
             let child_limits = layout::Limits::new(
                 Size::ZERO,
                 Size::new(
-                    (content_limits.max().width
+                    (content_limits.bounds().width
                         - allowance
                         - self.padding.left)
                         .max(0.0),
-                    content_limits.max().height,
+                    content_limits.bounds().height,
                 ),
             );
 
-            let child_node = element.as_widget_mut().layout(
-                &mut tree.children[0],
-                renderer,
-                &child_limits,
-            );
-            let child_size = child_node.size();
+            element.layout(&mut tree.children[0], renderer, &child_limits);
+            let child_size = tree.children[0].size;
+
+            let line = f32::from(line_height.to_absolute(text_size));
+            let content_height = child_size.height.max(line);
 
             let intrinsic = Size::new(
                 max_width.max(child_size.width) + allowance + self.padding.left,
-                child_size.height,
+                content_height,
             );
 
             let size = limits
@@ -739,17 +748,18 @@ where
                 .resolve(self.width, Length::Shrink, intrinsic)
                 .expand(self.padding);
 
-            let child_node = child_node.move_to(Point::new(
-                self.padding.left,
-                (size.height - child_size.height) / 2.0,
-            ));
+            tree.size = size;
 
-            layout::Node::with_children(size, vec![child_node])
+            let inner_height = size.height - self.padding.y();
+            tree.children[0].translation = Vector::new(
+                self.padding.left,
+                self.padding.top + (inner_height - child_size.height) / 2.0,
+            );
         } else {
             let size = {
                 let intrinsic = Size::new(
                     max_width + allowance + self.padding.left,
-                    f32::from(self.line_height.to_absolute(text_size)),
+                    f32::from(line_height.to_absolute(text_size)),
                 );
 
                 limits
@@ -759,14 +769,15 @@ where
                     .expand(self.padding)
             };
 
-            layout::Node::new(size)
+            tree.size = size;
         }
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
@@ -781,7 +792,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -976,7 +987,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
@@ -1001,11 +1012,11 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
 
         let bounds = layout.bounds();
@@ -1035,7 +1046,7 @@ where
                 Renderer::ICON_FONT,
                 Renderer::ARROW_DOWN_ICON,
                 *size,
-                text::LineHeight::default(),
+                None,
                 text::Shaping::Basic,
             )),
             Handle::Static(Icon {
@@ -1068,7 +1079,9 @@ where
         };
 
         if let Some((font, code_point, size, line_height, shaping)) = handle {
-            let size = size.unwrap_or_else(|| renderer.default_size());
+            let size = size.unwrap_or_else(|| renderer.text_size());
+            let line_height =
+                line_height.unwrap_or_else(|| renderer.line_height());
 
             renderer.fill_text(
                 Text {
@@ -1101,10 +1114,10 @@ where
 
         match content {
             Some(Content::Element(element)) => {
-                if let (Some(child_layout), Some(child_tree)) =
-                    (layout.children().next(), tree.children.first())
+                if let Some((child_layout, child_tree)) =
+                    layout.iter(&tree.children).next()
                 {
-                    element.as_widget().draw(
+                    element.draw(
                         child_tree,
                         renderer,
                         theme,
@@ -1123,17 +1136,19 @@ where
             }
             Some(Content::Text(label)) => {
                 let text_size =
-                    self.text_size.unwrap_or_else(|| renderer.default_size());
+                    self.text_size.unwrap_or_else(|| renderer.text_size());
+                let line_height =
+                    self.line_height.unwrap_or_else(|| renderer.line_height());
 
                 renderer.fill_text(
                     Text {
                         content: label.clone(),
                         size: text_size,
-                        line_height: self.line_height,
+                        line_height: line_height,
                         font,
                         bounds: Size::new(
                             bounds.width - self.padding.x(),
-                            f32::from(self.line_height.to_absolute(text_size)),
+                            f32::from(line_height.to_absolute(text_size)),
                         ),
                         align_x: text::Alignment::Default,
                         align_y: alignment::Vertical::Center,
@@ -1158,17 +1173,20 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         renderer: &Renderer,
-        viewport: &Rectangle,
+        _viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
         let Some(on_select) = &self.on_select else {
-            return None;
+            return Vec::new();
         };
 
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
 
         if state.is_open {
             let bounds = layout.bounds();
@@ -1223,7 +1241,7 @@ where
             .menu_padding(self.menu_padding)
             .padding(self.padding)
             .font(font)
-            .line_height(self.line_height)
+            .line_height(line_height)
             .ellipsis(self.ellipsis)
             .shaping(self.shaping);
 
@@ -1239,30 +1257,15 @@ where
                 menu = menu.target_radius(radius);
             }
 
-            Some(menu.overlay(
+            vec![menu.overlay(
+                renderer,
                 layout.position() + translation,
-                *viewport,
+                window,
                 bounds.height,
-                self.menu_height,
-            ))
+            )]
         } else {
-            None
+            Vec::new()
         }
-    }
-}
-
-impl<'a, T, V, Message, Theme, Renderer>
-    From<PickList<'a, T, V, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    T: Clone + PartialEq + 'a,
-    V: Borrow<T> + 'a,
-    Message: Clone + 'a,
-    Theme: Catalog + 'a,
-    Renderer: text::Renderer + 'a,
-{
-    fn from(pick_list: PickList<'a, T, V, Message, Theme, Renderer>) -> Self {
-        Self::new(pick_list)
     }
 }
 
@@ -1780,7 +1783,7 @@ pub struct Icon<Font> {
     /// Font size of the content.
     pub size: Option<Pixels>,
     /// Line height of the content.
-    pub line_height: text::LineHeight,
+    pub line_height: Option<text::LineHeight>,
     /// The shaping strategy of the icon.
     pub shaping: text::Shaping,
 }
@@ -1963,8 +1966,6 @@ mod tests {
         Closed,
     }
 
-    type Pick = Element<'static, Message, crate::Theme, crate::Renderer>;
-
     fn open(ui: &mut Simulator<'_, Message>) {
         ui.point_at(Point::new(10.0, 10.0));
         let _ = ui.simulate(click());
@@ -1972,13 +1973,12 @@ mod tests {
 
     #[test]
     fn arrow_keys_and_enter_select_an_option() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             [Fruit::Apple, Fruit::Banana, Fruit::Cherry],
             |fruit| format!("{fruit:?}"),
         )
-        .on_select(Message::Picked)
-        .into();
+        .on_select(Message::Picked);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -1994,7 +1994,7 @@ mod tests {
 
     #[test]
     fn keyboard_navigation_skips_titles_and_disabled_options() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             options![
                 group(
@@ -2007,8 +2007,7 @@ mod tests {
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .separator(true)
-        .into();
+        .separator(true);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2023,15 +2022,14 @@ mod tests {
 
     #[test]
     fn escape_closes_the_menu_without_selecting() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             [Fruit::Apple, Fruit::Banana],
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
         .on_open(Message::Opened)
-        .on_close(Message::Closed)
-        .into();
+        .on_close(Message::Closed);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2051,13 +2049,12 @@ mod tests {
 
     #[test]
     fn typeahead_highlights_the_first_matching_option() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             [Fruit::Apple, Fruit::Banana, Fruit::Cherry],
             |fruit| format!("{fruit:?}"),
         )
-        .on_select(Message::Picked)
-        .into();
+        .on_select(Message::Picked);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2079,17 +2076,22 @@ mod tests {
             Closed,
         }
 
-        let pick: Element<'static, Message, crate::Theme, crate::Renderer> =
-            PickList::new(
-                None::<Fruit>,
-                [Fruit::Apple, Fruit::Banana],
-                |fruit| format!("{fruit:?}"),
-            )
-            .on_select(Message::Picked)
-            .on_focus(Message::Focused)
-            .on_open(Message::Opened)
-            .on_close(Message::Closed)
-            .into();
+        let pick: PickList<
+            '_,
+            Fruit,
+            _,
+            Message,
+            crate::Theme,
+            crate::Renderer,
+        > = PickList::new(
+            None::<Fruit>,
+            [Fruit::Apple, Fruit::Banana],
+            |fruit| format!("{fruit:?}"),
+        )
+        .on_select(Message::Picked)
+        .on_focus(Message::Focused)
+        .on_open(Message::Opened)
+        .on_close(Message::Closed);
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2124,18 +2126,23 @@ mod tests {
             Closed,
         }
 
-        let pick: Element<'static, Message, crate::Theme, crate::Renderer> =
-            PickList::new(
-                None::<Fruit>,
-                [Fruit::Apple, Fruit::Banana],
-                |fruit| format!("{fruit:?}"),
-            )
-            .on_select(Message::Picked)
-            .on_focus(Message::Focused)
-            .on_blur(Message::Blurred)
-            .on_open(Message::Opened)
-            .on_close(Message::Closed)
-            .into();
+        let pick: PickList<
+            '_,
+            Fruit,
+            _,
+            Message,
+            crate::Theme,
+            crate::Renderer,
+        > = PickList::new(
+            None::<Fruit>,
+            [Fruit::Apple, Fruit::Banana],
+            |fruit| format!("{fruit:?}"),
+        )
+        .on_select(Message::Picked)
+        .on_focus(Message::Focused)
+        .on_blur(Message::Blurred)
+        .on_open(Message::Opened)
+        .on_close(Message::Closed);
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2170,13 +2177,18 @@ mod tests {
         };
 
         // with a selection, Home moves to the None entry
-        let pick: Element<'static, Message, crate::Theme, crate::Renderer> =
-            PickList::new(Some(Fruit::Banana), entries(), |fruit| {
-                format!("{fruit:?}")
-            })
-            .on_select(Message::Picked)
-            .on_deselect(Message::Cleared)
-            .into();
+        let pick: PickList<
+            '_,
+            Fruit,
+            _,
+            Message,
+            crate::Theme,
+            crate::Renderer,
+        > = PickList::new(Some(Fruit::Banana), entries(), |fruit| {
+            format!("{fruit:?}")
+        })
+        .on_select(Message::Picked)
+        .on_deselect(Message::Cleared);
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2188,13 +2200,18 @@ mod tests {
         assert_eq!(messages, vec![Message::Cleared]);
 
         // with no selection, the None entry is highlighted on open
-        let pick: Element<'static, Message, crate::Theme, crate::Renderer> =
-            PickList::new(None::<Fruit>, entries(), |fruit| {
-                format!("{fruit:?}")
-            })
-            .on_select(Message::Picked)
-            .on_deselect(Message::Cleared)
-            .into();
+        let pick: PickList<
+            '_,
+            Fruit,
+            _,
+            Message,
+            crate::Theme,
+            crate::Renderer,
+        > = PickList::new(None::<Fruit>, entries(), |fruit| {
+            format!("{fruit:?}")
+        })
+        .on_select(Message::Picked)
+        .on_deselect(Message::Cleared);
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2207,13 +2224,12 @@ mod tests {
 
     #[test]
     fn deselect_entry_is_disabled_without_a_handler() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             options![deselect("None"), [Fruit::Apple, Fruit::Banana],],
             |fruit| format!("{fruit:?}"),
         )
-        .on_select(Message::Picked)
-        .into();
+        .on_select(Message::Picked);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2228,17 +2244,18 @@ mod tests {
 
     #[test]
     fn element_titles_and_placeholder_are_display_only() {
-        let pick: Pick = PickList::new(
+        use iced_widget::Widget as _;
+
+        let pick = PickList::new(
             None::<Fruit>,
             options![group(
-                Element::from(crate::text("FRUITS").size(10)),
+                crate::text("FRUITS").size(10).boxed(),
                 [option(Fruit::Apple), option(Fruit::Banana)],
             )],
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .placeholder(Element::from(crate::text("Pick one...").size(13)))
-        .into();
+        .placeholder(crate::text("Pick one...").size(13).boxed());
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2253,13 +2270,12 @@ mod tests {
 
     #[test]
     fn item_aligned_menu_selects_with_keyboard() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             Some(Fruit::Banana),
             [Fruit::Apple, Fruit::Banana, Fruit::Cherry],
             |fruit| format!("{fruit:?}"),
         )
-        .on_select(Message::Picked)
-        .into();
+        .on_select(Message::Picked);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2274,7 +2290,7 @@ mod tests {
 
     #[test]
     fn shrunk_menu_still_selects_options() {
-        let pick: Pick = PickList::new(
+        let pick = PickList::new(
             None::<Fruit>,
             options![
                 group("Fruits", [option(Fruit::Apple), option(Fruit::Banana)]),
@@ -2285,8 +2301,7 @@ mod tests {
         )
         .on_select(Message::Picked)
         .menu_width(Length::Shrink)
-        .separator(true)
-        .into();
+        .separator(true);
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2310,11 +2325,10 @@ mod tests {
             "hotel", "india", "juliett",
         ];
 
-        let pick: Element<'static, Message, crate::Theme, crate::Renderer> =
+        let pick: PickList<'_, _, _, Message, crate::Theme, crate::Renderer> =
             PickList::new(None::<&'static str>, options, |name| *name)
                 .on_select(Message::Picked)
-                .menu_height(80)
-                .into();
+                .menu_height(80);
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2329,19 +2343,20 @@ mod tests {
 
     #[test]
     fn element_content_options_can_be_selected() {
-        let pick: Pick = PickList::new(
+        use iced_widget::Widget as _;
+
+        let pick = PickList::new(
             None::<Fruit>,
             [Fruit::Apple, Fruit::Banana, Fruit::Cherry],
             |fruit| match fruit {
                 Fruit::Banana => {
-                    Content::Element(crate::text("Banana!").into())
+                    Content::Element(crate::text("Banana!").boxed())
                 }
                 other => Content::Text(format!("{other:?}")),
             },
         )
         .on_select(Message::Picked)
-        .typeahead(|fruit| format!("{fruit:?}"))
-        .into();
+        .typeahead(|fruit| format!("{fruit:?}"));
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
