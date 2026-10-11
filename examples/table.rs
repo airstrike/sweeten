@@ -6,13 +6,13 @@
 //!
 //! Run with: `cargo run --example table`
 
-use iced::font;
 use iced::time::{Duration, hours, minutes};
 use iced::widget::{
     center_x, center_y, checkbox, column, container, row, scrollable, slider,
     text, tooltip,
 };
-use iced::{Center, Element, Fill, Font, Right, Theme};
+use iced::{Center, Fill, Font, Right, Theme};
+use iced::{Widget, font};
 
 use sweeten::widget::table;
 use sweeten::widget::table::Style;
@@ -70,7 +70,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         let show_header = self.show_header;
         let header =
             |label: &'static str| show_header.then(|| bold_header(label));
@@ -78,7 +78,7 @@ impl App {
         let table = {
             let columns = [
                 table::column(header("Name"), |event: &Event| {
-                    text(&event.name)
+                    text(&event.name).boxed()
                 }),
                 table::column(header("Time"), |event: &Event| {
                     let minutes = event.duration.as_secs() / 60;
@@ -217,19 +217,14 @@ impl App {
             center_y(scrollable(center_x(table)).spacing(10)).padding(10),
             center_x(controls).padding(10).style(container::dark)
         ]
-        .into()
     }
 }
 
-fn bold_header<Message: 'static>(
-    label: &'static str,
-) -> Element<'static, Message> {
-    text(label)
-        .font(Font {
-            weight: font::Weight::Bold,
-            ..Font::DEFAULT
-        })
-        .into()
+fn bold_header<Message: 'static>(label: &'static str) -> impl Widget<Message> {
+    text(label).font(Font {
+        weight: font::Weight::Bold,
+        ..Font::DEFAULT
+    })
 }
 
 struct Event {

@@ -129,3 +129,11 @@ pub use widget::text_input;
 // `crate::text::draw` / `crate::text::Style` with the same paths as iced.
 #[doc(hidden)]
 pub use iced_widget::text;
+
+///
+pub type Element<
+    'a,
+    Message,
+    Theme = crate::Theme,
+    Renderer = crate::Renderer,
+> = crate::core::Element<'a, Message, Theme, Renderer>;
