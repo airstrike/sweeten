@@ -11,11 +11,9 @@
 //! Run with: `cargo run --example radio`
 //!
 //! [`radio`]: sweeten::widget::radio
-use iced::Task;
 use iced::widget::{center, container, text};
-use iced::{
-    Center, Element, Fill, Subscription, Theme, keyboard, keyboard::key,
-};
+use iced::{Center, Fill, Subscription, Theme, keyboard, keyboard::key};
+use iced::{Task, Widget};
 
 use sweeten::widget::operation::{focus_next, focus_previous};
 use sweeten::widget::{button, checkbox, column, radio, row};
@@ -27,7 +25,7 @@ fn main() -> iced::Result {
         .theme(|app: &App| app.theme.clone())
         .window_size((520.0, 500.0))
         .settings(iced::Settings {
-            default_text_size: 13.0.into(),
+            text_size: 13.0.into(),
             ..Default::default()
         })
         .run()
@@ -98,7 +96,7 @@ impl App {
         Task::none()
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         let choices = radio(self.selection, Choice::ALL, |c| c.label())
             .on_select(Message::Selected)
             .on_focus(Message::Focused)
@@ -125,7 +123,6 @@ impl App {
         center(container(body).padding(24.0))
             .width(Fill)
             .height(Fill)
-            .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {

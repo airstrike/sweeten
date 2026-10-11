@@ -1,7 +1,7 @@
 use iced::widget::{
     button, center, column, container, row, scrollable, space, text,
 };
-use iced::{Center, Element, Fill, Theme};
+use iced::{Center, Fill, Theme, Widget};
 use sweeten::widget::list;
 
 pub fn main() -> iced::Result {
@@ -34,14 +34,14 @@ impl List {
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         center(
             scrollable(
                 container(list(&self.content, |index, (id, state)| {
                     row![
                         match state {
                             State::Idle => {
-                                Element::from(text(format!("I am item {id}!")))
+                                text(format!("I am item {id}!")).boxed()
                             }
                             State::Updated => center(
                                 column![
@@ -51,7 +51,7 @@ impl List {
                                 .spacing(20)
                             )
                             .height(300)
-                            .into(),
+                            .boxed(),
                         },
                         space(),
                         button("Update").on_press_maybe(
@@ -65,14 +65,12 @@ impl List {
                     .spacing(10)
                     .padding(5)
                     .align_y(Center)
-                    .into()
                 }))
                 .padding(10),
             )
             .width(Fill),
         )
         .padding(10)
-        .into()
     }
 }
 

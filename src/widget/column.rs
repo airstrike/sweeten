@@ -25,16 +25,17 @@
 //! }
 //! ```
 
+use crate::Element;
 use crate::core::alignment::{self, Alignment};
 use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::time::Instant;
-use crate::core::widget::{Operation, Tree, tree};
+use crate::core::widget::{Meta, Operation, Tree, tree};
 use crate::core::{
-    Animation, Background, Border, Color, Element, Event, Length, Padding,
-    Pixels, Point, Rectangle, Shell, Size, Transformation, Vector, Widget,
+    Animation, Background, Border, Color, Event, Length, Padding, Pixels,
+    Point, Rectangle, Shell, Size, Transformation, Vector, Widget,
 };
 
 use super::drag::DragEvent;
@@ -65,7 +66,7 @@ const DRAG_DEADBAND_DISTANCE: f32 = 5.0;
 /// }
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct Column<'a, Message, Theme = crate::Theme, Renderer = crate::Renderer>
+pub struct Column<'a, Message, Theme = crate::Theme, W = Element<'a, Message>>
 where
     Theme: Catalog,
 {
@@ -78,14 +79,13 @@ where
     align: Alignment,
     clip: bool,
     deadband_zone: f32,
-    children: Vec<Element<'a, Message, Theme, Renderer>>,
+    children: Vec<W>,
     on_drag: Option<Box<dyn Fn(DragEvent) -> Message + 'a>>,
     class: Theme::Class<'a>,
 }
 
-impl<'a, Message, Theme, Renderer> Column<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, W> Column<'a, Message, Theme, W>
 where
-    Renderer: crate::core::Renderer,
     Theme: Catalog,
 {
     /// Creates an empty [`Column`].
@@ -99,9 +99,10 @@ where
     }
 
     /// Creates a [`Column`] with the given elements.
-    pub fn with_children(
-        children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-    ) -> Self {
+    pub fn with_children(children: impl IntoIterator<Item = W>) -> Self
+    where
+        W: Meta,
+    {
         let iterator = children.into_iter();
 
         Self::with_capacity(iterator.size_hint().0).extend(iterator)
@@ -114,9 +115,7 @@ where
     ///
     /// If any of the children have a [`Length::Fill`] strategy, you will need to
     /// call [`Column::width`] or [`Column::height`] accordingly.
-    pub fn from_vec(
-        children: Vec<Element<'a, Message, Theme, Renderer>>,
-    ) -> Self {
+    pub fn from_vec(children: Vec<W>) -> Self {
         Self {
             id: None,
             spacing: 0.0,
@@ -199,13 +198,11 @@ where
     }
 
     /// Adds an element to the [`Column`].
-    pub fn push(
-        mut self,
-        child: impl Into<Element<'a, Message, Theme, Renderer>>,
-    ) -> Self {
-        let child = child.into();
-
-        if !child.as_widget().is_void() {
+    pub fn push(mut self, child: W) -> Self
+    where
+        W: Meta,
+    {
+        if !child.is_void() {
             self.children.push(child);
         }
 
@@ -213,10 +210,10 @@ where
     }
 
     /// Adds an element to the [`Column`], if `Some`.
-    pub fn push_maybe(
-        self,
-        child: Option<impl Into<Element<'a, Message, Theme, Renderer>>>,
-    ) -> Self {
+    pub fn push_maybe(self, child: Option<W>) -> Self
+    where
+        W: Meta,
+    {
         if let Some(child) = child {
             self.push(child)
         } else {
@@ -242,17 +239,17 @@ where
     }
 
     /// Extends the [`Column`] with the given children.
-    pub fn extend(
-        self,
-        children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-    ) -> Self {
+    pub fn extend(self, children: impl IntoIterator<Item = W>) -> Self
+    where
+        W: Meta,
+    {
         children.into_iter().fold(self, Self::push)
     }
 
     /// Turns the [`Column`] into a [`Wrapping`] column.
     ///
     /// The original alignment of the [`Column`] is preserved per column wrapped.
-    pub fn wrap(self) -> Wrapping<'a, Message, Theme, Renderer> {
+    pub fn wrap(self) -> Wrapping<'a, Message, Theme, W> {
         Wrapping {
             column: self,
             horizontal_spacing: None,
@@ -276,12 +273,13 @@ where
     fn compute_target_index(
         &self,
         cursor_position: Point,
-        layout: Layout<'_>,
+        tree_children: &[Tree],
+        layout: Layout,
     ) -> usize {
         let mut closest_index = 0;
         let mut closest_dist = f32::INFINITY;
 
-        for (i, child_layout) in layout.children().enumerate() {
+        for (i, (child_layout, _)) in layout.iter(&tree_children).enumerate() {
             let bounds = child_layout.bounds();
             let center = bounds.center();
             let dist = cursor_position.distance(center);
@@ -306,17 +304,12 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer: crate::core::Renderer>
-    FromIterator<Element<'a, Message, Theme, Renderer>>
-    for Column<'a, Message, Theme, Renderer>
+impl<'a, Message, Theme, W> FromIterator<W> for Column<'a, Message, Theme, W>
 where
+    W: Meta,
     Theme: Catalog,
 {
-    fn from_iter<
-        T: IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-    >(
-        iter: T,
-    ) -> Self {
+    fn from_iter<T: IntoIterator<Item = W>>(iter: T) -> Self {
         Self::with_children(iter)
     }
 }
@@ -400,6 +393,7 @@ impl ItemAnimations {
 struct WidgetState {
     action: Action,
     positions: position::State,
+    cache: layout::flex::Cache,
 }
 
 /// Simulate the layout that would result from reordering items, returning
@@ -498,9 +492,15 @@ fn compute_reorder_offsets(
         .collect()
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Column<'_, Message, Theme, Renderer>
+impl<W, Message, Theme> Meta for Column<'_, Message, Theme, W> where
+    Theme: Catalog
+{
+}
+
+impl<W, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Column<'_, Message, Theme, W>
 where
+    W: Widget<Message, Theme, Renderer>,
     Renderer: crate::core::Renderer,
     Theme: Catalog,
 {
@@ -518,6 +518,7 @@ where
                 animations,
             },
             positions: position::State::default(),
+            cache: layout::flex::Cache::default(),
         })
     }
 
@@ -526,7 +527,7 @@ where
 
         if self.width.is_fit() || self.height.is_fit() {
             for child in &self.children {
-                let size = child.as_widget().size();
+                let size = child.size();
 
                 self.width = self.width.cross(size.width);
                 self.height = self.height.stack(size.height);
@@ -556,11 +557,10 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        let limits = limits.width(self.width.max(self.max_width));
+    ) {
+        let state = &mut tree.state.downcast_mut::<WidgetState>();
 
-        let action = &mut tree.state.downcast_mut::<WidgetState>().action;
-        match action {
+        match &mut state.action {
             Action::Idle { animations, .. }
             | Action::Picking { animations, .. }
             | Action::Dragging { animations, .. } => {
@@ -569,7 +569,7 @@ where
             }
         }
 
-        let node = layout::flex::resolve(
+        tree.size = layout::flex::resolve(
             layout::flex::Axis::Vertical,
             renderer,
             &limits,
@@ -578,40 +578,40 @@ where
             self.padding,
             self.spacing,
             self.align,
-            &mut self.children,
             &mut tree.children,
+            &mut self.children,
+            &mut state.cache,
         );
 
         if self.id.is_some() {
             let state = tree.state.downcast_mut::<WidgetState>();
             state.positions.clear();
-            for (i, child) in node.children().iter().enumerate() {
-                state.positions.set(i, child.bounds());
+            for (i, tree) in tree.children.iter().enumerate() {
+                let point = Point::new(tree.translation.x, tree.translation.y);
+                let bounds = Rectangle::new(point, tree.size);
+
+                state.positions.set(i, bounds);
             }
         }
-
-        node
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
         let id = self.id.as_ref().map(|id| &id.0);
 
-        operation.container(id, layout.bounds());
+        operation.container(id, layout.bounds(), viewport);
         operation.traverse(&mut |operation| {
             self.children
                 .iter_mut()
-                .zip(&mut tree.children)
-                .zip(layout.children())
-                .for_each(|((child, state), layout)| {
-                    child
-                        .as_widget_mut()
-                        .operate(state, layout, renderer, operation);
+                .zip(layout.iter_mut(&mut tree.children))
+                .for_each(|(child, (layout, tree))| {
+                    child.operate(tree, layout, viewport, renderer, operation);
                 });
         });
 
@@ -625,7 +625,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -633,15 +633,13 @@ where
     ) {
         let action = &mut tree.state.downcast_mut::<WidgetState>().action;
 
-        for ((child, state), layout) in self
+        for (child, (layout, tree)) in self
             .children
             .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
+            .zip(layout.iter_mut(&mut tree.children))
         {
-            child.as_widget_mut().update(
-                state, event, layout, cursor, renderer, shell, viewport,
-            );
+            child
+                .update(tree, event, layout, cursor, renderer, shell, viewport);
         }
 
         if shell.is_event_captured() {
@@ -684,8 +682,11 @@ where
                     };
                     animations.zero();
 
-                    let index =
-                        self.compute_target_index(cursor_position, layout);
+                    let index = self.compute_target_index(
+                        cursor_position,
+                        &tree.children,
+                        layout,
+                    );
 
                     *action = Action::Picking {
                         index,
@@ -744,11 +745,16 @@ where
                     if let Some(cursor_position) = cursor.position() {
                         animations.with_capacity(self.children.len());
 
-                        let target_index =
-                            self.compute_target_index(cursor_position, layout);
+                        let target_index = self.compute_target_index(
+                            cursor_position,
+                            &tree.children,
+                            layout,
+                        );
 
-                        let child_bounds: Vec<Rectangle> =
-                            layout.children().map(|l| l.bounds()).collect();
+                        let child_bounds: Vec<Rectangle> = layout
+                            .iter(&tree.children)
+                            .map(|(l, _)| l.bounds())
+                            .collect();
 
                         let start = layout.bounds().position()
                             + Vector::new(self.padding.left, self.padding.top);
@@ -829,11 +835,16 @@ where
                         let cursor = cursor.land();
 
                         if let Some(cursor_position) = cursor.position() {
-                            let target_index = self
-                                .compute_target_index(cursor_position, layout);
+                            let target_index = self.compute_target_index(
+                                cursor_position,
+                                &tree.children,
+                                layout,
+                            );
 
-                            let child_bounds: Vec<Rectangle> =
-                                layout.children().map(|l| l.bounds()).collect();
+                            let child_bounds: Vec<Rectangle> = layout
+                                .iter(&tree.children)
+                                .map(|(l, _)| l.bounds())
+                                .collect();
 
                             let start = layout.bounds().position()
                                 + Vector::new(
@@ -910,7 +921,7 @@ where
     fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
@@ -923,12 +934,10 @@ where
 
         self.children
             .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .map(|((child, state), layout)| {
-                child.as_widget().mouse_interaction(
-                    state, layout, cursor, viewport, renderer,
-                )
+            .zip(layout.iter(&tree.children))
+            .map(|(child, (layout, tree))| {
+                child
+                    .mouse_interaction(tree, layout, cursor, viewport, renderer)
             })
             .max()
             .unwrap_or_default()
@@ -940,7 +949,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -961,18 +970,26 @@ where
                 let child_count = self.children.len();
 
                 let target_index = if cursor.position().is_some() {
-                    let target_index =
-                        self.compute_target_index(*last_cursor, layout);
+                    let target_index = self.compute_target_index(
+                        *last_cursor,
+                        &tree.children,
+                        layout,
+                    );
                     target_index.min(child_count - 1)
                 } else {
                     *index
                 };
 
-                let drag_bounds =
-                    layout.children().nth(*index).unwrap().bounds();
+                let drag_bounds = layout
+                    .iter(&tree.children)
+                    .nth(*index)
+                    .map(|(l, _)| l.bounds())
+                    .unwrap();
 
-                let child_bounds: Vec<Rectangle> =
-                    layout.children().map(|l| l.bounds()).collect();
+                let child_bounds: Vec<Rectangle> = layout
+                    .iter(&tree.children)
+                    .map(|(l, _)| l.bounds())
+                    .collect();
 
                 let start = layout.bounds().position()
                     + Vector::new(self.padding.left, self.padding.top);
@@ -995,7 +1012,8 @@ where
 
                     let child = &self.children[i];
                     let state = &tree.children[i];
-                    let child_layout = layout.children().nth(i).unwrap();
+                    let (child_layout, _) =
+                        layout.iter(&tree.children).nth(i).unwrap();
 
                     let offset_x = if i < animations.offsets_x.len() {
                         let v = animations.offsets_x[i]
@@ -1015,7 +1033,7 @@ where
                     let translation = Vector::new(offset_x, offset_y);
 
                     renderer.with_translation(translation, |renderer| {
-                        child.as_widget().draw(
+                        child.draw(
                             state,
                             renderer,
                             theme,
@@ -1046,7 +1064,8 @@ where
 
                 let child = &self.children[*index];
                 let state = &tree.children[*index];
-                let child_layout = layout.children().nth(*index).unwrap();
+                let (child_layout, _) =
+                    layout.iter(&tree.children).nth(*index).unwrap();
 
                 let scale_factor = 1.0
                     + (style.scale - 1.0)
@@ -1061,7 +1080,7 @@ where
                         renderer.with_layer(
                             child_layout.bounds(),
                             |renderer| {
-                                child.as_widget().draw(
+                                child.draw(
                                     state,
                                     renderer,
                                     theme,
@@ -1094,7 +1113,8 @@ where
             } => {
                 for (i, child) in self.children.iter().enumerate() {
                     let state = &tree.children[i];
-                    let child_layout = layout.children().nth(i).unwrap();
+                    let (child_layout, _) =
+                        layout.iter(&tree.children).nth(i).unwrap();
 
                     let offset_x = if i < animations.offsets_x.len() {
                         let is_animating =
@@ -1124,7 +1144,7 @@ where
                     let translation = Vector::new(offset_x, offset_y);
 
                     renderer.with_translation(translation, |renderer| {
-                        child.as_widget().draw(
+                        child.draw(
                             state,
                             renderer,
                             theme,
@@ -1163,17 +1183,16 @@ where
                         viewport
                     };
 
-                    for ((child, state), layout) in self
+                    for (child, (layout, tree)) in self
                         .children
                         .iter()
-                        .zip(&tree.children)
-                        .zip(layout.children())
-                        .filter(|(_, layout)| {
+                        .zip(layout.iter(&tree.children))
+                        .filter(|(_, (layout, _))| {
                             layout.bounds().intersects(viewport)
                         })
                     {
-                        child.as_widget().draw(
-                            state, renderer, theme, defaults, layout, cursor,
+                        child.draw(
+                            tree, renderer, theme, defaults, layout, cursor,
                             viewport,
                         );
                     }
@@ -1185,11 +1204,12 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
         overlay::from_children(
             &mut self.children,
             tree,
@@ -1197,19 +1217,8 @@ where
             renderer,
             viewport,
             translation,
+            window,
         )
-    }
-}
-
-impl<'a, Message, Theme, Renderer> From<Column<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: Catalog + 'a,
-    Renderer: crate::core::Renderer + 'a,
-{
-    fn from(column: Column<'a, Message, Theme, Renderer>) -> Self {
-        Self::new(column)
     }
 }
 
@@ -1220,20 +1229,16 @@ where
 ///
 /// The original alignment of the [`Column`] is preserved per column wrapped.
 #[allow(missing_debug_implementations)]
-pub struct Wrapping<
-    'a,
-    Message,
-    Theme = crate::Theme,
-    Renderer = crate::Renderer,
-> where
+pub struct Wrapping<'a, Message, Theme = crate::Theme, W = Element<'a, Message>>
+where
     Theme: Catalog,
 {
-    column: Column<'a, Message, Theme, Renderer>,
+    column: Column<'a, Message, Theme, W>,
     horizontal_spacing: Option<f32>,
     align_y: alignment::Vertical,
 }
 
-impl<Message, Theme, Renderer> Wrapping<'_, Message, Theme, Renderer>
+impl<'a, Message, Theme, W> Wrapping<'_, Message, Theme, W>
 where
     Theme: Catalog,
 {
@@ -1250,11 +1255,17 @@ where
     }
 }
 
-impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Wrapping<'_, Message, Theme, Renderer>
+impl<'a, Message, Theme, W> Meta for Wrapping<'_, Message, Theme, W> where
+    Theme: Catalog
+{
+}
+
+impl<W, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Wrapping<'_, Message, Theme, W>
 where
-    Renderer: crate::core::Renderer,
+    W: Widget<Message, Theme, Renderer>,
     Theme: Catalog,
+    Renderer: crate::core::Renderer,
 {
     fn tag(&self) -> tree::Tag {
         self.column.tag()
@@ -1277,7 +1288,7 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let limits = limits
             .width(self.column.width)
             .height(self.column.height)
@@ -1286,7 +1297,7 @@ where
         let child_limits = limits.loose();
         let spacing = self.column.spacing;
         let horizontal_spacing = self.horizontal_spacing.unwrap_or(spacing);
-        let max_height = limits.max().height;
+        let max_height = limits.bounds().height;
 
         let action = &mut tree.state.downcast_mut::<WidgetState>().action;
         match action {
@@ -1298,7 +1309,6 @@ where
             }
         }
 
-        let mut children: Vec<layout::Node> = Vec::new();
         let mut intrinsic_size = Size::ZERO;
         let mut column_start = 0;
         let mut column_width = 0.0;
@@ -1313,32 +1323,26 @@ where
 
         let align_x = |column_start: std::ops::Range<usize>,
                        column_width: f32,
-                       children: &mut Vec<layout::Node>| {
+                       children: &mut [Tree]| {
             if align_factor != 0.0 {
-                for node in &mut children[column_start] {
-                    let width = node.size().width;
+                for child in &mut children[column_start] {
+                    let width = child.size.width;
 
-                    node.translate_mut(Vector::new(
-                        (column_width - width) / align_factor,
-                        0.0,
-                    ));
+                    child.translation.x +=
+                        (column_width - width) / align_factor;
                 }
             }
         };
 
         for (i, child) in self.column.children.iter_mut().enumerate() {
-            let node = child.as_widget_mut().layout(
-                &mut tree.children[i],
-                renderer,
-                &child_limits,
-            );
+            child.layout(&mut tree.children[i], renderer, &child_limits);
 
-            let child_size = node.size();
+            let child_size = tree.children[i].size;
 
             if y != 0.0 && y + child_size.height > max_height {
                 intrinsic_size.height = intrinsic_size.height.max(y - spacing);
 
-                align_x(column_start..i, column_width, &mut children);
+                align_x(column_start..i, column_width, &mut tree.children);
 
                 x += column_width + horizontal_spacing;
                 y = 0.0;
@@ -1348,10 +1352,10 @@ where
 
             column_width = column_width.max(child_size.width);
 
-            children.push(node.move_to((
+            tree.children[i].translation = Vector::new(
                 x + self.column.padding.left,
                 y + self.column.padding.top,
-            )));
+            );
 
             y += child_size.height + spacing;
         }
@@ -1361,7 +1365,11 @@ where
         }
 
         intrinsic_size.width = x + column_width;
-        align_x(column_start..children.len(), column_width, &mut children);
+        align_x(
+            column_start..tree.children.len(),
+            column_width,
+            &mut tree.children,
+        );
 
         let align_factor = match self.align_y {
             alignment::Vertical::Top => 0.0,
@@ -1374,13 +1382,14 @@ where
 
             let mut column_start = 0;
 
-            for i in 0..children.len() {
-                let bounds = children[i].bounds();
-                let column_height = bounds.y + bounds.height;
+            for i in 0..tree.children.len() {
+                let column_height = tree.children[i].translation.y
+                    + tree.children[i].size.height;
 
-                let next_y = children
+                let next_y = tree
+                    .children
                     .get(i + 1)
-                    .map(|node| node.bounds().y)
+                    .map(|node| node.translation.y)
                     .unwrap_or_default();
 
                 if next_y == 0.0 {
@@ -1389,8 +1398,8 @@ where
                         (total_height - column_height) / align_factor,
                     );
 
-                    for node in &mut children[column_start..=i] {
-                        node.translate_mut(translation);
+                    for node in &mut tree.children[column_start..=i] {
+                        node.translation += translation;
                     }
 
                     column_start = i + 1;
@@ -1404,32 +1413,37 @@ where
             intrinsic_size,
         );
 
+        tree.size = size.expand(self.column.padding);
+
         if self.column.id.is_some() {
             let state = tree.state.downcast_mut::<WidgetState>();
             state.positions.clear();
-            for (i, child) in children.iter().enumerate() {
-                state.positions.set(i, child.bounds());
+            for (i, _) in tree.children.iter().enumerate() {
+                let point = Point::new(tree.translation.x, tree.translation.y);
+                let bounds = Rectangle::new(point, tree.size);
+
+                state.positions.set(i, bounds);
             }
         }
-
-        layout::Node::with_children(size.expand(self.column.padding), children)
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        self.column.operate(tree, layout, renderer, operation);
+        self.column
+            .operate(tree, layout, viewport, renderer, operation);
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -1442,7 +1456,7 @@ where
     fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
@@ -1457,7 +1471,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -1468,25 +1482,20 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.column
-            .overlay(tree, layout, renderer, viewport, translation)
-    }
-}
-
-impl<'a, Message, Theme, Renderer> From<Wrapping<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: Catalog + 'a,
-    Renderer: crate::core::Renderer + 'a,
-{
-    fn from(column: Wrapping<'a, Message, Theme, Renderer>) -> Self {
-        Self::new(column)
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        self.column.overlay(
+            tree,
+            layout,
+            renderer,
+            viewport,
+            translation,
+            window,
+        )
     }
 }
 

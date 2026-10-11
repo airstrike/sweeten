@@ -62,7 +62,7 @@ where
 pub fn single<'a, V, Message, Theme, Renderer>(
     value: V,
     selected: Option<V>,
-) -> Single<'a, V, Message, Theme, Renderer>
+) -> Single<'a, V, Message, Theme>
 where
     V: Eq,
     Theme: Catalog + 'a,
