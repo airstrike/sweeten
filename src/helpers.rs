@@ -1,7 +1,8 @@
 //! Helper functions to create widgets.
 
 use crate::core;
-use crate::core::Element;
+use crate::core::text;
+use crate::core::widget::Meta;
 use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
@@ -260,12 +261,11 @@ where
 /// [`FitText`] scales its font size to fit the bounds it is laid out into,
 /// up to a configurable ceiling. See the [`fit_text`](mod@crate::widget::fit_text)
 /// module docs for the semantics.
-pub fn fit_text<'a, Theme, Renderer>(
+pub fn fit_text<'a, Theme>(
     content: impl core::text::IntoFragment<'a>,
-) -> FitText<'a, Theme, Renderer>
+) -> FitText<'a, Theme>
 where
     Theme: fit_text::Catalog,
-    Renderer: core::text::Renderer,
 {
     FitText::new(content)
 }
