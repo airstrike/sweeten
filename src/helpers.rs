@@ -1,7 +1,8 @@
 //! Helper functions to create widgets.
 
 use crate::core;
-use crate::core::Element;
+use crate::core::text;
+use crate::core::widget::Meta;
 use crate::overlay::menu;
 use crate::widget::MouseArea;
 use crate::widget::button::{self, Button};
@@ -29,7 +30,7 @@ macro_rules! column {
         $crate::widget::Column::new()
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::widget::Column::with_children([$($crate::core::Element::from($x)),+])
+        $crate::widget::Column::with_children([$($crate::core::Widget::_boxed($x)),+])
     );
 }
 
@@ -42,27 +43,27 @@ macro_rules! row {
         $crate::widget::Row::new()
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::widget::Row::with_children([$($crate::core::Element::from($x)),+])
+        $crate::widget::Row::with_children([$($crate::core::Widget::_boxed($x)),+])
     );
 }
 
 /// Creates a new [`Row`] with the given children.
-pub fn row<'a, Message, Theme, Renderer>(
-    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-) -> Row<'a, Message, Theme, Renderer>
+pub fn row<'a, Message, Theme, W>(
+    children: impl IntoIterator<Item = W>,
+) -> Row<'a, Message, Theme, W>
 where
-    Renderer: core::Renderer,
+    W: Meta,
     Theme: row::Catalog,
 {
     Row::with_children(children)
 }
 
 /// Creates a new [`Column`] with the given children.
-pub fn column<'a, Message, Theme, Renderer>(
-    children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
-) -> Column<'a, Message, Theme, Renderer>
+pub fn column<'a, Message, Theme, W>(
+    children: impl IntoIterator<Item = W>,
+) -> Column<'a, Message, Theme, W>
 where
-    Renderer: core::Renderer,
+    W: Meta,
     Theme: column::Catalog,
 {
     Column::with_children(children)
@@ -76,12 +77,11 @@ where
 /// [`iced`'s `button`]: https://docs.iced.rs/iced/widget/button/index.html
 /// [`on_focus`]: Button::on_focus
 /// [`on_blur`]: Button::on_blur
-pub fn button<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Button<'a, Message, Theme, Renderer>
+pub fn button<'a, Message, W, Theme>(
+    content: W,
+) -> Button<'a, Message, W, Theme>
 where
-    Renderer: core::Renderer,
-    Theme: button::Catalog,
+    Theme: button::Catalog + 'a,
 {
     Button::new(content)
 }
@@ -94,14 +94,13 @@ where
 /// [`iced`'s `text_input`]: https://docs.iced.rs/iced/widget/text_input/index.html
 /// [`on_focus`]: TextInput::on_focus
 /// [`on_blur`]: TextInput::on_blur
-pub fn text_input<'a, Message, Theme, Renderer>(
-    placeholder: &str,
-    value: &str,
-) -> TextInput<'a, Message, Theme, Renderer>
+pub fn text_input<'a, Message, Theme>(
+    placeholder: impl text::IntoFragment<'a>,
+    value: impl text::IntoFragment<'a>,
+) -> TextInput<'a, Message, Theme>
 where
     Message: Clone,
     Theme: text_input::Catalog + 'a,
-    Renderer: core::text::Renderer,
 {
     TextInput::new(placeholder, value)
 }
@@ -143,12 +142,7 @@ where
 ///
 /// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
 /// [`Point`]: crate::core::Point
-pub fn mouse_area<'a, Message, Theme, Renderer>(
-    widget: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> MouseArea<'a, Message, Theme, Renderer>
-where
-    Renderer: core::Renderer,
-{
+pub fn mouse_area<'a, Message, W>(widget: W) -> MouseArea<'a, Message, W> {
     MouseArea::new(widget)
 }
 
@@ -175,13 +169,10 @@ where
 ///
 /// Only items visible in the current viewport are materialized into
 /// widgets, making this suitable for large or unbounded data sets.
-pub fn list<'a, T, Message, Theme, Renderer>(
+pub fn list<'a, T, W>(
     content: &'a list::Content<T>,
-    view_item: impl Fn(usize, &'a T) -> Element<'a, Message, Theme, Renderer> + 'a,
-) -> List<'a, T, Message, Theme, Renderer>
-where
-    Renderer: core::Renderer,
-{
+    view_item: impl Fn(usize, &'a T) -> W + 'a,
+) -> List<'a, T, W> {
     List::new(content, view_item)
 }
 
@@ -236,12 +227,11 @@ where
 /// animation when toggling between states.
 ///
 /// [`iced`'s `toggler`]: https://docs.iced.rs/iced/widget/toggler/index.html
-pub fn toggler<'a, Message, Theme, Renderer>(
+pub fn toggler<'a, Message, Theme>(
     is_toggled: bool,
-) -> Toggler<'a, Message, Theme, Renderer>
+) -> Toggler<'a, Message, Theme>
 where
     Theme: toggler::Catalog,
-    Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
 }
@@ -271,12 +261,11 @@ where
 /// [`FitText`] scales its font size to fit the bounds it is laid out into,
 /// up to a configurable ceiling. See the [`fit_text`](mod@crate::widget::fit_text)
 /// module docs for the semantics.
-pub fn fit_text<'a, Theme, Renderer>(
+pub fn fit_text<'a, Theme>(
     content: impl core::text::IntoFragment<'a>,
-) -> FitText<'a, Theme, Renderer>
+) -> FitText<'a, Theme>
 where
     Theme: fit_text::Catalog,
-    Renderer: core::text::Renderer,
 {
     FitText::new(content)
 }
@@ -286,13 +275,12 @@ where
 ///
 /// Whenever `value` changes (as detected by [`PartialEq`]), the widget
 /// animates a slide transition between the previous and new content.
-pub fn transition<'a, T, Message, Theme, Renderer>(
+pub fn transition<'a, W, T>(
     value: T,
-    view: impl Fn(&T) -> Element<'a, Message, Theme, Renderer> + 'a,
-) -> Transition<'a, T, Message, Theme, Renderer>
+    view: impl Fn(&T) -> W + 'a,
+) -> Transition<'a, W, T>
 where
     T: Clone + PartialEq + 'static,
-    Renderer: core::Renderer,
 {
     transition::Transition::new(value, view)
 }

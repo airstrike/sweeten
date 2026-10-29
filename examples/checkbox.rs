@@ -11,7 +11,7 @@
 //! [`checkbox`]: sweeten::widget::checkbox
 
 use iced::widget::{center, column, container, row, text};
-use iced::{Center, Element, Fill, Theme};
+use iced::{Center, Fill, Theme, Widget};
 
 use sweeten::widget::{button, checkbox};
 
@@ -80,7 +80,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         let body = column![
             checkbox(self.primary)
                 .label("Primary")
@@ -115,6 +115,5 @@ impl App {
         center(container(body).padding(24.0))
             .width(Fill)
             .height(Fill)
-            .into()
     }
 }

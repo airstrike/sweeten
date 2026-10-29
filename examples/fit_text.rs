@@ -10,8 +10,7 @@
 //! [`FitText`]: sweeten::widget::fit_text::FitText
 
 use iced::widget::{center, column, container, row, slider, text};
-use iced::{Center, Element, Fill, Shrink};
-
+use iced::{Center, Fill, Shrink, Widget};
 use sweeten::widget::{fit_text, text_input};
 
 fn main() -> iced::Result {
@@ -64,7 +63,7 @@ impl App {
         }
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         let headline = fit_text(&self.headline)
             .max_size(self.max_size)
             .min_size(self.min_size)
@@ -115,6 +114,5 @@ impl App {
                 .height(Fill),
         )
         .padding(20)
-        .into()
     }
 }

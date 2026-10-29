@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 
 use iced::keyboard::{self, key};
 use iced::widget::{center, column, row, svg, text};
-use iced::{Center, Element, Fill, Subscription, Task, Theme};
+use iced::{Center, Fill, Subscription, Task, Theme, Widget};
 
 use sweeten::pick_list;
 use sweeten::widget::operation::focus_next;
@@ -32,7 +32,7 @@ fn main() -> iced::Result {
         .title("sweeten • pick_list with groups and disabled items")
         .window_size([400.0, 600.0])
         .settings(iced::Settings {
-            default_text_size: 13.0.into(),
+            text_size: 13.0.into(),
             ..Default::default()
         })
         .theme(App::theme)
@@ -86,7 +86,7 @@ impl App {
         })
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
         let pick = pick_list(
             self.selected,
             pick_list::options![
@@ -121,7 +121,6 @@ impl App {
             .align_x(Center)
             .spacing(10),
         )
-        .into()
     }
 }
 
@@ -146,7 +145,7 @@ fn show(language: &Language) -> pick_list::Content<'static> {
             ]
             .spacing(6)
             .align_y(Center)
-            .into(),
+            .boxed(),
         ),
         other => other.to_string().into(),
     }

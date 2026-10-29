@@ -10,8 +10,7 @@
 //! [`Element`]: iced::Element
 
 use iced::widget::{center, column, container, markdown, row, sensor, text};
-use iced::{Center, Element, Fill, Task, Theme};
-
+use iced::{Center, Code, Fill, Task, Theme, Widget};
 use sweeten::widget::{button, text_input, transition, transition::Direction};
 
 fn main() -> iced::Result {
@@ -90,31 +89,36 @@ impl App {
         Task::none()
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view(&self) -> impl Widget<Message> {
+        let settings = markdown::Settings::default().line_height(1.5);
+
         let clicks = self.slide_clicks;
 
         let banner = transition(self.index, move |&i| match i {
             0 => text("The quick brown fox jumps over the lazy dog.")
                 .size(22)
-                .into(),
+                .boxed(),
             1 => button(text(format!("Dismiss me! ({clicks} times)")))
                 .on_press(Message::Dismiss)
                 .style(button::danger)
                 .padding(12)
-                .into(),
+                .boxed(),
             2 => row![
                 text("Apples").size(20),
                 text("•").size(20),
                 text("Oranges").size(20),
                 text("•").size(20),
-                text("Bananas").size(20),
+                text("Bananas").size(20).boxed(),
             ]
             .spacing(15)
             .align_y(Center)
-            .into(),
-            3 => {
-                markdown::view_with(self.markdown.items(), &self.theme, &Viewer)
-            }
+            .boxed(),
+            3 => markdown::view_with(
+                self.markdown.items(),
+                settings,
+                &Viewer { theme: &self.theme },
+            )
+            .boxed(),
             _ => sensor(
                 text_input(
                     "Type anything—but preferably a pangram.",
@@ -126,7 +130,7 @@ impl App {
                 .size(22),
             )
             .on_show(|_| Message::FocusInput)
-            .into(),
+            .boxed(),
         })
         .direction(self.direction)
         .width(Fill)
@@ -162,14 +166,13 @@ impl App {
                 .spacing(20),
         )
         .padding(20)
-        .into()
     }
 }
 
 fn direction_btn<'a>(
     direction: &'a Direction,
     is_active: bool,
-) -> Element<'a, Message> {
+) -> impl Widget<Message> {
     button(text(direction.to_string()))
         .on_press(Message::DirectionChanged(*direction))
         .style(if is_active {
@@ -177,13 +180,22 @@ fn direction_btn<'a>(
         } else {
             button::secondary
         })
-        .into()
 }
 
-struct Viewer;
+struct Viewer<'a> {
+    theme: &'a Theme,
+}
 
-impl<'a> markdown::Viewer<'a, Message> for Viewer {
+impl<'a> markdown::Viewer<'a, Message> for Viewer<'a> {
     fn on_link_click(_url: markdown::Uri) -> Message {
         Message::LinkClicked
+    }
+
+    fn theme(&self) -> &Theme {
+        self.theme
+    }
+
+    fn highlighter(&self) -> &dyn markdown::Highlighter<Code> {
+        &Code::highlight
     }
 }

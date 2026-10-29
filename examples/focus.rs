@@ -9,9 +9,9 @@
 //!
 //! Run with: `cargo run --example focus`
 
-use iced::keyboard;
 use iced::widget::{Id, center, column, container, row, text};
-use iced::{Center, Element, Fill, Subscription, Task};
+use iced::{Center, Fill, Subscription, Task};
+use iced::{Widget, keyboard};
 
 use sweeten::widget::operation;
 use sweeten::widget::{button, text_input};
@@ -211,10 +211,10 @@ impl App {
             && self.password.error().is_none()
     }
 
-    fn view(&self) -> Element<'_, Message> {
+    fn view<'a>(&'a self) -> impl Widget<Message> + 'a {
         let valid = self.form_is_valid();
 
-        let create_field_view = |input: &Input| {
+        let create_field_view = |input: &'a Input| {
             let field = input.field();
             let value = input.value();
             let is_focused = self.focused == Some(FocusedElement::Field(field));
@@ -283,7 +283,6 @@ impl App {
             .spacing(20),
         )
         .padding(20)
-        .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
