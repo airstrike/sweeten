@@ -55,6 +55,10 @@ iced_widget = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
 iced_test = { git = "https://github.com/airstrike/iced.git", branch = "dev" }
 cosmic-text = { git = "https://github.com/airstrike/cosmic-text", branch = "dev" }
 
+# cryoglyph depends on the `hecrj/cosmic-text` fork directly; unify it with ours.
+[patch."https://github.com/hecrj/cosmic-text.git"]
+cosmic-text = { git = "https://github.com/airstrike/cosmic-text", branch = "dev" }
+
 # Uncomment to test against local iced checkout
 # [patch.crates-io]
 # iced.path = "../iced"
