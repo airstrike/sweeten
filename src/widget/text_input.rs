@@ -10,6 +10,7 @@
 //!
 //! # Example
 //! ```no_run
+//! # use iced_widget::Widget;
 //! # pub type Element<'a, Message> = iced_core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 //! #
 //! use sweeten::widget::text_input;
@@ -26,7 +27,7 @@
 //!         .on_input(Message::ContentChanged)
 //!         .on_focus(Message::Focused)
 //!         .on_blur(Message::Blurred)
-//!         .into()
+//!         .boxed()
 //! }
 //! ```
 mod editor;
@@ -68,6 +69,7 @@ use crate::core::{
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
+/// # use iced_widget::Widget;
 /// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 /// #
 /// use iced::widget::text_input;
@@ -84,7 +86,7 @@ use crate::core::{
 /// fn view(state: &State) -> Element<'_, Message> {
 ///     text_input("Type something here...", &state.content)
 ///         .on_input(Message::ContentChanged)
-///         .into()
+///         .boxed()
 /// }
 ///
 /// fn update(state: &mut State, message: Message) {

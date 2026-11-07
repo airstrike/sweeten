@@ -8,6 +8,7 @@
 //! # Example
 //! ```no_run
 //! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
+//! # use iced_widget::Widget;
 //! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 //! #
 //! use iced::widget::column;
@@ -42,7 +43,7 @@
 //!         .label("All of the above")
 //!         .on_toggle(Message::RadioSelected);
 //!
-//!     column![a, b, all].into()
+//!     column![a, b, all].boxed()
 //! }
 //! ```
 use crate::animation::cubic_bezier;

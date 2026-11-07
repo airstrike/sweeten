@@ -7,6 +7,7 @@
 //!
 //! # Example
 //! ```no_run
+//! # use iced_widget::Widget;
 //! # pub type State = ();
 //! # pub type Element<'a, Message> = iced::Element<'a, Message>;
 //! use iced::Point;
@@ -21,7 +22,7 @@
 //! fn view(state: &State) -> Element<'_, Message> {
 //!     mouse_area(text("Click me!"))
 //!         .on_press(Message::Clicked)
-//!         .into()
+//!         .boxed()
 //! }
 //! ```
 use crate::core::layout;

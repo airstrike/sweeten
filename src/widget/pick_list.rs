@@ -26,6 +26,7 @@
 //!
 //! # Example
 //! ```no_run
+//! # use iced_widget::Widget;
 //! # pub type Element<'a, Message> = iced::Element<'a, Message>;
 //! use sweeten::widget::pick_list;
 //!
@@ -63,7 +64,7 @@
 //!     .on_select(Message::FruitSelected)
 //!     .disabled(|fruit| matches!(fruit, Fruit::Tomato))
 //!     .placeholder("Select your favorite fruit...")
-//!     .into()
+//!     .boxed()
 //! }
 //!
 //! impl std::fmt::Display for Fruit {
@@ -83,6 +84,7 @@
 //! `None` reads as a [`deselect`] entry:
 //!
 //! ```no_run
+//! # use iced_widget::Widget;
 //! # pub type Element<'a, Message> = iced::Element<'a, Message>;
 //! use sweeten::pick_list;
 //! use sweeten::widget::pick_list::{group, option, options};
@@ -110,7 +112,7 @@
 //!     .on_select(Message::Picked)
 //!     .on_deselect(Message::Cleared)
 //!     .separator(true)
-//!     .into()
+//!     .boxed()
 //! }
 //! ```
 use crate::core::alignment;
@@ -144,6 +146,7 @@ use std::f32;
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
+/// # use iced_widget::Widget;
 /// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 /// #
 /// use sweeten::widget::pick_list;
@@ -180,7 +183,7 @@ use std::f32;
 ///     )
 ///     .on_select(Message::FruitSelected)
 ///     .placeholder("Select your favorite fruit...")
-///     .into()
+///     .boxed()
 /// }
 ///
 /// fn update(state: &mut State, message: Message) {
@@ -1313,6 +1316,7 @@ pub use crate::__sweeten_pick_list_options as options;
 /// [`options!`] macro:
 ///
 /// ```no_run
+/// # use iced_widget::Widget;
 /// use sweeten::widget::pick_list::{group, option, options};
 ///
 /// # fn view() -> sweeten::widget::pick_list::Options<'static, &'static str> {
@@ -1542,6 +1546,7 @@ impl<'a, T, Theme, Renderer, const N: usize>
 /// [`options!`]:
 ///
 /// ```no_run
+/// # use iced_widget::Widget;
 /// use sweeten::widget::pick_list::{group, options};
 ///
 /// # fn view() -> sweeten::widget::pick_list::Options<'static, &'static str> {

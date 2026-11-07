@@ -8,6 +8,7 @@
 //! # Example
 //!
 //! ```no_run
+//! # use iced_widget::Widget;
 //! # pub type Element<'a, Message> = iced::Element<'a, Message>;
 //! use sweeten::widget::row;
 //! use sweeten::widget::drag::DragEvent;
@@ -18,10 +19,10 @@
 //! }
 //!
 //! fn view(items: &[String]) -> Element<'_, Message> {
-//!     row(items.iter().map(|s| s.as_str().into()))
+//!     row(items.iter().map(|s| s.as_str().boxed()))
 //!         .spacing(5)
 //!         .on_drag(Message::Reorder)
-//!         .into()
+//!         .boxed()
 //! }
 //! ```
 
@@ -48,6 +49,7 @@ const DRAG_DEADBAND_DISTANCE: f32 = 5.0;
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } }
+/// # use iced_widget::Widget;
 /// # pub type State = ();
 /// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
 /// use iced::widget::{button, row};
@@ -62,7 +64,7 @@ const DRAG_DEADBAND_DISTANCE: f32 = 5.0;
 ///         "I am to the left!",
 ///         button("I am in the middle!"),
 ///         "I am to the right!",
-///     ].into()
+///     ].boxed()
 /// }
 /// ```
 #[allow(missing_debug_implementations)]
