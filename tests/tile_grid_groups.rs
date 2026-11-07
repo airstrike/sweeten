@@ -7,7 +7,7 @@
 //! cross-group drag (a `Reparent`), an intra-group drag (a `Move`), and that
 //! a grouped layout renders without panicking.
 
-use iced::{Element, Event, Fill, Point, mouse};
+use iced::{Element, Event, Fill, Point, Widget, mouse};
 
 use sweeten::widget::tile_grid::{
     self, Action, CellHeight, ItemId, State, Width, grid_content, title_bar,
@@ -59,7 +59,7 @@ impl App {
         .cell_height(CellHeight::Fixed(50.0))
         .group_header(0)
         .on_action(Message::Grid)
-        .into()
+        .boxed()
     }
 }
 
@@ -132,7 +132,7 @@ fn size_to_content_renders_without_panic() {
         .group_header(24)
         .group_padding(8)
         .on_action(Message::Grid)
-        .into();
+        .boxed();
 
     let mut ui = iced_test::Simulator::with_size(
         Default::default(),
@@ -296,7 +296,7 @@ impl CtrlApp {
         .cell_height(CellHeight::Fixed(50.0))
         .group_header(0)
         .on_action(CtrlMessage::Grid)
-        .into()
+        .boxed()
     }
 }
 
@@ -405,7 +405,7 @@ fn trends_with_pipeline_width(
     .group_header(32)
     .group_padding(10)
     .on_action(FitMessage::Grid)
-    .into();
+    .boxed();
 
     let mut ui = iced_test::Simulator::with_size(
         Default::default(),
@@ -481,7 +481,7 @@ fn resizing_one_stacked_tile_must_not_resize_the_other() {
         .group_header(0)
         .group_padding(10)
         .on_action(Message::Grid)
-        .into();
+        .boxed();
 
         let mut ui = iced_test::Simulator::with_size(
             Default::default(),
@@ -535,7 +535,7 @@ fn group_keeps_side_gutters_between_frame_and_tiles() {
     .group_header(0)
     .group_padding(10)
     .on_action(Message::Grid)
-    .into();
+    .boxed();
 
     let mut ui = iced_test::Simulator::with_size(
         Default::default(),

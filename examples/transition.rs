@@ -10,7 +10,7 @@
 //! [`Element`]: iced::Element
 
 use iced::widget::{center, column, container, markdown, row, sensor, text};
-use iced::{Center, Element, Fill, Task, Theme};
+use iced::{Center, Code, Element, Fill, Task, Theme, Widget};
 
 use sweeten::widget::{button, text_input, transition, transition::Direction};
 
@@ -96,12 +96,12 @@ impl App {
         let banner = transition(self.index, move |&i| match i {
             0 => text("The quick brown fox jumps over the lazy dog.")
                 .size(22)
-                .into(),
+                .boxed(),
             1 => button(text(format!("Dismiss me! ({clicks} times)")))
                 .on_press(Message::Dismiss)
                 .style(button::danger)
                 .padding(12)
-                .into(),
+                .boxed(),
             2 => row![
                 text("Apples").size(20),
                 text("•").size(20),
@@ -111,10 +111,13 @@ impl App {
             ]
             .spacing(15)
             .align_y(Center)
-            .into(),
-            3 => {
-                markdown::view_with(self.markdown.items(), &self.theme, &Viewer)
-            }
+            .boxed(),
+            3 => markdown::view_with(
+                self.markdown.items(),
+                markdown::Settings::default(),
+                &Viewer { theme: &self.theme },
+            )
+            .boxed(),
             _ => sensor(
                 text_input(
                     "Type anything—but preferably a pangram.",
@@ -126,7 +129,7 @@ impl App {
                 .size(22),
             )
             .on_show(|_| Message::FocusInput)
-            .into(),
+            .boxed(),
         })
         .direction(self.direction)
         .width(Fill)
@@ -162,7 +165,7 @@ impl App {
                 .spacing(20),
         )
         .padding(20)
-        .into()
+        .boxed()
     }
 }
 
@@ -177,12 +180,22 @@ fn direction_btn<'a>(
         } else {
             button::secondary
         })
-        .into()
+        .boxed()
 }
 
-struct Viewer;
+struct Viewer<'a> {
+    theme: &'a Theme,
+}
 
-impl<'a> markdown::Viewer<'a, Message> for Viewer {
+impl<'a> markdown::Viewer<'a, Message> for Viewer<'a> {
+    fn theme(&self) -> &Theme {
+        self.theme
+    }
+
+    fn highlighter(&self) -> &dyn markdown::Highlighter<Code> {
+        markdown::Catalog::highlighter(self.theme)
+    }
+
     fn on_link_click(_url: markdown::Uri) -> Message {
         Message::LinkClicked
     }

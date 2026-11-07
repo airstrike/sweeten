@@ -11,7 +11,7 @@
 
 use iced::keyboard;
 use iced::widget::{Id, center, column, container, row, text};
-use iced::{Center, Element, Fill, Subscription, Task};
+use iced::{Center, Element, Fill, Subscription, Task, Widget};
 
 use sweeten::widget::operation;
 use sweeten::widget::{button, text_input};
@@ -283,7 +283,7 @@ impl App {
             .spacing(20),
         )
         .padding(20)
-        .into()
+        .boxed()
     }
 
     fn subscription(&self) -> Subscription<Message> {

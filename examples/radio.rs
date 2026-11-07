@@ -14,7 +14,7 @@
 use iced::Task;
 use iced::widget::{center, container, text};
 use iced::{
-    Center, Element, Fill, Subscription, Theme, keyboard, keyboard::key,
+    Center, Element, Fill, Subscription, Theme, Widget, keyboard, keyboard::key,
 };
 
 use sweeten::widget::operation::{focus_next, focus_previous};
@@ -27,7 +27,7 @@ fn main() -> iced::Result {
         .theme(|app: &App| app.theme.clone())
         .window_size((520.0, 500.0))
         .settings(iced::Settings {
-            default_text_size: 13.0.into(),
+            text_size: 13.0.into(),
             ..Default::default()
         })
         .run()
@@ -125,7 +125,7 @@ impl App {
         center(container(body).padding(24.0))
             .width(Fill)
             .height(Fill)
-            .into()
+            .boxed()
     }
 
     fn subscription(&self) -> Subscription<Message> {

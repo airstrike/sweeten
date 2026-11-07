@@ -22,7 +22,7 @@
 use std::collections::BTreeSet;
 
 use iced::widget::{center, column, container, text};
-use iced::{Background, Color, Element, Theme, color};
+use iced::{Background, Color, Element, Theme, Widget, color};
 
 use sweeten::widget::gt;
 use sweeten::widget::gt::{BorderStyle, Cell, CellStyle, Column, Sides, cells};
@@ -217,7 +217,7 @@ impl App {
             })
             .fmt(cells::body(), gt::decimal(1));
 
-        let card = container(table).height(180.0);
+        let card = container(Element::from(table)).height(180.0);
 
         let instructions = text(
             "Click body cells to toggle row selection; click \
@@ -242,7 +242,7 @@ impl App {
                 ..container::Style::default()
             }
         })
-        .into()
+        .boxed()
     }
 }
 

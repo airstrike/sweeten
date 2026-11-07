@@ -1,6 +1,6 @@
 use iced::Length::Fill;
 use iced::widget::{container, text};
-use iced::{Center, Element, Task};
+use iced::{Center, Element, Task, Widget};
 
 use sweeten::widget::drag::DragEvent;
 use sweeten::widget::{column, row, toggler};
@@ -80,7 +80,7 @@ impl App {
                 .deadband_zone(0.0)
                 .on_drag(Message::Reorder)
                 .align_x(Center)
-                .into(),
+                .boxed(),
             Mode::Row => row(items)
                 .spacing(5)
                 .on_drag(Message::Reorder)
@@ -98,7 +98,7 @@ impl App {
                 })
                 .align_y(Center)
                 .wrap()
-                .into(),
+                .boxed(),
         };
 
         container(
@@ -122,7 +122,7 @@ impl App {
         )
         .padding(20)
         .center(Fill)
-        .into()
+        .boxed()
     }
 }
 
@@ -130,5 +130,5 @@ fn pickme(label: &str) -> Element<'_, Message> {
     container(text(label))
         .style(container::rounded_box)
         .padding(5)
-        .into()
+        .boxed()
 }

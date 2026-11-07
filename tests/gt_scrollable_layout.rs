@@ -4,7 +4,7 @@
 //! real layout pass inside constrained parent containers.
 
 use iced::widget::column;
-use iced::{Element, Event, Fill, Never, Theme};
+use iced::{Element, Event, Fill, Never, Theme, Widget};
 
 use sweeten::widget::gt;
 
@@ -43,9 +43,12 @@ fn redraw() -> Event {
 fn scrollable_constrained_by_column() {
     let table = make_table(true, 20);
     let header: Element<'_, Never, Theme, Renderer> =
-        iced::widget::container("H").height(50.0).width(Fill).into();
+        iced::widget::container("H")
+            .height(50.0)
+            .width(Fill)
+            .boxed();
     let col: Element<'_, Never, Theme, Renderer> =
-        column![header, table].height(400.0).into();
+        column![header, table].height(400.0).boxed();
 
     let mut ui = iced_test::Simulator::with_size(
         Default::default(),

@@ -4,7 +4,7 @@
 //! # What we measure
 //!
 //! Both sides time the *exact same call shape* —
-//! `outer.as_widget_mut().layout(&mut tree, &(), &limits)`. The only
+//! `outer.layout(&mut tree, &(), &limits)`. The only
 //! thing that varies between the sweeten and iced halves of a paired
 //! scenario is what `outer` wraps:
 //!
@@ -15,7 +15,7 @@
 //!   matching shape.
 //!
 //! Both Element trees go through the same per-child dyn dispatch
-//! (`children[i].as_widget_mut().layout(...)`), the same `widget::Tree`
+//! (`children[i].layout(...)`), the same `widget::Tree`
 //! plumbing, and the same `Space::layout` (`layout::atomic`) leaves.
 //! The only thing that differs is the *outer* flex algorithm — which
 //! is what we want to measure.
@@ -26,7 +26,7 @@
 //! `Widget::layout` takes `&mut self` and we don't want one
 //! invocation's tree-state mutation to bleed into the next. Setup
 //! cost is excluded from criterion's measurements — only the
-//! `outer.as_widget_mut().layout(...)` call is timed.
+//! `outer.layout(...)` call (with its tree diff) is timed.
 //!
 //! # Three sweeten-only scenarios (no fairness concern)
 //!
@@ -48,10 +48,10 @@ use criterion::{
     BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
 };
 
-use iced_core::layout::{Limits, Node};
+use iced_core::layout::Limits;
 use iced_core::widget::Tree;
 use iced_core::{Alignment, Element, Length, Padding, Pixels, Size};
-use iced_widget::Space;
+use iced_widget::{Space, Widget};
 
 use sweeten::widget::flex::__bench::{
     Basis, Properties, justify_offsets, resolve as sweeten_resolve,
@@ -77,14 +77,14 @@ fn space_fixed(w: f32, h: f32) -> Elem {
     Space::new()
         .width(Length::Fixed(w))
         .height(Length::Fixed(h))
-        .into()
+        .boxed()
 }
 
 fn space_fill(portion: u16) -> Elem {
     Space::new()
         .width(Length::FillPortion(portion))
         .height(Length::Fixed(20.0))
-        .into()
+        .boxed()
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ where
     for i in 0..n {
         row = row.push(child(i));
     }
-    row.into()
+    row.boxed()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -149,7 +149,7 @@ where
     for i in 0..n {
         col = col.push(child(i));
     }
-    col.into()
+    col.boxed()
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ fn ic_row<F>(
 where
     F: FnMut(usize) -> Elem,
 {
-    let mut row = iced_widget::Row::<(), iced_core::Theme, ()>::new()
+    let mut row = iced_widget::Row::<Elem>::new()
         .width(width)
         .height(height)
         .padding(padding)
@@ -177,7 +177,7 @@ where
     for i in 0..n {
         row = row.push(child(i));
     }
-    row.into()
+    row.boxed()
 }
 
 fn ic_column<F>(
@@ -192,7 +192,7 @@ fn ic_column<F>(
 where
     F: FnMut(usize) -> Elem,
 {
-    let mut col = iced_widget::Column::<(), iced_core::Theme, ()>::new()
+    let mut col = iced_widget::Column::<Elem>::new()
         .width(width)
         .height(height)
         .padding(padding)
@@ -201,7 +201,7 @@ where
     for i in 0..n {
         col = col.push(child(i));
     }
-    col.into()
+    col.boxed()
 }
 
 // ---------------------------------------------------------------------------
@@ -235,10 +235,10 @@ fn p_fluid(factor: f32) -> Properties {
 /// A constant-size layouter — mirrors `Space::layout` under
 /// `layout::atomic`: each child reports the size it was asked for,
 /// clamped to the limits.
-fn fixed_layouter(w: f32, h: f32) -> impl FnMut(usize, &Limits) -> Node {
+fn fixed_layouter(w: f32, h: f32) -> impl FnMut(usize, &Limits) -> Size {
     move |_idx, limits| {
-        let max = limits.max();
-        Node::new(Size::new(w.min(max.width), h.min(max.height)))
+        let max = limits.max;
+        Size::new(w.min(max.width), h.min(max.height))
     }
 }
 
@@ -246,13 +246,15 @@ fn fixed_layouter(w: f32, h: f32) -> impl FnMut(usize, &Limits) -> Node {
 // Common driver — time the same call on both sides.
 // ---------------------------------------------------------------------------
 
-/// Lay out an [`Elem`] by building its [`Tree`] and calling
-/// `outer.as_widget_mut().layout(...)`. The Tree must be freshly built
-/// (in the criterion setup closure) so each timed iteration starts
-/// from the same state.
-fn layout_outer(outer: &mut Elem, limits: &Limits) -> Node {
-    let mut tree = Tree::new(outer.as_widget());
-    outer.as_widget_mut().layout(&mut tree, &(), limits)
+/// Lay out an [`Elem`] by building its [`Tree`], diffing it to plant
+/// the child trees, and calling `outer.layout(...)`. The Tree is
+/// freshly built per call so each timed iteration starts from the same
+/// state.
+fn layout_outer(outer: &mut Elem, limits: &Limits) -> Size {
+    let mut tree = Tree::new(&*outer);
+    tree.diff(&mut *outer);
+    iced_core::Widget::layout(outer, &mut tree, &(), limits);
+    tree.size
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,19 +1014,14 @@ fn bench_justify_content(c: &mut Criterion) {
             b.iter_with_setup(
                 || {
                     let elems = iced_justify_elems(justify, N);
-                    let outer: Elem = iced_widget::Row::<
-                        (),
-                        iced_core::Theme,
-                        (),
-                    >::with_children(
-                        elems
-                    )
-                    .width(Length::Fill)
-                    .height(Length::Shrink)
-                    .padding(Padding::ZERO)
-                    .spacing(Pixels(0.0))
-                    .align_y(Alignment::Start)
-                    .into();
+                    let outer: Elem =
+                        iced_widget::Row::<Elem>::with_children(elems)
+                            .width(Length::Fill)
+                            .height(Length::Shrink)
+                            .padding(Padding::ZERO)
+                            .spacing(Pixels(0.0))
+                            .align_y(Alignment::Start)
+                            .boxed();
                     outer
                 },
                 |mut outer| {
@@ -1222,14 +1219,20 @@ fn bench_repeated(c: &mut Criterion) {
                     false,
                     |_| space_fixed(40.0, 20.0),
                 );
-                let tree = Tree::new(outer.as_widget());
+                let mut outer = outer;
+                let mut tree = Tree::new(&outer);
+                tree.diff(&mut outer);
                 (outer, tree)
             },
             |(mut outer, mut tree)| {
                 for _ in 0..REPS {
-                    let node =
-                        outer.as_widget_mut().layout(&mut tree, &(), &limits);
-                    black_box(node);
+                    iced_core::Widget::layout(
+                        &mut outer,
+                        &mut tree,
+                        &(),
+                        &limits,
+                    );
+                    black_box(tree.size);
                 }
             },
         );
@@ -1247,14 +1250,20 @@ fn bench_repeated(c: &mut Criterion) {
                     Alignment::Start,
                     |_| space_fixed(40.0, 20.0),
                 );
-                let tree = Tree::new(outer.as_widget());
+                let mut outer = outer;
+                let mut tree = Tree::new(&outer);
+                tree.diff(&mut outer);
                 (outer, tree)
             },
             |(mut outer, mut tree)| {
                 for _ in 0..REPS {
-                    let node =
-                        outer.as_widget_mut().layout(&mut tree, &(), &limits);
-                    black_box(node);
+                    iced_core::Widget::layout(
+                        &mut outer,
+                        &mut tree,
+                        &(),
+                        &limits,
+                    );
+                    black_box(tree.size);
                 }
             },
         );

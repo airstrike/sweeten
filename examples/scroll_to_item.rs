@@ -9,7 +9,7 @@
 
 use iced::widget::scrollable::AbsoluteOffset;
 use iced::widget::{Id, container, scrollable, text};
-use iced::{Element, Fill, Task};
+use iced::{Element, Fill, Task, Widget};
 
 use sweeten::widget::operation::position;
 use sweeten::widget::{button, column, row};
@@ -52,12 +52,13 @@ impl App {
                     .map(Message::ScrollResult);
             }
             Message::ScrollResult(Some(bounds)) => {
-                return iced::widget::operation::scroll_to(
+                return iced::widget::operation::scrollable::scroll_to(
                     self.scrollable_id.clone(),
                     AbsoluteOffset {
                         x: None,
                         y: Some(bounds.y),
                     },
+                    iced::widget::operation::Animation::Instant,
                 );
             }
             Message::ScrollResult(None) => {}
@@ -71,7 +72,7 @@ impl App {
                 .style(container::rounded_box)
                 .padding(10)
                 .width(Fill)
-                .into()
+                .boxed()
         });
 
         let buttons: Vec<Element<'_, Message>> = [0, 10, 25, 50, 75, 99]
@@ -79,7 +80,7 @@ impl App {
             .map(|&i| {
                 button(text(format!("Item {i}")).size(12))
                     .on_press(Message::ScrollTo(i))
-                    .into()
+                    .boxed()
             })
             .collect();
 
@@ -96,6 +97,6 @@ impl App {
         .height(Fill)
         .width(Fill);
 
-        row![sidebar, content].spacing(10).padding(20).into()
+        row![sidebar, content].spacing(10).padding(20).boxed()
     }
 }

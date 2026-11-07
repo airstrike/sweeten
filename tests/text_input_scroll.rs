@@ -23,7 +23,7 @@ use std::thread;
 use std::time::Duration;
 
 use iced::widget::{Id, container};
-use iced::{Element, Fill, Point};
+use iced::{Element, Fill, Point, Widget};
 
 use iced_test::selector;
 use iced_test::selector::Target;
@@ -72,7 +72,7 @@ impl App {
         .padding(20)
         .center_x(Fill)
         .center_y(Fill)
-        .into()
+        .boxed()
     }
 }
 

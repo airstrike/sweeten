@@ -10,7 +10,7 @@
 //! [`FitText`]: sweeten::widget::fit_text::FitText
 
 use iced::widget::{center, column, container, row, slider, text};
-use iced::{Center, Element, Fill, Shrink};
+use iced::{Center, Element, Fill, Shrink, Widget};
 
 use sweeten::widget::{fit_text, text_input};
 
@@ -115,6 +115,6 @@ impl App {
                 .height(Fill),
         )
         .padding(20)
-        .into()
+        .boxed()
     }
 }

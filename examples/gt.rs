@@ -7,7 +7,7 @@
 //! Run with: `cargo run --example gt`
 
 use iced::widget::{center, scrollable};
-use iced::{Element, Theme, alignment, color, font};
+use iced::{Element, Theme, Widget, alignment, color, font};
 
 use sweeten::widget::gt;
 use sweeten::widget::gt::{
@@ -224,7 +224,7 @@ impl App {
                 gt::parens_for_negatives(gt::decimal(1)),
             );
 
-        center(scrollable(table)).padding(20).into()
+        center(scrollable(Element::from(table))).padding(20).boxed()
     }
 }
 

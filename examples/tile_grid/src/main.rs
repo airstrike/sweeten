@@ -23,7 +23,8 @@ use iced::widget::{
     button, center_y, column, container, row, rule, scrollable, space, text,
 };
 use iced::{
-    Center, Element, Fill, Font, Shrink, Size, Subscription, Task, window,
+    Center, Element, Fill, Font, Shrink, Size, Subscription, Task, Widget,
+    window,
 };
 
 use sweeten::widget::progress_bar;
@@ -34,15 +35,15 @@ fn main() -> iced::Result {
         .subscription(App::subscription)
         .window_size((300.0, 200.0))
         .theme(iced::Theme::GruvboxDark)
-        .font(icon::FONT)
-        .default_font(Font::with_family("Geist"))
+        .fonts([icon::FONT])
+        .font(Font::with_family("Geist"))
         .title("sweeten - TileGrid")
         .run()
 }
 
 enum App {
     Loading(Loading),
-    Loaded(Example),
+    Loaded(Box<Example>),
 }
 
 /// Splash-screen state — paces the progress bar through 0 → 50 → 100
@@ -179,7 +180,7 @@ impl App {
         if !loading.is_ready() {
             return Task::none();
         }
-        *self = App::Loaded(Example::new());
+        *self = App::Loaded(Box::new(Example::new()));
         window::latest()
             .and_then(|id| window::resize(id, Size::new(900.0, 700.0)))
     }
@@ -201,7 +202,7 @@ impl App {
                 .align_x(Center),
             )
             .center(Fill)
-            .into(),
+            .boxed(),
             App::Loaded(example) => example.view(),
         }
     }
@@ -428,7 +429,7 @@ impl Example {
         )
         .height(Fill);
 
-        column![toolbar, rule::horizontal(1), grid_area].into()
+        column![toolbar, rule::horizontal(1), grid_area].boxed()
     }
 }
 
@@ -467,7 +468,7 @@ fn view_content<'a>(
         .align_x(Center),
     )
     .padding(10)
-    .into()
+    .boxed()
 }
 
 fn view_controls(
@@ -486,7 +487,7 @@ fn view_controls(
         .padding([2, 6]);
 
     if is_pinned {
-        row![pin_btn].spacing(4).into()
+        row![pin_btn].spacing(4).boxed()
     } else {
         let close = button(icon::x().size(14))
             .style(button::text)
@@ -496,7 +497,7 @@ fn view_controls(
             } else {
                 None
             });
-        row![pin_btn, close].spacing(4).into()
+        row![pin_btn, close].spacing(4).boxed()
     }
 }
 
@@ -511,18 +512,21 @@ mod style {
     pub fn title_text(theme: &Theme) -> text::Style {
         text::Style {
             color: Some(theme.palette().background.base.text),
+            selection: None,
         }
     }
 
     pub fn label_text(theme: &Theme) -> text::Style {
         text::Style {
             color: Some(theme.palette().background.strong.text),
+            selection: None,
         }
     }
 
     pub fn muted_text(theme: &Theme) -> text::Style {
         text::Style {
             color: Some(theme.palette().background.weak.text),
+            selection: None,
         }
     }
 

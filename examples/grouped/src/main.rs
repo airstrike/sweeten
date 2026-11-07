@@ -23,7 +23,8 @@ use iced::widget::{
     text, text_input,
 };
 use iced::{
-    Background, Border, Center, Color, Element, Fill, Font, Task, Theme, color,
+    Background, Border, Center, Color, Element, Fill, Font, Task, Theme,
+    Widget, color,
 };
 
 use sweeten::widget::tile_grid::{
@@ -35,7 +36,7 @@ fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
         .title("sweeten • grouped tile_grid")
         .theme(theme)
-        .font(icon::FONT)
+        .fonts([icon::FONT])
         .window_size((1100.0, 760.0))
         .run()
 }
@@ -336,7 +337,7 @@ impl App {
             });
 
         match &self.editing {
-            None => base.into(),
+            None => base.boxed(),
             Some(edit) => modal(base, edit_form(edit), Message::CancelEdit),
         }
     }
@@ -358,7 +359,7 @@ fn customize_button(edit_mode: bool) -> Element<'static, Message> {
     .on_press(Message::ToggleEdit)
     .padding([6, 12])
     .style(outlined)
-    .into()
+    .boxed()
 }
 
 /// The group's title: static text when read-only, an inline editable
@@ -376,9 +377,9 @@ fn group_title(
             .width(Fill)
             .on_input(move |value| Message::GroupTitle(id, value))
             .style(title_input)
-            .into()
+            .boxed()
     } else {
-        text(label.to_owned()).size(16).style(section_label).into()
+        text(label.to_owned()).size(16).style(section_label).boxed()
     }
 }
 
@@ -387,7 +388,7 @@ fn edit_button(id: ItemId) -> Element<'static, Message> {
         .on_press(Message::StartEdit(id))
         .padding([2, 6])
         .style(pill)
-        .into()
+        .boxed()
 }
 
 fn add_tile_button(group: ItemId) -> Element<'static, Message> {
@@ -399,7 +400,7 @@ fn add_tile_button(group: ItemId) -> Element<'static, Message> {
     .on_press(Message::AddTile(group))
     .padding([2, 8])
     .style(tinted)
-    .into()
+    .boxed()
 }
 
 /// The delete control: a trash icon that arms on first click and confirms
@@ -413,13 +414,13 @@ fn delete_button(
             .on_press(Message::ConfirmDelete(id))
             .padding([2, 6])
             .style(danger)
-            .into()
+            .boxed()
     } else {
         button(icon::trash().size(13))
             .on_press(Message::ArmDelete(id))
             .padding([2, 6])
             .style(pill)
-            .into()
+            .boxed()
     }
 }
 
@@ -453,7 +454,7 @@ fn edit_form(edit: &Edit) -> Element<'_, Message> {
 
     let mut form = column![text("Edit").size(18), title_field].spacing(14);
     if let Some(value_field) = value_field {
-        form = form.push(value_field);
+        form = form.push(value_field.boxed());
     }
     form = form.push(
         row![
@@ -462,24 +463,25 @@ fn edit_form(edit: &Edit) -> Element<'_, Message> {
                 .style(button::secondary),
             button(text("Save")).on_press(Message::SaveEdit),
         ]
-        .spacing(8),
+        .spacing(8)
+        .boxed(),
     );
 
     container(form)
         .width(320)
         .padding(16)
         .style(container::rounded_box)
-        .into()
+        .boxed()
 }
 
 /// Stacks `content` over `base` behind a dimmed, click-to-dismiss backdrop.
 fn modal<'a>(
-    base: impl Into<Element<'a, Message>>,
-    content: impl Into<Element<'a, Message>>,
+    base: impl Widget<Message> + 'a,
+    content: impl Widget<Message> + 'a,
     on_blur: Message,
 ) -> Element<'a, Message> {
     stack![
-        base.into(),
+        base,
         opaque(
             mouse_area(center(opaque(content)).style(|_theme| {
                 container::Style {
@@ -496,7 +498,7 @@ fn modal<'a>(
             .on_press(on_blur)
         )
     ]
-    .into()
+    .boxed()
 }
 
 // ── styles ──────────────────────────────────────────────────────
@@ -504,12 +506,14 @@ fn modal<'a>(
 fn section_label(theme: &Theme) -> text::Style {
     text::Style {
         color: Some(theme.palette().background.base.text),
+        selection: None,
     }
 }
 
 fn muted(theme: &Theme) -> text::Style {
     text::Style {
         color: Some(theme.palette().background.strong.color),
+        selection: None,
     }
 }
 
@@ -542,7 +546,6 @@ fn title_input(
     text_input::Style {
         background: Background::Color(Color::TRANSPARENT),
         border: Border::default(),
-        icon: palette.background.weak.color,
         placeholder: palette.background.strong.color,
         value: palette.background.base.text,
         selection: palette.primary.weak.color,

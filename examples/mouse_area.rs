@@ -3,7 +3,7 @@
 //! Run with: `cargo run --example mouse_area`
 
 use iced::widget::{center, column, container, text};
-use iced::{Center, Element, Point};
+use iced::{Center, Element, Point, Widget};
 
 use sweeten::mouse_area;
 
@@ -54,6 +54,6 @@ impl App {
             .align_x(Center),
         )
         .padding(10)
-        .into()
+        .boxed()
     }
 }

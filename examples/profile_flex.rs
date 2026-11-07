@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use iced_core::layout::Limits;
 use iced_core::widget::Tree;
 use iced_core::{Element, Length, Padding, Size};
-use iced_widget::Space;
+use iced_widget::{Space, Widget};
 
 use sweeten::widget::flex::{self, AlignItems, Axis, Justify};
 
@@ -29,7 +29,7 @@ fn space_fixed(w: f32, h: f32) -> Elem {
     Space::new()
         .width(Length::Fixed(w))
         .height(Length::Fixed(h))
-        .into()
+        .boxed()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -58,7 +58,7 @@ where
     for i in 0..n {
         row = row.push(child(i));
     }
-    row.into()
+    row.boxed()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -87,7 +87,7 @@ where
     for i in 0..n {
         col = col.push(child(i));
     }
-    col.into()
+    col.boxed()
 }
 
 fn build_flat() -> Elem {
@@ -178,9 +178,10 @@ fn main() {
             "deep" => build_deep_nested(10, 3, Axis::Horizontal),
             _ => unreachable!(),
         };
-        let mut tree = Tree::new(outer.as_widget());
-        let node = outer.as_widget_mut().layout(&mut tree, &(), &limits);
-        black_box(node);
+        let mut tree = Tree::new(&outer);
+        tree.diff(&mut outer);
+        iced_core::Widget::layout(&mut outer, &mut tree, &(), &limits);
+        black_box(tree.size);
         warmup_iters += 1;
     }
     eprintln!("profile_flex: warmup_iters={warmup_iters}");
@@ -197,9 +198,10 @@ fn main() {
             "deep" => build_deep_nested(10, 3, Axis::Horizontal),
             _ => unreachable!(),
         };
-        let mut tree = Tree::new(outer.as_widget());
-        let node = outer.as_widget_mut().layout(&mut tree, &(), &limits);
-        black_box(node);
+        let mut tree = Tree::new(&outer);
+        tree.diff(&mut outer);
+        iced_core::Widget::layout(&mut outer, &mut tree, &(), &limits);
+        black_box(tree.size);
         iters += 1;
     }
     let elapsed = start.elapsed();

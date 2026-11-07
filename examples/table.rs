@@ -12,7 +12,7 @@ use iced::widget::{
     center_x, center_y, checkbox, column, container, row, scrollable, slider,
     text, tooltip,
 };
-use iced::{Center, Element, Fill, Font, Right, Theme};
+use iced::{Center, Element, Fill, Font, Right, Theme, Widget};
 
 use sweeten::widget::table;
 use sweeten::widget::table::Style;
@@ -217,7 +217,7 @@ impl App {
             center_y(scrollable(center_x(table)).spacing(10)).padding(10),
             center_x(controls).padding(10).style(container::dark)
         ]
-        .into()
+        .boxed()
     }
 }
 
@@ -229,7 +229,7 @@ fn bold_header<Message: 'static>(
             weight: font::Weight::Bold,
             ..Font::DEFAULT
         })
-        .into()
+        .boxed()
 }
 
 struct Event {

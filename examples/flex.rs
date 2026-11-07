@@ -17,7 +17,8 @@
 
 use iced::widget::{column, container, row, rule, scrollable, slider, text};
 use iced::{
-    Center, Element, Fill, Font, Length, Shrink, Subscription, Theme, keyboard,
+    Center, Element, Fill, Font, Length, Shrink, Subscription, Theme, Widget,
+    keyboard,
 };
 
 use sweeten::widget::flex::{self, AlignItems, Axis, FlexChild, Justify, flex};
@@ -393,7 +394,7 @@ impl FlexTour {
             snap: true,
         });
 
-        row![sidebar(self), divider, canvas].height(Fill).into()
+        row![sidebar(self), divider, canvas].height(Fill).boxed()
     }
 
     fn canvas(&self) -> Element<'_, Message> {
@@ -416,7 +417,7 @@ impl FlexTour {
             .spacing(14)
             .width(Fill)
             .height(Fill)
-            .into()
+            .boxed()
     }
 
     // --- Demos ----------------------------------------------------------
@@ -491,7 +492,7 @@ impl FlexTour {
                         ]
                         .spacing(8)
                         .align_y(Center)
-                        .into()
+                        .boxed()
                     } else {
                         column![
                             text(name).size(12),
@@ -499,14 +500,14 @@ impl FlexTour {
                         ]
                         .spacing(4)
                         .align_x(Center)
-                        .into()
+                        .boxed()
                     }
                 });
 
         let stack: Element<'_, Message> = if is_horizontal {
-            column(tracks).spacing(8).width(Fill).into()
+            column(tracks).spacing(8).width(Fill).boxed()
         } else {
-            row(tracks).spacing(8).height(Fill).into()
+            row(tracks).spacing(8).height(Fill).boxed()
         };
         frame(stack)
     }
@@ -567,11 +568,11 @@ impl FlexTour {
                     ]
                     .spacing(6)
                     .width(Fill)
-                    .into()
+                    .boxed()
                 });
 
         let grid = row(columns).spacing(12).width(Fill);
-        frame(grid.into())
+        frame(grid.boxed())
     }
 
     /// Three growing items with 1 : 2 : 1 ratios.
@@ -699,7 +700,7 @@ impl FlexTour {
         .padding(self.padding)
         .width(Fill)
         .height(Fill)
-        .into();
+        .boxed();
 
         frame(app)
     }
@@ -740,7 +741,7 @@ fn frame<'a, Message: 'a>(
         .width(Fill)
         .height(Fill)
         .style(frame_style)
-        .into()
+        .boxed()
 }
 
 /// Builds a flex container along `axis` from a list of `FlexChild`.
@@ -846,8 +847,8 @@ impl<'a, Message: 'a> From<ContainerBuilder<'a, Message>>
 {
     fn from(b: ContainerBuilder<'a, Message>) -> Self {
         match b {
-            ContainerBuilder::Row(r) => r.into(),
-            ContainerBuilder::Column(c) => c.into(),
+            ContainerBuilder::Row(r) => r.boxed(),
+            ContainerBuilder::Column(c) => c.boxed(),
         }
     }
 }
@@ -867,7 +868,7 @@ fn cell<'a, Message: 'a>(
     // iced's Pair). A small alpha dim gives visual hierarchy
     // without breaking contrast against any theme.
     let body: Element<'_, Message> = if note.is_empty() {
-        text(letter).size(13).into()
+        text(letter).size(13).boxed()
     } else {
         column![
             text(letter).size(13),
@@ -875,10 +876,11 @@ fn cell<'a, Message: 'a>(
                 color: Some(
                     theme.palette().primary.weak.text.scale_alpha(0.75),
                 ),
+                selection: None,
             }),
         ]
         .spacing(1)
-        .into()
+        .boxed()
     };
 
     let mut c = container(body).padding([6.0, 10.0]).style(cell_style);
@@ -893,7 +895,7 @@ fn cell<'a, Message: 'a>(
         c = c.height(Shrink);
     }
 
-    c.into()
+    c.boxed()
 }
 
 /// Semantic accent picked from the active theme's palette.
@@ -939,6 +941,7 @@ fn boxed<'a, Message: 'a>(
                 color: Some(
                     theme.palette().background.base.text.scale_alpha(0.75),
                 ),
+                selection: None,
             }),
         ]
         .spacing(2),
@@ -947,7 +950,7 @@ fn boxed<'a, Message: 'a>(
     .width(Fill)
     .height(Fill)
     .style(move |theme: &Theme| boxed_style(theme, accent))
-    .into()
+    .boxed()
 }
 
 // --- Sidebar --------------------------------------------------------------
@@ -1039,14 +1042,14 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     .align(AlignItems::Center)
     .gap(6.0)
     .width(Fill)
-    .into();
+    .boxed();
 
     let body = column![
         text("Flex tour").size(20),
-        section("demo", "PgUp / PgDn", demo_picker.into()),
-        section("axis", "X · R / C", axis_picker.into()),
-        section("justify-content", "J / ⇧J", justify_picker.into()),
-        section("align-items", "A / ⇧A", align_picker.into()),
+        section("demo", "PgUp / PgDn", demo_picker.boxed()),
+        section("axis", "X · R / C", axis_picker.boxed()),
+        section("justify-content", "J / ⇧J", justify_picker.boxed()),
+        section("align-items", "A / ⇧A", align_picker.boxed()),
         gap_slider,
         padding_slider,
         reverse_box,
@@ -1055,7 +1058,10 @@ fn sidebar(app: &FlexTour) -> Element<'_, Message> {
     .padding(20)
     .width(280.0);
 
-    container(scrollable(body)).width(280.0).height(Fill).into()
+    container(scrollable(body))
+        .width(280.0)
+        .height(Fill)
+        .boxed()
 }
 
 fn section<'a>(
@@ -1075,7 +1081,7 @@ fn section<'a>(
         body,
     ]
     .spacing(4)
-    .into()
+    .boxed()
 }
 
 /// Monospace keyboard-shortcut chip rendered next to section titles.
@@ -1090,11 +1096,12 @@ fn hotkey<'a, Message: 'a>(s: &'a str) -> Element<'a, Message> {
                 color: Some(
                     theme.palette().background.base.text.scale_alpha(0.7),
                 ),
+                selection: None,
             }),
     )
     .padding([1.0, 5.0])
     .style(hotkey_style)
-    .into()
+    .boxed()
 }
 
 // --- Styling --------------------------------------------------------------
