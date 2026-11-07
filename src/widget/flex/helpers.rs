@@ -7,7 +7,7 @@
 //! helpers — users opt into flex by reaching for `flex::row`,
 //! `flex::column`, or `flex::flex(elem)`.
 
-use crate::core::Element;
+use crate::core::{Element, Widget};
 
 use super::child::FlexChild;
 use super::column::Column;
@@ -20,12 +20,9 @@ use super::row::Row;
 /// [`FlexChild::grow`], [`FlexChild::shrink`], [`FlexChild::basis`],
 /// or [`FlexChild::align_self`] before being pushed into a flex
 /// [`Row`] or [`Column`].
-pub fn flex<'a, E, Message, Theme, Renderer>(
-    content: E,
-) -> FlexChild<'a, Message, Theme, Renderer>
-where
-    E: Into<Element<'a, Message, Theme, Renderer>>,
-{
+pub fn flex<'a, Message, Theme, Renderer>(
+    content: impl Widget<Message, Theme, Renderer> + 'a,
+) -> FlexChild<'a, Message, Theme, Renderer> {
     FlexChild::new(content)
 }
 

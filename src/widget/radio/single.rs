@@ -58,9 +58,11 @@ use crate::core::widget;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Animation, Element, Event, Layout, Length, Pixels, Rectangle, Shell, Size,
+    Animation, Event, Font, Layout, Length, Pixels, Rectangle, Shell, Size,
     Widget,
 };
+
+use std::marker::PhantomData;
 
 use super::dot;
 use super::style::{Catalog, Status, Style, StyleFn};
@@ -96,14 +98,15 @@ pub struct Single<
     size: f32,
     gap: f32,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     wrapping: text::Wrapping,
     letter_spacing: crate::core::Em,
     font_features: Vec<crate::core::font::Feature>,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
+    renderer_: PhantomData<Renderer>,
 }
 
 impl<'a, V, Message, Theme, Renderer> Single<'a, V, Message, Theme, Renderer>
@@ -138,7 +141,7 @@ where
             size: Self::DEFAULT_SIZE,
             gap: Self::DEFAULT_GAP,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             wrapping: text::Wrapping::default(),
             letter_spacing: crate::core::Em::default(),
@@ -146,6 +149,7 @@ where
             font: None,
             class: Theme::default(),
             last_status: None,
+            renderer_: PhantomData,
         }
     }
 
@@ -209,7 +213,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -253,7 +257,7 @@ where
     }
 
     /// Sets the text font of the [`Single`] radio button.
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
@@ -279,7 +283,7 @@ where
 
 /// Internal state for the animated [`Single`].
 struct State<P: text::Paragraph> {
-    paragraph: widget::text::State<P>,
+    paragraph: text::paragraph::Plain<P>,
     animation: Animation<bool>,
     now: Option<Instant>,
     last_is_selected: bool,
@@ -289,6 +293,14 @@ struct State<P: text::Paragraph> {
     /// and dragging in (or pressing in and dragging out before release)
     /// must not fire.
     is_pressed: bool,
+}
+
+impl<V, Message, Theme, Renderer> widget::Meta
+    for Single<'_, V, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
 }
 
 impl<V, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -304,7 +316,7 @@ where
 
     fn state(&self) -> tree::State {
         tree::State::new(State::<Renderer::Paragraph> {
-            paragraph: widget::text::State::default(),
+            paragraph: text::paragraph::Plain::default(),
             animation: Animation::new(self.is_selected)
                 .very_quick()
                 // cubic-bezier(0, 0, 0.2, 1) — Tailwind v4's
@@ -325,55 +337,60 @@ where
         }
     }
 
+    fn diff(&mut self, tree: &mut Tree) {
+        // The children of the tree are the radio and the label; they only
+        // carry their geometry, so no state is needed.
+        tree.children.resize_with(2, Tree::empty);
+    }
+
     fn layout(
         &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        layout::next_to_each_other(
-            &limits.width(self.width),
-            if self.label.is_some() { self.gap } else { 0.0 },
-            |_| layout::Node::new(Size::new(self.size, self.size)),
-            |limits| {
-                if let Some(label) = self.label.as_deref() {
-                    let state =
-                        tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+    ) {
+        let limits = limits.width(self.width);
 
-                    widget::text::layout(
-                        &mut state.paragraph,
-                        renderer,
-                        limits,
-                        label,
-                        widget::text::Format {
-                            width: self.width,
-                            height: Length::Shrink,
-                            line_height: self.line_height,
-                            size: self.text_size,
-                            font: self.font,
-                            align_x: text::Alignment::Default,
-                            align_y: alignment::Vertical::Top,
-                            shaping: self.shaping,
-                            wrapping: self.wrapping,
-                            ellipsis: text::Ellipsis::None,
-                            letter_spacing: self.letter_spacing,
-                            font_features: self.font_features.clone(),
-                            font_variations: Vec::new(),
-                            weight: None,
-                        },
-                    )
-                } else {
-                    layout::Node::new(Size::ZERO)
-                }
-            },
-        )
+        let radio = Size::new(self.size, self.size);
+        let gap = if self.label.is_some() { self.gap } else { 0.0 };
+
+        let label = if let Some(label) = self.label.as_deref() {
+            let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+
+            widget::text::layout(
+                &mut state.paragraph,
+                renderer,
+                &limits.shrink(Size::new(radio.width + gap, 0.0)),
+                label,
+                widget::text::Format {
+                    width: self.width,
+                    height: Length::Shrink,
+                    line_height: self.line_height,
+                    size: self.text_size,
+                    font: self.font,
+                    align_x: text::Alignment::Default,
+                    align_y: alignment::Vertical::Top,
+                    shaping: self.shaping,
+                    wrapping: self.wrapping,
+                    ellipsis: text::Ellipsis::None,
+                    letter_spacing: self.letter_spacing,
+                    font_features: self.font_features.clone(),
+                    font_variations: Vec::new(),
+                    weight: None,
+                },
+            )
+        } else {
+            Size::ZERO
+        };
+
+        layout::next_to_each_other(tree, radio, label, gap);
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -459,7 +476,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
@@ -477,13 +494,13 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
 
-        let mut children = layout.children();
+        let mut children = layout.iter(&tree.children);
 
         let current_status = self.last_status.unwrap_or(Status::Disabled {
             is_selected: self.is_selected,
@@ -506,7 +523,7 @@ where
         };
 
         {
-            let layout = children.next().unwrap();
+            let (layout, _) = children.next().unwrap();
             let progress =
                 dot::progress(&state.animation, state.now, self.is_selected);
 
@@ -518,7 +535,7 @@ where
         }
 
         {
-            let label_layout = children.next().unwrap();
+            let (label_layout, _) = children.next().unwrap();
 
             crate::text::draw(
                 renderer,
@@ -527,7 +544,9 @@ where
                 state.paragraph.raw(),
                 crate::text::Style {
                     color: style.text_color,
+                    selection: None,
                 },
+                theme.selection(),
                 viewport,
             );
         }
@@ -535,29 +554,32 @@ where
 
     fn operate(
         &mut self,
-        _tree: &mut Tree,
-        layout: Layout<'_>,
+        tree: &mut Tree,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        if let Some(label) = self.label.as_deref() {
-            operation.text(None, layout.bounds(), label);
+        if self.label.is_none() {
+            return;
         }
-    }
-}
 
-impl<'a, V, Message, Theme, Renderer>
-    From<Single<'a, V, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    V: 'a + Clone,
-    Message: 'a,
-    Theme: 'a + Catalog,
-    Renderer: 'a + text::Renderer,
-{
-    fn from(
-        radio: Single<'a, V, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(radio)
+        let paragraph = &mut tree
+            .state
+            .downcast_mut::<State<Renderer::Paragraph>>()
+            .paragraph;
+
+        let mut children = layout.iter(&tree.children);
+        let (layout, _) = children.next().unwrap();
+
+        operation.text(
+            None,
+            layout.bounds(),
+            &mut widget::text::Operand {
+                paragraph,
+                layout,
+                selectable: true,
+            },
+        );
     }
 }

@@ -66,11 +66,11 @@ pub use widget::{
 use iced_widget::container;
 
 use crate::core;
-use crate::core::Element;
+use crate::core::Widget;
 
 /// Creates a new [`Content`] with the provided body.
 pub fn grid_content<'a, Message, Theme, Renderer>(
-    body: impl Into<Element<'a, Message, Theme, Renderer>>,
+    body: impl Widget<Message, Theme, Renderer> + 'a,
 ) -> Content<'a, Message, Theme, Renderer>
 where
     Theme: container::Catalog,
@@ -81,7 +81,7 @@ where
 
 /// Creates a new [`TitleBar`] with the given content.
 pub fn title_bar<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    content: impl Widget<Message, Theme, Renderer> + 'a,
 ) -> TitleBar<'a, Message, Theme, Renderer>
 where
     Theme: container::Catalog,

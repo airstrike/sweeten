@@ -18,7 +18,7 @@
 //! # Example
 //! ```no_run
 //! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+//! # use iced::widget::Widget;
 //! #
 //! use sweeten::widget::progress_bar;
 //!
@@ -30,8 +30,8 @@
 //!     // ...
 //! }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
-//!     progress_bar(0.0..=100.0, state.progress).into()
+//! fn view(state: &State) -> impl Widget<Message> {
+//!     progress_bar(0.0..=100.0, state.progress)
 //! }
 //! ```
 use crate::animation::cubic_bezier;
@@ -41,11 +41,12 @@ use crate::core::layout;
 use crate::core::mouse;
 use crate::core::renderer;
 use crate::core::time::Instant;
+use crate::core::widget::Meta;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    self, Animation, Background, Color, Element, Event, Layout, Length,
-    Rectangle, Shell, Size, Theme, Widget,
+    self, Animation, Background, Color, Event, Layout, Length, Rectangle,
+    Shell, Size, Theme, Widget,
 };
 
 use std::ops::RangeInclusive;
@@ -67,7 +68,7 @@ const TRANSITION_DURATION: Duration = Duration::from_millis(150);
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-/// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+/// # use iced::widget::Widget;
 /// #
 /// use sweeten::widget::progress_bar;
 ///
@@ -79,8 +80,8 @@ const TRANSITION_DURATION: Duration = Duration::from_millis(150);
 ///     // ...
 /// }
 ///
-/// fn view(state: &State) -> Element<'_, Message> {
-///     progress_bar(0.0..=100.0, state.progress).into()
+/// fn view(state: &State) -> impl Widget<Message> {
+///     progress_bar(0.0..=100.0, state.progress)
 /// }
 /// ```
 pub struct ProgressBar<'a, Message, Theme = crate::Theme>
@@ -216,6 +217,11 @@ impl State {
     }
 }
 
+impl<Message, Theme> Meta for ProgressBar<'_, Message, Theme> where
+    Theme: Catalog
+{
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for ProgressBar<'_, Message, Theme>
 where
@@ -239,11 +245,11 @@ where
 
     fn layout(
         &mut self,
-        _tree: &mut Tree,
+        tree: &mut Tree,
         _renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        layout::atomic(limits, self.width(), self.height())
+    ) {
+        tree.size = layout::atomic(limits, self.width(), self.height());
     }
 
     fn diff(&mut self, tree: &mut Tree) {
@@ -263,7 +269,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        _layout: Layout<'_>,
+        _layout: Layout,
         _cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -290,7 +296,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         _cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
@@ -353,20 +359,6 @@ where
                 style.bar,
             );
         }
-    }
-}
-
-impl<'a, Message, Theme, Renderer> From<ProgressBar<'a, Message, Theme>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: 'a + Catalog,
-    Renderer: 'a + core::Renderer,
-{
-    fn from(
-        progress_bar: ProgressBar<'a, Message, Theme>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(progress_bar)
     }
 }
 

@@ -8,19 +8,18 @@
 //! # Example
 //! ```no_run
 //! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+//! # use iced::widget::Widget;
 //! use iced::widget::text;
 //! use sweeten::widget::transition::{self, Direction};
 //!
 //! struct State { phrase: String }
 //! enum Message {}
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &State) -> impl Widget<Message> + '_ {
 //!     transition::transition(state.phrase.clone(), |s: &String| {
-//!         text(s.clone()).size(24).into()
+//!         text(s.clone()).size(24).boxed()
 //!     })
 //!     .direction(Direction::Up)
-//!     .into()
 //! }
 //! ```
 //!
@@ -38,8 +37,8 @@ use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::time::Instant;
-use crate::core::widget::Operation;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::{Meta, Operation};
 use crate::core::window;
 use crate::core::{
     Alignment, Animation, Element, Event, Length, Padding, Pixels, Rectangle,
@@ -165,7 +164,7 @@ type ViewFn<'a, T, Message, Theme, Renderer> =
 fn current_offset<T>(
     mode: Mode,
     padding: Padding,
-    layout: &Layout<'_>,
+    layout: &Layout,
     state: &State<T>,
 ) -> Vector {
     if state.previous_value.is_none() || state.previous_layout.is_none() {
@@ -193,6 +192,12 @@ fn translate_cursor(cursor: mouse::Cursor, offset: Vector) -> mouse::Cursor {
         }
         other => other,
     }
+}
+
+/// The layout of the current child, placed inside the wrapper at the
+/// offset its alignment gave it during [`Widget::layout`].
+fn child_layout(wrapper: Layout, child: &Tree) -> Layout {
+    Layout::new(child.size).move_to(wrapper.position() + child.translation)
 }
 
 /// A widget that animates content swaps with a slide transition.
@@ -407,11 +412,11 @@ struct State<T> {
     previous_tree: Tree,
     /// Refreshed each [`Widget::layout`] call; moved into
     /// `previous_layout` on swap.
-    current_layout: Option<layout::Node>,
-    /// Frozen at swap time and held for the animation's duration.
-    /// Reflowing it would jitter the geometry that [`Widget::draw`]
-    /// is translating.
-    previous_layout: Option<layout::Node>,
+    current_layout: Option<Size>,
+    /// Frozen at swap time and held for the animation's duration,
+    /// together with the geometry of `previous_tree`. Reflowing it
+    /// would jitter the geometry that [`Widget::draw`] is translating.
+    previous_layout: Option<Size>,
     progress: Animation<f32>,
     /// Arming [`progress`] requires an [`Instant`], which only
     /// [`window::Event::RedrawRequested`] carries. Set in
@@ -426,6 +431,14 @@ impl<T> State<T> {
         self.previous_tree = Tree::empty();
         self.previous_layout = None;
     }
+}
+
+impl<'a, T, Message, Theme, Renderer> Meta
+    for Transition<'a, T, Message, Theme, Renderer>
+where
+    T: Clone + PartialEq + 'static,
+    Renderer: crate::core::Renderer,
+{
 }
 
 impl<'a, T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -443,7 +456,7 @@ where
         tree::State::new(State::<T> {
             current_value: self.value.clone(),
             previous_value: None,
-            current_tree: Tree::new(element.as_widget()),
+            current_tree: Tree::new(&element),
             previous_tree: Tree::empty(),
             current_layout: None,
             previous_layout: None,
@@ -456,6 +469,11 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        // The only child tree is the wrapper sized to the content area;
+        // it carries geometry only. The trees of the children live in
+        // the state, so they can swap places on a transition.
+        tree.children.resize_with(1, Tree::empty);
+
         let state = tree.state.downcast_mut::<State<T>>();
 
         if state.current_value != self.value {
@@ -473,7 +491,7 @@ where
             state.previous_layout = state.current_layout.take();
 
             let mut element = (self.view)(&state.current_value);
-            state.current_tree = Tree::new(element.as_widget());
+            state.current_tree = Tree::new(&element);
             state.current_tree.diff(&mut element);
 
             state.progress = Animation::new(0.0_f32)
@@ -503,7 +521,7 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let state = tree.state.downcast_mut::<State<T>>();
 
         // Stash the materialized current child on `self` so every
@@ -529,93 +547,90 @@ where
             .as_mut()
             .expect("current_element just set above");
 
-        // Defer to [`layout::positioned`] (same pattern as
+        // Mirrors [`layout::positioned`] (same pattern as
         // [`iced_widget::container`]'s `Widget::layout`) for the
         // width/height/max/padding/alignment plumbing. The wrinkle:
-        // `positioned` drives `padding.fit`/`resolve` from the
-        // content node's size, and we want those to see the *max*
-        // of current and any in-flight previous. The closure
-        // returns a wrapper node sized to `content_size` with the
-        // current aligned inside it; `positioned` then aligns that
-        // wrapper inside the resolved area. Two levels of alignment
-        // with the same `(h, v)` collapse to aligning the current
-        // directly within the resolved area.
-        layout::positioned(
-            limits,
-            self.width.max(self.max_width),
-            self.height.max(self.max_height),
-            self.padding,
-            |inner_limits| {
-                let inner_limits = inner_limits.loose();
+        // `padding.fit`/`resolve` must see the *max* of current and
+        // any in-flight previous. The wrapper child is sized to
+        // `content_size` with the current aligned inside it, and the
+        // wrapper is then aligned inside the resolved area. Two levels
+        // of alignment with the same `(h, v)` collapse to aligning the
+        // current directly within the resolved area.
+        let width = self.width.max(self.max_width);
+        let height = self.height.max(self.max_height);
+        let limits = limits.width(width).height(height);
+        let inner_limits = limits.shrink(self.padding).loose();
 
-                // Re-run layout on the current child every call.
-                // This is what triggers iced's child widgets to
-                // refresh their own tree-state caches — notably
-                // `text`'s `paragraph.update()`, which reshapes the
-                // cached paragraph when the content string changes.
-                // Only the *previous* child's layout is frozen; it's
-                // a snapshot we're animating out, not reactive.
-                let node = current_element.as_widget_mut().layout(
-                    &mut state.current_tree,
-                    renderer,
-                    &inner_limits,
-                );
-                state.current_layout = Some(node);
+        // Re-run layout on the current child every call. This is what
+        // triggers iced's child widgets to refresh their own tree-state
+        // caches — notably `text`'s `paragraph.update()`, which
+        // reshapes the cached paragraph when the content string
+        // changes. Only the *previous* child's layout is frozen; it's a
+        // snapshot we're animating out, not reactive.
+        current_element.layout(
+            &mut state.current_tree,
+            renderer,
+            &inner_limits,
+        );
+        state.current_layout = Some(state.current_tree.size);
 
-                // Fallback: swap happened before any layout call had
-                // run on the prior current, so `diff` had nothing to
-                // promote into `previous_layout`.
-                if state.previous_value.is_some()
-                    && state.previous_layout.is_none()
-                    && let Some(prev_value) = state.previous_value.clone()
-                {
-                    let mut prev_element = view(&prev_value);
-                    let node = prev_element.as_widget_mut().layout(
-                        &mut state.previous_tree,
-                        renderer,
-                        &inner_limits,
-                    );
-                    state.previous_layout = Some(node);
-                }
+        // Fallback: swap happened before any layout call had run on the
+        // prior current, so `diff` had nothing to promote into
+        // `previous_layout`.
+        if state.previous_value.is_some()
+            && state.previous_layout.is_none()
+            && let Some(prev_value) = state.previous_value.clone()
+        {
+            let mut prev_element = view(&prev_value);
+            prev_element.layout(
+                &mut state.previous_tree,
+                renderer,
+                &inner_limits,
+            );
+            state.previous_layout = Some(state.previous_tree.size);
+        }
 
-                let current_node = state
-                    .current_layout
-                    .as_ref()
-                    .expect("current_layout was just set above");
-                let current_size = current_node.size();
+        let current_size = state.current_tree.size;
 
-                // Per-axis max of both children, so the content area
-                // has room for both during a slide. Collapses to the
-                // current's size in steady state.
-                let content_size = match state.previous_layout.as_ref() {
-                    Some(prev) => {
-                        let prev_size = prev.size();
-                        Size::new(
-                            current_size.width.max(prev_size.width),
-                            current_size.height.max(prev_size.height),
-                        )
-                    }
-                    None => current_size,
-                };
+        // Per-axis max of both children, so the content area has room
+        // for both during a slide. Collapses to the current's size in
+        // steady state.
+        let content_size = match state.previous_layout {
+            Some(prev_size) => Size::new(
+                current_size.width.max(prev_size.width),
+                current_size.height.max(prev_size.height),
+            ),
+            None => current_size,
+        };
 
-                let mut current_inside = current_node.clone();
-                current_inside.align_mut(h_align, v_align, content_size);
-                layout::Node::with_children(content_size, vec![current_inside])
-            },
-            |content, size| content.align(h_align, v_align, size),
-        )
+        state.current_tree.translation =
+            current_size.align(content_size, h_align, v_align);
+
+        let padding = self.padding.fit(content_size, limits.bounds());
+        let size = limits.shrink(padding).resolve(width, height, content_size);
+
+        let wrapper = &mut tree.children[0];
+        wrapper.size = content_size;
+        wrapper.translation = Vector::new(padding.left, padding.top)
+            + content_size.align(size, h_align, v_align);
+
+        tree.size = size.expand(padding);
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        let current_layout = layout
+            .iter(&tree.children)
+            .next()
+            .map(|(wrapper, _)| wrapper);
         let state = tree.state.downcast_mut::<State<T>>();
 
         if let Event::Window(window::Event::RedrawRequested(now)) = event {
@@ -659,13 +674,10 @@ where
             .current_element
             .as_mut()
             .expect("just materialized above");
-        if let Some(current_layout) = layout
-            .children()
-            .next()
-            .and_then(|wrapper| wrapper.children().next())
-        {
+        if let Some(wrapper) = current_layout {
+            let current_layout = child_layout(wrapper, &state.current_tree);
             let adjusted_cursor = translate_cursor(cursor, current_offset);
-            current_element.as_widget_mut().update(
+            current_element.update(
                 &mut state.current_tree,
                 event,
                 current_layout,
@@ -680,7 +692,7 @@ where
     fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
@@ -689,17 +701,14 @@ where
         let Some(current_element) = self.current_element.as_ref() else {
             return mouse::Interaction::None;
         };
-        let Some(current_layout) = layout
-            .children()
-            .next()
-            .and_then(|wrapper| wrapper.children().next())
-        else {
+        let Some((wrapper, _)) = layout.iter(&tree.children).next() else {
             return mouse::Interaction::None;
         };
+        let current_layout = child_layout(wrapper, &state.current_tree);
         let current_offset =
             current_offset(self.mode, self.padding, &layout, state);
         let adjusted_cursor = translate_cursor(cursor, current_offset);
-        current_element.as_widget().mouse_interaction(
+        current_element.mouse_interaction(
             &state.current_tree,
             current_layout,
             adjusted_cursor,
@@ -711,10 +720,15 @@ where
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
+        let wrapper = layout
+            .iter(&tree.children)
+            .next()
+            .map(|(wrapper, _)| wrapper);
         let state = tree.state.downcast_mut::<State<T>>();
         if self.current_element.is_none() {
             self.current_element = Some((self.view)(&state.current_value));
@@ -723,16 +737,14 @@ where
             .current_element
             .as_mut()
             .expect("just materialized above");
-        let Some(current_layout) = layout
-            .children()
-            .next()
-            .and_then(|wrapper| wrapper.children().next())
-        else {
+        let Some(wrapper) = wrapper else {
             return;
         };
-        current_element.as_widget_mut().operate(
+        let current_layout = child_layout(wrapper, &state.current_tree);
+        current_element.operate(
             &mut state.current_tree,
             current_layout,
+            viewport,
             renderer,
             operation,
         );
@@ -744,7 +756,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -762,12 +774,11 @@ where
             height: (outer_bounds.height - self.padding.y()).max(0.0),
         };
         // Outer → Wrapper → Current navigation.
-        let Some(wrapper_layout) = layout.children().next() else {
+        let Some((wrapper_layout, _)) = layout.iter(&tree.children).next()
+        else {
             return;
         };
-        let Some(current_layout) = wrapper_layout.children().next() else {
-            return;
-        };
+        let current_layout = child_layout(wrapper_layout, &state.current_tree);
 
         let progress = match state.now {
             Some(now) => state.progress.interpolate_with(|v| v, now),
@@ -791,7 +802,7 @@ where
             // of the exiting content.
             if has_previous
                 && let Some(prev_value) = state.previous_value.as_ref()
-                && let Some(prev_node) = state.previous_layout.as_ref()
+                && let Some(prev_size) = state.previous_layout
             {
                 // Previous is re-materialized per draw rather than
                 // stashed on `self`: it's decorative, doesn't receive
@@ -803,18 +814,16 @@ where
                 // For matching alignment on both children, this
                 // places the previous's canonical position exactly
                 // on the current's — a shared anchor to slide from.
-                let mut prev_positioned = prev_node.clone();
-                prev_positioned.align_mut(
-                    Alignment::from(self.horizontal_alignment),
-                    Alignment::from(self.vertical_alignment),
-                    content_area.size(),
-                );
-                let prev_layout = Layout::with_offset(
-                    Vector::new(content_area.x, content_area.y),
-                    &prev_positioned,
+                let prev_layout = Layout::new(prev_size).move_to(
+                    content_area.position()
+                        + prev_size.align(
+                            content_area.size(),
+                            Alignment::from(self.horizontal_alignment),
+                            Alignment::from(self.vertical_alignment),
+                        ),
                 );
                 renderer.with_translation(prev_offset, |renderer| {
-                    prev_element.as_widget().draw(
+                    prev_element.draw(
                         &state.previous_tree,
                         renderer,
                         theme,
@@ -828,7 +837,7 @@ where
 
             if let Some(current_element) = self.current_element.as_ref() {
                 renderer.with_translation(cur_offset, |renderer| {
-                    current_element.as_widget().draw(
+                    current_element.draw(
                         &state.current_tree,
                         renderer,
                         theme,
@@ -845,26 +854,30 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        let Some((wrapper, _)) = layout.iter(&tree.children).next() else {
+            return Vec::new();
+        };
         let state = tree.state.downcast_mut::<State<T>>();
         if self.current_element.is_none() {
             self.current_element = Some((self.view)(&state.current_value));
         }
-        let element = self.current_element.as_mut()?;
-        let current_layout = layout
-            .children()
-            .next()
-            .and_then(|wrapper| wrapper.children().next())?;
-        element.as_widget_mut().overlay(
+        let Some(element) = self.current_element.as_mut() else {
+            return Vec::new();
+        };
+        let current_layout = child_layout(wrapper, &state.current_tree);
+        element.overlay(
             &mut state.current_tree,
             current_layout,
             renderer,
             viewport,
             translation,
+            window,
         )
     }
 }
@@ -882,22 +895,6 @@ where
     Renderer: crate::core::Renderer,
 {
     Transition::new(value, view)
-}
-
-impl<'a, T, Message, Theme, Renderer>
-    From<Transition<'a, T, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    T: Clone + PartialEq + 'static,
-    Message: 'a,
-    Theme: 'a,
-    Renderer: crate::core::Renderer + 'a,
-{
-    fn from(
-        widget: Transition<'a, T, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(widget)
-    }
 }
 
 impl std::fmt::Display for Direction {

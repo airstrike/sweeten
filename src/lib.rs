@@ -110,7 +110,7 @@ pub use helpers::*;
 #[doc(hidden)]
 pub use iced_core as core;
 pub use iced_core::Theme;
-pub use iced_widget::Renderer;
+pub use iced_widget::{Element, Renderer};
 pub use iced_widget::{scrollable, text_editor};
 
 // Re-export widget modules at crate level (mirrors iced_widget's structure)

@@ -125,13 +125,13 @@ use crate::core::text::paragraph;
 use crate::core::text::{self, Text};
 use crate::core::touch;
 use crate::core::widget;
-use crate::core::widget::Operation;
 use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::{Meta, Operation};
 use crate::core::window;
 use crate::core::{
-    Background, Border, Color, Element, Event, Layout, Length, Padding, Pixels,
-    Point, Rectangle, Shell, Size, Theme, Vector, Widget,
+    Background, Border, Color, Element, Event, Font, Layout, Length, Padding,
+    Pixels, Point, Rectangle, Shell, Size, Theme, Vector, Widget,
 };
 use crate::overlay::menu::{self, Menu};
 
@@ -235,11 +235,11 @@ pub struct PickList<
     padding: Padding,
     radius: Option<border::Radius>,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     ellipsis: text::Ellipsis,
-    font: Option<Renderer::Font>,
-    handle: Handle<Renderer::Font>,
+    font: Option<Font>,
+    handle: Handle,
     class: <Theme as Catalog>::Class<'a>,
     menu_class: <Theme as menu::Catalog>::Class<'a>,
     last_status: Option<Status>,
@@ -307,7 +307,7 @@ where
             padding: crate::button::DEFAULT_PADDING,
             radius: None,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             ellipsis: text::Ellipsis::End,
             font: None,
@@ -441,7 +441,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -458,13 +458,13 @@ where
     }
 
     /// Sets the font of the [`PickList`].
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
 
     /// Sets the [`Handle`] of the [`PickList`].
-    pub fn handle(mut self, handle: Handle<Renderer::Font>) -> Self {
+    pub fn handle(mut self, handle: Handle) -> Self {
         self.handle = handle;
         self
     }
@@ -572,6 +572,16 @@ where
     }
 }
 
+impl<'a, T, V, Message, Theme, Renderer> Meta
+    for PickList<'a, T, V, Message, Theme, Renderer>
+where
+    T: PartialEq + Clone,
+    V: Borrow<T> + 'a,
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+}
+
 impl<'a, T, V, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for PickList<'a, T, V, Message, Theme, Renderer>
 where
@@ -614,21 +624,22 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
-        let text_size =
-            self.text_size.unwrap_or_else(|| renderer.default_size());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let text_size = self.text_size.unwrap_or_else(|| renderer.text_size());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
 
         let option_text = Text {
             content: "",
             bounds: Size::new(
                 f32::INFINITY,
-                self.line_height.to_absolute(text_size).into(),
+                line_height.to_absolute(text_size).into(),
             ),
             size: text_size,
-            line_height: self.line_height,
+            line_height,
             font,
             align_x: text::Alignment::Default,
             align_y: alignment::Vertical::Center,
@@ -639,7 +650,7 @@ where
             font_features: Vec::new(),
             font_variations: Vec::new(),
             weight: None,
-            hint_factor: renderer.scale_factor(),
+            hint_factor: renderer.hint_factor(),
         };
 
         if let Some(Content::Text(placeholder)) = &self.placeholder {
@@ -717,20 +728,18 @@ where
             let child_limits = layout::Limits::new(
                 Size::ZERO,
                 Size::new(
-                    (content_limits.max().width
+                    (content_limits.bounds().width
                         - allowance
                         - self.padding.left)
                         .max(0.0),
-                    content_limits.max().height,
+                    content_limits.bounds().height,
                 ),
             );
 
-            let child_node = element.as_widget_mut().layout(
-                &mut tree.children[0],
-                renderer,
-                &child_limits,
-            );
-            let child_size = child_node.size();
+            let child = &mut tree.children[0];
+
+            element.layout(child, renderer, &child_limits);
+            let child_size = child.size;
 
             let intrinsic = Size::new(
                 max_width.max(child_size.width) + allowance + self.padding.left,
@@ -743,17 +752,17 @@ where
                 .resolve(self.width, Length::Shrink, intrinsic)
                 .expand(self.padding);
 
-            let child_node = child_node.move_to(Point::new(
+            child.translation = Vector::new(
                 self.padding.left,
                 (size.height - child_size.height) / 2.0,
-            ));
+            );
 
-            layout::Node::with_children(size, vec![child_node])
+            tree.size = size;
         } else {
             let size = {
                 let intrinsic = Size::new(
                     max_width + allowance + self.padding.left,
-                    f32::from(self.line_height.to_absolute(text_size)),
+                    f32::from(line_height.to_absolute(text_size)),
                 );
 
                 limits
@@ -763,14 +772,15 @@ where
                     .expand(self.padding)
             };
 
-            layout::Node::new(size)
+            tree.size = size;
         }
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
@@ -785,7 +795,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -980,7 +990,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
@@ -1005,11 +1015,13 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
 
         let bounds = layout.bounds();
@@ -1039,7 +1051,7 @@ where
                 Renderer::ICON_FONT,
                 Renderer::ARROW_DOWN_ICON,
                 *size,
-                text::LineHeight::default(),
+                None,
                 text::Shaping::Basic,
             )),
             Handle::Static(Icon {
@@ -1072,7 +1084,9 @@ where
         };
 
         if let Some((font, code_point, size, line_height, shaping)) = handle {
-            let size = size.unwrap_or_else(|| renderer.default_size());
+            let size = size.unwrap_or_else(|| renderer.text_size());
+            let line_height =
+                line_height.unwrap_or_else(|| renderer.line_height());
 
             renderer.fill_text(
                 Text {
@@ -1109,10 +1123,10 @@ where
 
         match content {
             Some(Content::Element(element)) => {
-                if let (Some(child_layout), Some(child_tree)) =
-                    (layout.children().next(), tree.children.first())
+                if let Some((child_layout, child_tree)) =
+                    layout.iter(&tree.children).next()
                 {
-                    element.as_widget().draw(
+                    element.draw(
                         child_tree,
                         renderer,
                         theme,
@@ -1131,17 +1145,17 @@ where
             }
             Some(Content::Text(label)) => {
                 let text_size =
-                    self.text_size.unwrap_or_else(|| renderer.default_size());
+                    self.text_size.unwrap_or_else(|| renderer.text_size());
 
                 renderer.fill_text(
                     Text {
                         content: label.clone(),
                         size: text_size,
-                        line_height: self.line_height,
+                        line_height,
                         font,
                         bounds: Size::new(
                             bounds.width - self.padding.x(),
-                            f32::from(self.line_height.to_absolute(text_size)),
+                            f32::from(line_height.to_absolute(text_size)),
                         ),
                         align_x: text::Alignment::Default,
                         align_y: alignment::Vertical::Center,
@@ -1152,7 +1166,7 @@ where
                         font_features: Vec::new(),
                         font_variations: Vec::new(),
                         weight: None,
-                        hint_factor: renderer.scale_factor(),
+                        hint_factor: renderer.hint_factor(),
                     },
                     Point::new(bounds.x + self.padding.left, bounds.center_y()),
                     if is_selected {
@@ -1170,17 +1184,18 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
         let Some(on_select) = &self.on_select else {
-            return None;
+            return Vec::new();
         };
 
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
 
         if state.is_open {
             let bounds = layout.bounds();
@@ -1235,9 +1250,12 @@ where
             .menu_padding(self.menu_padding)
             .padding(self.padding)
             .font(font)
-            .line_height(self.line_height)
             .ellipsis(self.ellipsis)
             .shaping(self.shaping);
+
+            if let Some(line_height) = self.line_height {
+                menu = menu.line_height(line_height);
+            }
 
             if let Some(text_size) = self.text_size {
                 menu = menu.text_size(text_size);
@@ -1251,30 +1269,17 @@ where
                 menu = menu.target_radius(radius);
             }
 
-            Some(menu.overlay(
+            vec![menu.overlay(
+                renderer,
                 layout.position() + translation,
                 *viewport,
+                window,
                 bounds.height,
                 self.menu_height,
-            ))
+            )]
         } else {
-            None
+            Vec::new()
         }
-    }
-}
-
-impl<'a, T, V, Message, Theme, Renderer>
-    From<PickList<'a, T, V, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    T: Clone + PartialEq + 'a,
-    V: Borrow<T> + 'a,
-    Message: Clone + 'a,
-    Theme: Catalog + 'a,
-    Renderer: text::Renderer + 'a,
-{
-    fn from(pick_list: PickList<'a, T, V, Message, Theme, Renderer>) -> Self {
-        Self::new(pick_list)
     }
 }
 
@@ -1755,7 +1760,7 @@ impl<P: text::Paragraph> Default for State<P> {
 
 /// The handle to the right side of the [`PickList`].
 #[derive(Debug, Clone, PartialEq)]
-pub enum Handle<Font> {
+pub enum Handle {
     /// Displays an arrow icon (▼).
     ///
     /// This is the default.
@@ -1764,19 +1769,19 @@ pub enum Handle<Font> {
         size: Option<Pixels>,
     },
     /// A custom static handle.
-    Static(Icon<Font>),
+    Static(Icon),
     /// A custom dynamic handle.
     Dynamic {
         /// The [`Icon`] used when [`PickList`] is closed.
-        closed: Icon<Font>,
+        closed: Icon,
         /// The [`Icon`] used when [`PickList`] is open.
-        open: Icon<Font>,
+        open: Icon,
     },
     /// No handle will be shown.
     None,
 }
 
-impl<Font> Default for Handle<Font> {
+impl Default for Handle {
     fn default() -> Self {
         Self::Arrow { size: None }
     }
@@ -1784,7 +1789,7 @@ impl<Font> Default for Handle<Font> {
 
 /// The icon of a [`Handle`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct Icon<Font> {
+pub struct Icon {
     /// Font that will be used to display the `code_point`,
     pub font: Font,
     /// The unicode code point that will be used as the icon.
@@ -1792,7 +1797,7 @@ pub struct Icon<Font> {
     /// Font size of the content.
     pub size: Option<Pixels>,
     /// Line height of the content.
-    pub line_height: text::LineHeight,
+    pub line_height: Option<text::LineHeight>,
     /// The shaping strategy of the icon.
     pub shaping: text::Shaping,
 }

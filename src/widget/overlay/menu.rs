@@ -10,13 +10,13 @@ use crate::core::renderer;
 use crate::core::text::paragraph;
 use crate::core::text::{self, Text};
 use crate::core::touch;
-use crate::core::widget::Id;
 use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
+use crate::core::widget::{Id, Meta};
 use crate::core::window;
 use crate::core::{
-    Background, Color, Event, Length, Padding, Pixels, Point, Rectangle,
-    Shadow, Size, Theme,
+    Background, Color, Event, Font, Length, Padding, Pixels, Point, Rectangle,
+    Shadow, Size, Theme, Vector,
 };
 use crate::core::{Element, Shell, Widget};
 use crate::scrollable::{self, Scrollable};
@@ -77,10 +77,10 @@ pub struct Menu<
     target_radius: Option<border::Radius>,
     padding: Padding,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     ellipsis: text::Ellipsis,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
 
@@ -133,7 +133,7 @@ where
             target_radius: None,
             padding: Padding::ZERO,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             ellipsis: text::Ellipsis::default(),
             font: None,
@@ -225,7 +225,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -242,7 +242,7 @@ where
     }
 
     /// Sets the font of the [`Menu`].
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
@@ -273,22 +273,29 @@ where
                 .unwrap_or(false)
     }
 
-    /// Turns the [`Menu`] into an overlay [`Element`] at the given target
+    /// Turns the [`Menu`] into an [`overlay::Element`] at the given target
     /// position.
+    ///
+    /// `position` is the target's position in screen coordinates, and
+    /// `window` is the size of the window.
     ///
     /// The `target_height` will be used to display the menu either on top
     /// of the target or under it, depending on the screen position and the
     /// dimensions of the [`Menu`].
     pub fn overlay(
         self,
+        renderer: &Renderer,
         position: Point,
         viewport: Rectangle,
+        window: Size,
         target_height: f32,
         menu_height: Length,
     ) -> overlay::Element<'a, Message, Theme, Renderer> {
         overlay::Element::new(Box::new(Overlay::new(
+            renderer,
             position,
             viewport,
+            window,
             self,
             target_height,
             menu_height,
@@ -322,16 +329,11 @@ where
     Theme: Catalog,
     Renderer: text::Renderer,
 {
-    position: Point,
+    layout: Layout,
     viewport: Rectangle,
     tree: &'a mut Tree,
-    list: Scrollable<'a, Message, Theme, Renderer>,
+    list: Scrollable<'a, Message, Element<'a, Message, Theme, Renderer>, Theme>,
     id: Id,
-    width: f32,
-    menu_width: Option<Length>,
-    anchor: Anchor,
-    aligned_row: Option<usize>,
-    target_height: f32,
     target_radius: Option<border::Radius>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
@@ -344,8 +346,10 @@ where
     'b: 'a,
 {
     pub fn new<T>(
+        renderer: &Renderer,
         position: Point,
         viewport: Rectangle,
+        window: Size,
         menu: Menu<'a, 'b, T, Message, Theme, Renderer>,
         target_height: f32,
         menu_height: Length,
@@ -499,28 +503,31 @@ where
 
         let id = Id::unique();
 
-        let mut list = Scrollable::new(List {
-            values,
-            rows,
-            option_rows,
-            hovered_option,
-            selected,
-            check_indicator,
-            on_selected,
-            on_option_hovered,
-            width: menu_width.unwrap_or(Length::Shrink),
-            spacing,
-            separator,
-            menu_padding,
-            target_radius,
-            font,
-            text_size,
-            line_height,
-            shaping,
-            ellipsis,
-            padding,
-            class,
-        })
+        let mut list = Scrollable::new(
+            List {
+                values,
+                rows,
+                option_rows,
+                hovered_option,
+                selected,
+                check_indicator,
+                on_selected,
+                on_option_hovered,
+                width: menu_width.unwrap_or(Length::Shrink),
+                spacing,
+                separator,
+                menu_padding,
+                target_radius,
+                font,
+                text_size,
+                line_height,
+                shaping,
+                ellipsis,
+                padding,
+                class,
+            }
+            ._boxed(),
+        )
         .id(id.clone())
         .direction(scrollable::Direction::Vertical(
             scrollable::Scrollbar::new()
@@ -534,23 +541,166 @@ where
         })
         .height(menu_height);
 
-        state.tree.diff(&mut list as &mut dyn Widget<_, _, _>);
+        state.tree.diff::<_, _, Renderer>(&mut list);
 
-        Self {
+        let layout = layout_list(
+            &mut list,
+            &mut state.tree,
+            renderer,
             position,
-            viewport,
-            tree: &mut state.tree,
-            list,
-            id,
+            window,
             width,
             menu_width,
             anchor,
             aligned_row,
             target_height,
+        );
+
+        Self {
+            layout,
+            viewport,
+            tree: &mut state.tree,
+            list,
+            id,
             target_radius,
             class,
         }
     }
+}
+
+/// Lays out the scrollable `list` of a menu against the `window`, and
+/// returns the [`Layout`] of the menu box in screen coordinates.
+///
+/// The `tree` of the list is translated inside the menu box to make room
+/// for the chevron strips, when the options overflow.
+#[allow(clippy::too_many_arguments)]
+fn layout_list<Message, Theme, Renderer>(
+    list: &mut dyn Widget<Message, Theme, Renderer>,
+    tree: &mut Tree,
+    renderer: &Renderer,
+    position: Point,
+    window: Size,
+    width: f32,
+    menu_width: Option<Length>,
+    anchor: Anchor,
+    aligned_row: Option<usize>,
+    target_height: f32,
+) -> Layout
+where
+    Renderer: text::Renderer,
+{
+    let space_below = window.height - (position.y + target_height);
+    let space_above = position.y;
+
+    let max_size = Size::new(
+        window.width - position.x,
+        if aligned_row.is_some() {
+            window.height
+        } else {
+            match anchor {
+                Anchor::Top => space_above,
+                Anchor::Bottom => space_below,
+                Anchor::Auto | Anchor::Selected => space_below.max(space_above),
+            }
+        },
+    );
+
+    let limits = match menu_width {
+        None | Some(Length::Shrink | Length::Fit) => layout::Limits::new(
+            Size::new(width.min(max_size.width), 0.0),
+            max_size,
+        ),
+        Some(width) => layout::Limits::new(Size::ZERO, max_size).width(width),
+    };
+
+    list.layout(tree, renderer, &limits);
+    let list_size = tree.size;
+
+    // when the options overflow, chevron strips at the edges take over
+    // from the (hidden) scrollbar: one per direction that can scroll
+    let (offset, strip_height) = tree
+        .children
+        .first()
+        .map(|tree| {
+            let state = tree.state.downcast_ref::<ListState>();
+
+            (state.offset, state.strip_height)
+        })
+        .unwrap_or((0.0, 0.0));
+
+    let content_height = tree
+        .children
+        .first()
+        .map(|content| content.size.height)
+        .unwrap_or(0.0);
+
+    let overflows = content_height > list_size.height + 0.5;
+    let can_scroll_up = overflows && offset > 0.5;
+    let can_scroll_down =
+        overflows && offset + list_size.height < content_height - 0.5;
+
+    let strips = f32::from(u8::from(can_scroll_up)) * strip_height
+        + f32::from(u8::from(can_scroll_down)) * strip_height;
+
+    let size = if strips > 0.0 {
+        let limits = layout::Limits::new(
+            limits.min,
+            Size::new(limits.max.width, (limits.max.height - strips).max(0.0)),
+        );
+
+        list.layout(tree, renderer, &limits);
+        let inner_size = tree.size;
+
+        tree.translation =
+            Vector::new(0.0, if can_scroll_up { strip_height } else { 0.0 });
+
+        Size::new(inner_size.width, inner_size.height + strips)
+    } else {
+        tree.translation = Vector::ZERO;
+
+        tree.size
+    };
+
+    // a menu wider than its target centers the excess on it, clamped
+    // to the window
+    let x = (position.x - (size.width - width) / 2.0)
+        .clamp(0.0, (window.width - size.width).max(0.0));
+
+    let position = if let Some(row) = aligned_row {
+        let list_top = tree.translation.y;
+
+        let row_bounds = tree
+            .children
+            .first()
+            .and_then(|content| content.children.get(row))
+            .map(|row| {
+                Rectangle::new(Point::ORIGIN + row.translation, row.size)
+            });
+
+        let y = row_bounds
+            .map(|row| {
+                position.y + (target_height - row.height) / 2.0
+                    - (row.y + list_top)
+            })
+            .unwrap_or(position.y + target_height)
+            .clamp(0.0, (window.height - size.height).max(0.0));
+
+        Point::new(x, y)
+    } else {
+        let open_below = match anchor {
+            Anchor::Top => false,
+            Anchor::Bottom => true,
+            Anchor::Auto | Anchor::Selected => space_below > space_above,
+        };
+
+        if open_below {
+            Point::new(x, position.y + target_height)
+        } else {
+            Point::new(x, position.y - size.height)
+        }
+    };
+
+    Layout::new(size).move_to(position)
 }
 
 impl<Message, Theme, Renderer> crate::core::Overlay<Message, Theme, Renderer>
@@ -559,144 +709,14 @@ where
     Theme: Catalog,
     Renderer: text::Renderer,
 {
-    fn layout(&mut self, renderer: &Renderer, bounds: Size) -> layout::Node {
-        let space_below =
-            bounds.height - (self.position.y + self.target_height);
-        let space_above = self.position.y;
-
-        let max_size = Size::new(
-            bounds.width - self.position.x,
-            if self.aligned_row.is_some() {
-                bounds.height
-            } else {
-                match self.anchor {
-                    Anchor::Top => space_above,
-                    Anchor::Bottom => space_below,
-                    Anchor::Auto | Anchor::Selected => {
-                        space_below.max(space_above)
-                    }
-                }
-            },
-        );
-
-        let limits = match self.menu_width {
-            None | Some(Length::Shrink | Length::Fit) => layout::Limits::new(
-                Size::new(self.width.min(max_size.width), 0.0),
-                max_size,
-            ),
-            Some(width) => {
-                layout::Limits::new(Size::ZERO, max_size).width(width)
-            }
-        };
-
-        let node = self.list.layout(self.tree, renderer, &limits);
-
-        // when the options overflow, chevron strips at the edges take over
-        // from the (hidden) scrollbar: one per direction that can scroll
-        let (offset, strip_height) = self
-            .tree
-            .children
-            .first()
-            .map(|tree| {
-                let state = tree.state.downcast_ref::<ListState>();
-
-                (state.offset, state.strip_height)
-            })
-            .unwrap_or((0.0, 0.0));
-
-        let content_height = node
-            .children()
-            .first()
-            .map(|content| content.size().height)
-            .unwrap_or(0.0);
-
-        let overflows = content_height > node.size().height + 0.5;
-        let can_scroll_up = overflows && offset > 0.5;
-        let can_scroll_down =
-            overflows && offset + node.size().height < content_height - 0.5;
-
-        let strips = f32::from(u8::from(can_scroll_up)) * strip_height
-            + f32::from(u8::from(can_scroll_down)) * strip_height;
-
-        let node = if strips > 0.0 {
-            let limits = layout::Limits::new(
-                limits.min(),
-                Size::new(
-                    limits.max().width,
-                    (limits.max().height - strips).max(0.0),
-                ),
-            );
-
-            let inner = self.list.layout(self.tree, renderer, &limits);
-            let inner_size = inner.size();
-
-            layout::Node::with_children(
-                Size::new(inner_size.width, inner_size.height + strips),
-                vec![inner.move_to(Point::new(
-                    0.0,
-                    if can_scroll_up { strip_height } else { 0.0 },
-                ))],
-            )
-        } else {
-            let size = node.size();
-
-            layout::Node::with_children(size, vec![node])
-        };
-
-        let size = node.size();
-
-        // a menu wider than its target centers the excess on it, clamped
-        // to the window
-        let x = (self.position.x - (size.width - self.width) / 2.0)
-            .clamp(0.0, (bounds.width - size.width).max(0.0));
-
-        if let Some(row) = self.aligned_row {
-            let list_top = node
-                .children()
-                .first()
-                .map(|list| list.bounds().y)
-                .unwrap_or(0.0);
-
-            let row_bounds = node
-                .children()
-                .first()
-                .and_then(|list| list.children().first())
-                .and_then(|content| content.children().get(row))
-                .map(layout::Node::bounds);
-
-            let y = row_bounds
-                .map(|row| {
-                    self.position.y + (self.target_height - row.height) / 2.0
-                        - (row.y + list_top)
-                })
-                .unwrap_or(self.position.y + self.target_height)
-                .clamp(0.0, (bounds.height - size.height).max(0.0));
-
-            node.move_to(Point::new(x, y))
-        } else {
-            let open_below = match self.anchor {
-                Anchor::Top => false,
-                Anchor::Bottom => true,
-                Anchor::Auto | Anchor::Selected => space_below > space_above,
-            };
-
-            node.move_to(if open_below {
-                Point::new(x, self.position.y + self.target_height)
-            } else {
-                Point::new(x, self.position.y - size.height)
-            })
-        }
-    }
-
     fn update(
         &mut self,
         event: &Event,
-        layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
     ) {
-        let Some(list_layout) = layout.children().next() else {
+        let Some(list_layout) = self.list_layout() else {
             return;
         };
         let list_bounds = list_layout.bounds();
@@ -720,6 +740,7 @@ where
             self.list.operate(
                 self.tree,
                 list_layout,
+                &list_bounds,
                 renderer,
                 &mut operation::scrollable::scroll_to::<()>(
                     self.id.clone(),
@@ -727,6 +748,7 @@ where
                         x: None,
                         y: Some(y),
                     },
+                    operation::Animation::Instant,
                 ),
             );
 
@@ -735,7 +757,7 @@ where
 
         // hovering a chevron strip scrolls one row per tick, like the
         // scroll buttons of native menus
-        let bounds = layout.bounds();
+        let bounds = self.layout.bounds();
         let (top_strip, bottom_strip) = strips(bounds, list_bounds);
 
         let over_top = cursor.is_over(top_strip);
@@ -769,11 +791,7 @@ where
                 }) {
                     state.last_auto_scroll = Some(*now);
 
-                    let content_height = list_layout
-                        .children()
-                        .next()
-                        .map(|content| content.bounds().height)
-                        .unwrap_or(0.0);
+                    let content_height = tree.size.height;
                     let max_scroll =
                         (content_height - list_bounds.height).max(0.0);
 
@@ -787,6 +805,7 @@ where
                     self.list.operate(
                         self.tree,
                         list_layout,
+                        &list_bounds,
                         renderer,
                         &mut operation::scrollable::scroll_to::<()>(
                             self.id.clone(),
@@ -794,6 +813,7 @@ where
                                 x: None,
                                 y: Some(target),
                             },
+                            operation::Animation::Instant,
                         ),
                     );
                 }
@@ -806,11 +826,10 @@ where
 
     fn mouse_interaction(
         &self,
-        layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let Some(list_layout) = layout.children().next() else {
+        let Some(list_layout) = self.list_layout() else {
             return mouse::Interaction::default();
         };
 
@@ -828,10 +847,37 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
         cursor: mouse::Cursor,
     ) {
-        let bounds = layout.bounds();
+        let bounds = self.layout.bounds();
+
+        renderer.with_layer(bounds, |renderer| {
+            self.draw_menu(renderer, theme, defaults, cursor);
+        });
+    }
+}
+
+impl<Message, Theme, Renderer> Overlay<'_, '_, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+    /// The [`Layout`] of the scrollable list, inside the menu box.
+    fn list_layout(&self) -> Option<Layout> {
+        self.layout
+            .iter(std::slice::from_ref(&*self.tree))
+            .next()
+            .map(|(layout, _)| layout)
+    }
+
+    fn draw_menu(
+        &self,
+        renderer: &mut Renderer,
+        theme: &Theme,
+        defaults: &renderer::Style,
+        cursor: mouse::Cursor,
+    ) {
+        let bounds = self.layout.bounds();
 
         let style = Catalog::style(theme, self.class);
 
@@ -850,7 +896,7 @@ where
             style.background,
         );
 
-        let Some(list_layout) = layout.children().next() else {
+        let Some(list_layout) = self.list_layout() else {
             return;
         };
         let list_bounds = list_layout.bounds();
@@ -955,10 +1001,10 @@ where
     target_radius: Option<border::Radius>,
     padding: Padding,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     ellipsis: text::Ellipsis,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     class: &'a <Theme as Catalog>::Class<'b>,
 }
 
@@ -978,11 +1024,16 @@ where
     }
 
     /// The selectable option under the given cursor position, if any.
-    fn option_at(&self, layout: Layout<'_>, position: Point) -> Option<usize> {
+    fn option_at(
+        &self,
+        layout: Layout,
+        children: &[Tree],
+        position: Point,
+    ) -> Option<usize> {
         self.rows
             .iter()
-            .zip(layout.children())
-            .find(|(_, row_layout)| row_layout.bounds().contains(position))
+            .zip(layout.iter(children))
+            .find(|(_, (row_layout, _))| row_layout.bounds().contains(position))
             .and_then(
                 |(row, _)| {
                     if row.disabled { None } else { row.option_index }
@@ -1016,19 +1067,23 @@ where
     let limits =
         layout::Limits::new(Size::ZERO, Size::new(max_width, f32::INFINITY));
 
-    widget.layout(tree, renderer, &limits).size().width
+    widget.layout(tree, renderer, &limits);
+
+    tree.size.width
 }
 
 /// Lays out an element row: the element is padded and the row takes its
 /// natural height.
+///
+/// The `row` tree holds the tree of the element as its only child.
 fn element_row<Message, Theme, Renderer>(
     widget: &mut dyn Widget<Message, Theme, Renderer>,
-    tree: &mut Tree,
+    row: &mut Tree,
     renderer: &Renderer,
     max_width: f32,
     padding: Padding,
     gutter: f32,
-) -> layout::Node
+) -> Size
 where
     Renderer: crate::core::Renderer,
 {
@@ -1037,16 +1092,22 @@ where
         Size::new(max_width - padding.x() - gutter, f32::INFINITY),
     );
 
-    let child = widget
-        .layout(tree, renderer, &limits)
-        .move_to(Point::new(padding.left, padding.top));
+    let child = &mut row.children[0];
 
-    let child_height = child.size().height;
+    widget.layout(child, renderer, &limits);
+    child.translation = Vector::new(padding.left, padding.top);
 
-    layout::Node::with_children(
-        Size::new(max_width, child_height + padding.y()),
-        vec![child],
-    )
+    let child_height = child.size.height;
+
+    Size::new(max_width, child_height + padding.y())
+}
+
+impl<T, Message, Theme, Renderer> Meta
+    for List<'_, '_, T, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
 }
 
 impl<T, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -1074,22 +1135,24 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        // Each row tree carries the geometry of its row; the row of an
+        // element holds the tree of the element as its only child.
         tree.diff_children_custom(
             &mut self.rows,
             |tree, row| match &mut row.kind {
                 RowKind::Element(element) => {
-                    tree.diff(element.as_widget_mut());
+                    tree.children.resize_with(1, Tree::empty);
+                    tree.children[0].diff(element);
                 }
                 RowKind::ElementRef(element) => {
-                    tree.diff(element.as_widget_mut());
+                    tree.children.resize_with(1, Tree::empty);
+                    tree.children[0].diff(&mut **element);
                 }
-                _ => {}
+                RowKind::Text(_) | RowKind::Title(_) | RowKind::Divider => {
+                    tree.children.clear();
+                }
             },
-            |row| match &row.kind {
-                RowKind::Element(element) => Tree::new(element.as_widget()),
-                RowKind::ElementRef(element) => Tree::new(element.as_widget()),
-                _ => Tree::empty(),
-            },
+            |_| Tree::empty(),
         );
     }
 
@@ -1105,17 +1168,17 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        let text_size =
-            self.text_size.unwrap_or_else(|| renderer.default_size());
+    ) {
+        let text_size = self.text_size.unwrap_or_else(|| renderer.text_size());
         let label_text_size = Pixels(text_size.0 * LABEL_TEXT_RATIO);
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
 
-        let option_height = f32::from(self.line_height.to_absolute(text_size))
+        let option_height =
+            f32::from(line_height.to_absolute(text_size)) + self.padding.y();
+        let label_height = f32::from(line_height.to_absolute(label_text_size))
             + self.padding.y();
-        let label_height =
-            f32::from(self.line_height.to_absolute(label_text_size))
-                + self.padding.y();
 
         let gutter = if self.check_indicator {
             text_size.0 * 1.5
@@ -1145,7 +1208,6 @@ where
 
         let max_width = match self.width {
             Length::Shrink | Length::Fit => {
-                let line_height = self.line_height;
                 let shaping = self.shaping;
                 let ellipsis = self.ellipsis;
 
@@ -1168,7 +1230,7 @@ where
                         font_features: Vec::new(),
                         font_variations: Vec::new(),
                         weight: None,
-                        hint_factor: renderer.scale_factor(),
+                        hint_factor: renderer.hint_factor(),
                     });
 
                     paragraph.min_width()
@@ -1177,7 +1239,7 @@ where
                 let widest = self.rows.iter_mut().zip(&mut tree.children).fold(
                     0.0f32,
                     |widest, (row, tree)| {
-                        let loose = limits.max().width
+                        let loose = limits.bounds().width
                             - self.menu_padding.x()
                             - inset.x()
                             - gutter;
@@ -1188,14 +1250,14 @@ where
                                 measure(title, label_text_size)
                             }
                             RowKind::Element(element) => element_width(
-                                element.as_widget_mut(),
-                                tree,
+                                element,
+                                &mut tree.children[0],
                                 renderer,
                                 loose,
                             ),
                             RowKind::ElementRef(element) => element_width(
-                                element.as_widget_mut(),
-                                tree,
+                                &mut **element,
+                                &mut tree.children[0],
                                 renderer,
                                 loose,
                             ),
@@ -1207,70 +1269,49 @@ where
                 );
 
                 (widest + self.menu_padding.x() + inset.x() + gutter)
-                    .clamp(limits.min().width, limits.max().width)
+                    .clamp(limits.min.width, limits.bounds().width)
             }
-            _ => limits.max().width,
+            _ => limits.bounds().width,
         };
 
         let row_width = max_width - self.menu_padding.x();
 
         let mut height = self.menu_padding.top;
 
-        let nodes = self
-            .rows
-            .iter_mut()
-            .zip(&mut tree.children)
-            .map(|(row, tree)| {
-                let node = match &mut row.kind {
-                    RowKind::Text(_) => {
-                        layout::Node::new(Size::new(row_width, option_height))
-                    }
-                    RowKind::Title(_) => {
-                        layout::Node::new(Size::new(row_width, label_height))
-                    }
-                    RowKind::Element(element) => element_row(
-                        element.as_widget_mut(),
-                        tree,
-                        renderer,
-                        row_width,
-                        inset,
-                        gutter,
-                    ),
-                    RowKind::ElementRef(element) => element_row(
-                        element.as_widget_mut(),
-                        tree,
-                        renderer,
-                        row_width,
-                        inset,
-                        gutter,
-                    ),
-                    RowKind::Divider => {
-                        layout::Node::new(Size::new(row_width, divider_height))
-                    }
-                };
+        for (row, tree) in self.rows.iter_mut().zip(&mut tree.children) {
+            let size = match &mut row.kind {
+                RowKind::Text(_) => Size::new(row_width, option_height),
+                RowKind::Title(_) => Size::new(row_width, label_height),
+                RowKind::Element(element) => element_row(
+                    element, tree, renderer, row_width, inset, gutter,
+                ),
+                RowKind::ElementRef(element) => element_row(
+                    &mut **element,
+                    tree,
+                    renderer,
+                    row_width,
+                    inset,
+                    gutter,
+                ),
+                RowKind::Divider => Size::new(row_width, divider_height),
+            };
 
-                let node =
-                    node.move_to(Point::new(self.menu_padding.left, height));
-                height += node.size().height;
+            tree.size = size;
+            tree.translation = Vector::new(self.menu_padding.left, height);
+            height += size.height;
+        }
 
-                node
-            })
-            .collect();
-
-        layout::Node::with_children(
-            Size::new(
-                max_width,
-                (height + self.menu_padding.bottom).min(limits.max().height),
-            ),
-            nodes,
-        )
+        tree.size = Size::new(
+            max_width,
+            (height + self.menu_padding.bottom).min(limits.bounds().height),
+        );
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -1280,7 +1321,8 @@ where
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
             | Event::Touch(touch::Event::FingerPressed { .. }) => {
                 if let Some(position) = cursor.position_over(layout.bounds())
-                    && let Some(index) = self.option_at(layout, position)
+                    && let Some(index) =
+                        self.option_at(layout, &tree.children, position)
                 {
                     *self.hovered_option = Some(index);
 
@@ -1292,7 +1334,8 @@ where
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(position) = cursor.position_over(layout.bounds())
-                    && let Some(index) = self.option_at(layout, position)
+                    && let Some(index) =
+                        self.option_at(layout, &tree.children, position)
                     && *self.hovered_option != Some(index)
                 {
                     *self.hovered_option = Some(index);
@@ -1416,7 +1459,8 @@ where
                     // reveal the highlighted option if it is scrolled out
                     // of view; the overlay applies the pending scroll
                     if let Some(&row) = self.option_rows.get(index)
-                        && let Some(row_layout) = layout.children().nth(row)
+                        && let Some((row_layout, _)) =
+                            layout.iter(&tree.children).nth(row)
                     {
                         let row_bounds = row_layout.bounds();
                         let offset = viewport.y - layout.bounds().y;
@@ -1456,14 +1500,14 @@ where
 
     fn mouse_interaction(
         &self,
-        _tree: &Tree,
-        layout: Layout<'_>,
+        tree: &Tree,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
         if let Some(position) = cursor.position_over(layout.bounds())
-            && self.option_at(layout, position).is_some()
+            && self.option_at(layout, &tree.children, position).is_some()
         {
             return mouse::Interaction::Pointer;
         }
@@ -1477,16 +1521,17 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let style = Catalog::style(theme, self.class);
 
-        let text_size =
-            self.text_size.unwrap_or_else(|| renderer.default_size());
+        let text_size = self.text_size.unwrap_or_else(|| renderer.text_size());
         let label_text_size = Pixels(text_size.0 * LABEL_TEXT_RATIO);
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
 
         let gutter = if self.check_indicator {
             text_size.0 * 1.5
@@ -1519,8 +1564,8 @@ where
 
         let list_bounds = layout.bounds();
 
-        for ((row, row_layout), tree) in
-            self.rows.iter().zip(layout.children()).zip(&tree.children)
+        for (row, (row_layout, tree)) in
+            self.rows.iter().zip(layout.iter(&tree.children))
         {
             let bounds = row_layout.bounds();
 
@@ -1574,10 +1619,10 @@ where
                         content: Renderer::CHECKMARK_ICON.to_string(),
                         font: Renderer::ICON_FONT,
                         size: check_size,
-                        line_height: self.line_height,
+                        line_height,
                         bounds: Size::new(
                             bounds.width,
-                            f32::from(self.line_height.to_absolute(check_size)),
+                            f32::from(line_height.to_absolute(check_size)),
                         ),
                         align_x: text::Alignment::Right,
                         align_y: alignment::Vertical::Center,
@@ -1609,7 +1654,7 @@ where
                                 bounds.height,
                             ),
                             size: text_size,
-                            line_height: self.line_height,
+                            line_height,
                             font,
                             align_x: text::Alignment::Default,
                             align_y: alignment::Vertical::Center,
@@ -1620,7 +1665,7 @@ where
                             font_features: Vec::new(),
                             font_variations: Vec::new(),
                             weight: None,
-                            hint_factor: renderer.scale_factor(),
+                            hint_factor: renderer.hint_factor(),
                         },
                         Point::new(bounds.x + inset.left, bounds.center_y()),
                         text_color,
@@ -1636,7 +1681,7 @@ where
                                 bounds.height,
                             ),
                             size: label_text_size,
-                            line_height: self.line_height,
+                            line_height,
                             font,
                             align_x: text::Alignment::Default,
                             align_y: alignment::Vertical::Center,
@@ -1647,7 +1692,7 @@ where
                             font_features: Vec::new(),
                             font_variations: Vec::new(),
                             weight: None,
-                            hint_factor: renderer.scale_factor(),
+                            hint_factor: renderer.hint_factor(),
                         },
                         Point::new(bounds.x + inset.left, bounds.center_y()),
                         style.label_text_color,
@@ -1655,8 +1700,10 @@ where
                     );
                 }
                 RowKind::Element(element) => {
-                    if let Some(child_layout) = row_layout.children().next() {
-                        element.as_widget().draw(
+                    if let Some((child_layout, tree)) =
+                        row_layout.iter(&tree.children).next()
+                    {
+                        element.draw(
                             tree,
                             renderer,
                             theme,
@@ -1668,8 +1715,10 @@ where
                     }
                 }
                 RowKind::ElementRef(element) => {
-                    if let Some(child_layout) = row_layout.children().next() {
-                        element.as_widget().draw(
+                    if let Some((child_layout, tree)) =
+                        row_layout.iter(&tree.children).next()
+                    {
+                        element.draw(
                             tree,
                             renderer,
                             theme,
@@ -1704,21 +1753,6 @@ where
                 }
             }
         }
-    }
-}
-
-impl<'a, 'b, T, Message, Theme, Renderer>
-    From<List<'a, 'b, T, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    T: Clone,
-    Message: 'a,
-    Theme: 'a + Catalog,
-    Renderer: 'a + text::Renderer,
-    'b: 'a,
-{
-    fn from(list: List<'a, 'b, T, Message, Theme, Renderer>) -> Self {
-        Element::new(list)
     }
 }
 

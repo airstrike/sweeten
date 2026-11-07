@@ -3,10 +3,10 @@
 //! Users opt into per-item flex behavior by wrapping an element in a
 //! [`FlexChild`] (typically through the `flex(elem)` helper added in a
 //! later phase) and chaining builder methods. Plain elements are
-//! accepted via the `From<E: Into<Element>>` blanket impl, so they
+//! accepted via the `From<W: Widget>` blanket impl, so they
 //! enter the flex container with CSS-default properties.
 
-use crate::core::{Element, Pixels};
+use crate::core::{Element, Pixels, Widget};
 
 use super::alignment::{AlignSelf, Axis};
 
@@ -69,7 +69,7 @@ pub enum Basis {
 /// An [`Element`] enriched with CSS-flex properties.
 ///
 /// Construct via the `flex(elem)` helper (added in a later phase) or
-/// implicitly via `From<E: Into<Element>>` — passing a plain element
+/// implicitly via `From<W: Widget>` — passing a plain element
 /// to `flex_row![...]` wraps it as a `FlexChild` with CSS defaults
 /// (`grow=0`, `shrink=1`, `basis=auto`, `align_self=auto`).
 #[allow(missing_debug_implementations)]
@@ -86,11 +86,20 @@ pub struct FlexChild<
 impl<'a, Message, Theme, Renderer> FlexChild<'a, Message, Theme, Renderer> {
     /// Creates a new [`FlexChild`] wrapping `content` with CSS-default
     /// properties.
-    pub fn new(
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
+    pub fn new(content: impl Widget<Message, Theme, Renderer> + 'a) -> Self {
+        Self {
+            content: content._boxed(),
+            properties: Properties::default(),
+        }
+    }
+
+    /// Creates a new [`FlexChild`] from an [`Element`] with CSS-default
+    /// properties.
+    pub(super) fn from_element(
+        content: Element<'a, Message, Theme, Renderer>,
     ) -> Self {
         Self {
-            content: content.into(),
+            content,
             properties: Properties::default(),
         }
     }
@@ -162,7 +171,7 @@ impl<'a, Message, Theme, Renderer> FlexChild<'a, Message, Theme, Renderer> {
     where
         Renderer: crate::core::Renderer,
     {
-        let size = self.content.as_widget().size();
+        let size = self.content.size();
         let (main_len, cross_len) = axis.pack(size.width, size.height);
 
         let fill_main = main_len.fill_factor();
@@ -200,12 +209,12 @@ impl<'a, Message, Theme, Renderer> FlexChild<'a, Message, Theme, Renderer> {
     }
 }
 
-impl<'a, E, Message, Theme, Renderer> From<E>
+impl<'a, W, Message, Theme, Renderer> From<W>
     for FlexChild<'a, Message, Theme, Renderer>
 where
-    E: Into<Element<'a, Message, Theme, Renderer>>,
+    W: Widget<Message, Theme, Renderer> + 'a,
 {
-    fn from(content: E) -> Self {
+    fn from(content: W) -> Self {
         FlexChild::new(content)
     }
 }

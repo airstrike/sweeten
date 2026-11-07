@@ -13,8 +13,8 @@
 
 use smallvec::{SmallVec, smallvec};
 
-use crate::core::layout::{Limits, Node};
-use crate::core::{Length, Padding, Point, Size};
+use crate::core::layout::Limits;
+use crate::core::{Length, Padding, Rectangle, Size};
 
 use super::alignment::{AlignItems, AlignSelf, Axis, Justify};
 use super::child::{Basis, Properties};
@@ -233,25 +233,28 @@ pub fn resolve<F>(
     reverse: bool,
     props: &[Properties],
     mut layout_item: F,
-) -> Node
+) -> Resolution
 where
-    F: FnMut(usize, &Limits) -> Node,
+    F: FnMut(usize, &Limits) -> Size,
 {
-    let limits = limits.width(width).height(height).shrink(padding);
+    let limits = unbounded(&limits.width(width).height(height).shrink(padding));
     let count = props.len();
 
     if count == 0 {
         let intrinsic = Size::new(0.0, 0.0);
         let size = limits.resolve(width, height, intrinsic);
-        return Node::with_children(size.expand(padding), Vec::new());
+        return Resolution {
+            size: size.expand(padding),
+            items: Vec::new(),
+        };
     }
 
     let total_gap = gap * count.saturating_sub(1) as f32;
-    let max_main = axis.main(limits.max());
-    let max_cross = axis.cross(limits.max());
+    let max_main = axis.main(limits.max);
+    let max_cross = axis.cross(limits.max);
 
     let (main_compress, cross_compress) = {
-        let compression = limits.compression();
+        let compression = limits.compression;
         axis.pack(compression.width, compression.height)
     };
 
@@ -264,11 +267,11 @@ where
         Size::new(cx, cy)
     };
 
-    // `nodes` is the layout output, returned via `Node::with_children`
-    // which needs a `Vec<Node>` — so it stays a Vec. The two scratch
-    // buffers below never escape `resolve`, so they stack-allocate
-    // inline for the common small-N case.
-    let mut nodes: Vec<Node> = (0..count).map(|_| Node::default()).collect();
+    // `nodes` is the layout output, returned as the items of the
+    // [`Resolution`] — so it stays a Vec. The two scratch buffers below
+    // never escape `resolve`, so they stack-allocate inline for the
+    // common small-N case.
+    let mut nodes: Vec<Rectangle> = vec![Rectangle::default(); count];
     let mut base_sizes: SmallVec<[f32; SV]> = smallvec![0.0; count];
     // Pass 1 sets `measured[i] = true` when an item's final layout has
     // already been recorded in `nodes[i]`. Pass 3 must skip them.
@@ -303,17 +306,18 @@ where
             {
                 let (mw, mh) = axis
                     .pack(b, if fill_cross == 0 { max_cross } else { cross });
-                let item_limits = Limits::with_compression(
+                let item_limits = Limits::with_flags(
                     Size::ZERO,
                     Size::new(mw, mh),
                     compression,
+                    Size::new(false, false),
                 );
                 let node = layout_item(i, &item_limits);
-                let item_main = axis.main(node.size());
+                let item_main = axis.main(node);
                 base_sizes[i] = item_main;
                 available -= item_main;
-                cross = cross.max(axis.cross(node.size()));
-                nodes[i] = node;
+                cross = cross.max(axis.cross(node));
+                nodes[i] = Rectangle::with_size(node);
                 measured[i] = true;
                 continue;
             }
@@ -322,19 +326,20 @@ where
                 available,
                 if fill_cross == 0 { max_cross } else { cross },
             );
-            let item_limits = Limits::with_compression(
+            let item_limits = Limits::with_flags(
                 Size::ZERO,
                 Size::new(mw, mh),
                 compression,
+                Size::new(false, false),
             );
             let node = layout_item(i, &item_limits);
-            let item_size = node.size();
+            let item_size = node;
 
             base_sizes[i] = axis.main(item_size);
             available -= base_sizes[i];
             cross = cross.max(axis.cross(item_size));
 
-            nodes[i] = node;
+            nodes[i] = Rectangle::with_size(node);
             measured[i] = true;
         } else if fill_cross != 0 {
             some_fill_cross = true;
@@ -365,19 +370,20 @@ where
                 }
 
                 let (mw, mh) = axis.pack(available, cross);
-                let item_limits = Limits::with_compression(
+                let item_limits = Limits::with_flags(
                     Size::ZERO,
                     Size::new(mw, mh),
                     compression,
+                    Size::new(false, false),
                 );
                 let node = layout_item(i, &item_limits);
-                let item_size = node.size();
+                let item_size = node;
 
                 base_sizes[i] = axis.main(item_size);
                 available -= base_sizes[i];
                 cross = cross.max(axis.cross(item_size));
 
-                nodes[i] = node;
+                nodes[i] = Rectangle::with_size(node);
                 measured[i] = true;
             }
         }
@@ -450,15 +456,16 @@ where
                 share_main,
                 if fill_cross == 0 { max_cross } else { cross },
             );
-            let item_limits = Limits::with_compression(
+            let item_limits = Limits::with_flags(
                 Size::new(min_w, min_h),
                 Size::new(max_w, max_h),
                 compression,
+                Size::new(false, false),
             );
             let node = layout_item(i, &item_limits);
-            cross = cross.max(axis.cross(node.size()));
+            cross = cross.max(axis.cross(node));
 
-            nodes[i] = node;
+            nodes[i] = Rectangle::with_size(node);
             measured[i] = true;
         }
     }
@@ -489,9 +496,9 @@ where
             let (mw, mh) = axis.pack(b, cross);
             let item_limits = Limits::new(Size::ZERO, Size::new(mw, mh));
             let node = layout_item(i, &item_limits);
-            cross = cross.max(axis.cross(node.size()));
-            base_sizes[i] = axis.main(node.size());
-            nodes[i] = node;
+            cross = cross.max(axis.cross(node));
+            base_sizes[i] = axis.main(node);
+            nodes[i] = Rectangle::with_size(node);
             measured[i] = true;
         }
     }
@@ -537,13 +544,14 @@ where
                     if p.fill_cross == 0 { max_cross } else { cross };
                 let (mw, mh) = axis.pack(final_sizes[i], cross_max);
                 let min = axis.pack(final_sizes[i], 0.0);
-                let item_limits = Limits::with_compression(
+                let item_limits = Limits::with_flags(
                     Size::new(min.0, min.1),
                     Size::new(mw, mh),
                     compression,
+                    Size::new(false, false),
                 );
                 let node = layout_item(i, &item_limits);
-                nodes[i] = node;
+                nodes[i] = Rectangle::with_size(node);
                 cross = cross.max(axis.cross(nodes[i].size()));
             }
         }
@@ -618,12 +626,44 @@ where
         };
 
         let (x, y) = axis.pack(main_cursor, pad.1 + cross_off);
-        nodes[i].move_to_mut(Point::new(x, y));
+        nodes[i].x = x;
+        nodes[i].y = y;
 
         main_cursor += item_main;
     }
 
-    Node::with_children(resolved_size.expand(padding), nodes)
+    Resolution {
+        size: resolved_size.expand(padding),
+        items: nodes,
+    }
+}
+
+/// The outcome of [`resolve`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resolution {
+    /// The size of the container, padding included.
+    pub size: Size,
+    /// The bounds of each item, in source order and relative to the
+    /// container.
+    pub items: Vec<Rectangle>,
+}
+
+/// Turns the `infinite` axes of the [`Limits`] into unbounded,
+/// compressed axes.
+///
+/// A scrollable marks its scroll axes as `infinite` and offers its
+/// viewport as a finite hint. The engine lays those axes out as
+/// unbounded and compressed, sizing them to their content.
+fn unbounded(limits: &Limits) -> Limits {
+    Limits::with_flags(
+        limits.min,
+        limits.bounds(),
+        Size::new(
+            limits.compression.width || limits.infinite.width,
+            limits.compression.height || limits.infinite.height,
+        ),
+        Size::new(false, false),
+    )
 }
 
 impl Properties {
@@ -701,25 +741,25 @@ mod tests {
             }
         }
 
-        fn layouter(&self) -> impl FnMut(usize, &Limits) -> Node + '_ {
+        fn layouter(&self) -> impl FnMut(usize, &Limits) -> Size + '_ {
             move |idx, _limits| {
                 self.order.borrow_mut().push(idx);
-                Node::new(self.sizes[idx])
+                self.sizes[idx]
             }
         }
 
         /// Layouter that clamps each fixture size to the limits' max,
         /// so a re-layout pass at a smaller main constraint yields a
         /// smaller node — modelling what a real iced container does.
-        fn honest_layouter(&self) -> impl FnMut(usize, &Limits) -> Node + '_ {
+        fn honest_layouter(&self) -> impl FnMut(usize, &Limits) -> Size + '_ {
             move |idx, limits| {
                 self.order.borrow_mut().push(idx);
                 let want = self.sizes[idx];
-                let max = limits.max();
-                Node::new(Size::new(
+                let max = limits.max;
+                Size::new(
                     want.width.min(max.width),
                     want.height.min(max.height),
-                ))
+                )
             }
         }
     }
@@ -939,27 +979,27 @@ mod tests {
             AlignItems::Start,
             false,
             &props,
-            |_, _| Node::default(),
+            |_, _| Size::ZERO,
         );
-        assert_eq!(node.size(), Size::new(0.0, 0.0));
-        assert!(node.children().is_empty());
+        assert_eq!(node.size, Size::new(0.0, 0.0));
+        assert!(node.items.is_empty());
     }
 
     #[test]
     fn resolve_basic_row_stretch_and_grow() {
         // Container 300x100, two items: a fixed 50x40 and a grow=1.
         // The grow item's layouter mimics a real Length::Fill widget
-        // by returning a Node sized to the limits.max() — which is
+        // by returning a size equal to the limits.max — which is
         // exactly what iced's Pass 3 expects from cooperating widgets.
         let lim = limits(300.0, 100.0);
 
         let order: RefCell<Vec<usize>> = RefCell::new(Vec::new());
-        let layouter = |idx: usize, ll: &Limits| -> Node {
+        let layouter = |idx: usize, ll: &Limits| -> Size {
             order.borrow_mut().push(idx);
             if idx == 0 {
-                Node::new(Size::new(50.0, 40.0))
+                Size::new(50.0, 40.0)
             } else {
-                Node::new(ll.max())
+                ll.max
             }
         };
 
@@ -982,13 +1022,13 @@ mod tests {
             layouter,
         );
 
-        assert_eq!(node.size(), Size::new(300.0, 100.0));
-        let kids = node.children();
+        assert_eq!(node.size, Size::new(300.0, 100.0));
+        let kids = &node.items;
         // Item 0 at x=0 — Justify::Center has no leftover to
         // distribute because item 1 grew to absorb everything.
-        assert_eq!(kids[0].bounds().x, 0.0);
+        assert_eq!(kids[0].x, 0.0);
         // Item 1 starts immediately after item 0.
-        assert!((kids[1].bounds().x - 50.0).abs() < 1e-3);
+        assert!((kids[1].x - 50.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1048,15 +1088,15 @@ mod tests {
 
         // Intrinsic main = 40 + 5 + 40 = 85; with padding L+R = 20.
         // Full width = 85 + 20 = 105.
-        assert!((node.size().width - 105.0).abs() < 1e-3);
+        assert!((node.size.width - 105.0).abs() < 1e-3);
         // Cross: max(20) + top+bottom padding = 20 + 20 = 40.
-        assert!((node.size().height - 40.0).abs() < 1e-3);
+        assert!((node.size.height - 40.0).abs() < 1e-3);
 
-        let kids = node.children();
-        assert!((kids[0].bounds().x - 10.0).abs() < 1e-3);
-        assert!((kids[1].bounds().x - 55.0).abs() < 1e-3);
+        let kids = &node.items;
+        assert!((kids[0].x - 10.0).abs() < 1e-3);
+        assert!((kids[1].x - 55.0).abs() < 1e-3);
         // Padding y = 10.
-        assert!((kids[0].bounds().y - 10.0).abs() < 1e-3);
+        assert!((kids[0].y - 10.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1088,10 +1128,10 @@ mod tests {
             fix.layouter(),
         );
 
-        let kids = node.children();
-        assert!((kids[0].bounds().x - 250.0).abs() < 1e-3);
-        assert!((kids[1].bounds().x - 200.0).abs() < 1e-3);
-        assert!((kids[2].bounds().x - 150.0).abs() < 1e-3);
+        let kids = &node.items;
+        assert!((kids[0].x - 250.0).abs() < 1e-3);
+        assert!((kids[1].x - 200.0).abs() < 1e-3);
+        assert!((kids[2].x - 150.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1127,13 +1167,13 @@ mod tests {
         // test the cross-compress bucket, not the grow path).
         props[1].grow = 0.0;
 
-        let layouter = |idx: usize, ll: &Limits| -> Node {
+        let layouter = |idx: usize, ll: &Limits| -> Size {
             order.borrow_mut().push(idx);
             if idx == 1 {
-                *item1_max_h.borrow_mut() = Some(ll.max().height);
-                Node::new(Size::new(80.0, ll.max().height))
+                *item1_max_h.borrow_mut() = Some(ll.max.height);
+                Size::new(80.0, ll.max.height)
             } else {
-                Node::new(Size::new(60.0, 24.0))
+                Size::new(60.0, 24.0)
             }
         };
 
@@ -1191,8 +1231,8 @@ mod tests {
         // distribute remaining via fill_main_factor. Mimic a real
         // Length::Fill widget by returning Node sized to the limits.
         let lim = limits(300.0, 50.0);
-        let layouter = |_idx: usize, ll: &Limits| -> Node {
-            Node::new(Size::new(ll.max().width, 20.0))
+        let layouter = |_idx: usize, ll: &Limits| -> Size {
+            Size::new(ll.max.width, 20.0)
         };
         let props = vec![p_fill_main(1), p_fill_main(2)];
 
@@ -1210,11 +1250,11 @@ mod tests {
             layouter,
         );
 
-        let kids = node.children();
+        let kids = &node.items;
         // Total 300 split 1:2 => item 0 takes 100, item 1 takes 200.
-        assert_eq!(kids[0].bounds().x, 0.0);
-        assert!((kids[1].bounds().x - 100.0).abs() < 1e-3);
-        assert!((kids[1].bounds().width - 200.0).abs() < 1e-3);
+        assert_eq!(kids[0].x, 0.0);
+        assert!((kids[1].x - 100.0).abs() < 1e-3);
+        assert!((kids[1].width - 200.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1240,10 +1280,10 @@ mod tests {
             fix.layouter(),
         );
 
-        let kids = node.children();
-        assert_eq!(kids[0].bounds().y, 0.0);
+        let kids = &node.items;
+        assert_eq!(kids[0].y, 0.0);
         // Item 1 cross=30, container=100 => y=70.
-        assert!((kids[1].bounds().y - 70.0).abs() < 1e-3);
+        assert!((kids[1].y - 70.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1268,14 +1308,14 @@ mod tests {
             fix.layouter(),
         );
 
-        let kids = node.children();
+        let kids = &node.items;
         // Vertical: items stack on y, share x=0.
-        assert_eq!(kids[0].bounds().y, 0.0);
-        assert_eq!(kids[1].bounds().y, 50.0);
-        assert_eq!(kids[0].bounds().x, 0.0);
-        assert_eq!(kids[1].bounds().x, 0.0);
+        assert_eq!(kids[0].y, 0.0);
+        assert_eq!(kids[1].y, 50.0);
+        assert_eq!(kids[0].x, 0.0);
+        assert_eq!(kids[1].x, 0.0);
         // Cross intrinsic = max(40, 60) = 60.
-        assert!((node.size().width - 60.0).abs() < 1e-3);
+        assert!((node.size.width - 60.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1302,11 +1342,11 @@ mod tests {
             fix.layouter(),
         );
 
-        let kids = node.children();
+        let kids = &node.items;
         // 150px leftover, 2 gaps => 75 each. Items at 0, 125, 250.
-        assert!((kids[0].bounds().x - 0.0).abs() < 1e-3);
-        assert!((kids[1].bounds().x - 125.0).abs() < 1e-3);
-        assert!((kids[2].bounds().x - 250.0).abs() < 1e-3);
+        assert!((kids[0].x - 0.0).abs() < 1e-3);
+        assert!((kids[1].x - 125.0).abs() < 1e-3);
+        assert!((kids[2].x - 250.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1337,14 +1377,14 @@ mod tests {
             fix.layouter(),
         );
 
-        let kids = node.children();
+        let kids = &node.items;
         // Resolved container = intrinsic = 150. No leftover to
         // distribute. Items at 0, 50, 100.
-        assert!((kids[0].bounds().x - 0.0).abs() < 1e-3);
-        assert!((kids[1].bounds().x - 50.0).abs() < 1e-3);
-        assert!((kids[2].bounds().x - 100.0).abs() < 1e-3);
+        assert!((kids[0].x - 0.0).abs() < 1e-3);
+        assert!((kids[1].x - 50.0).abs() < 1e-3);
+        assert!((kids[2].x - 100.0).abs() < 1e-3);
         // Container should be intrinsic-sized, not max-sized.
-        assert!((node.size().width - 150.0).abs() < 1e-3);
+        assert!((node.size.width - 150.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1386,10 +1426,10 @@ mod tests {
             fix.honest_layouter(),
         );
 
-        let kids = node.children();
-        let a = kids[0].bounds().width;
-        let b = kids[1].bounds().width;
-        let c = kids[2].bounds().width;
+        let kids = &node.items;
+        let a = kids[0].width;
+        let b = kids[1].width;
+        let c = kids[2].width;
         assert!((a - 171.43).abs() < 0.5, "A = {a}, expected ≈ 171.43");
         assert!((b - 257.14).abs() < 0.5, "B = {b}, expected ≈ 257.14");
         assert!((c - 171.43).abs() < 0.5, "C = {c}, expected ≈ 171.43");
@@ -1422,9 +1462,9 @@ mod tests {
         );
 
         // Container size = item size, no gap applied (count-1 = 0).
-        assert!((node.size().width - 80.0).abs() < 1e-3);
-        let kids = node.children();
-        assert_eq!(kids[0].bounds().x, 0.0);
+        assert!((node.size.width - 80.0).abs() < 1e-3);
+        let kids = &node.items;
+        assert_eq!(kids[0].x, 0.0);
     }
 
     #[test]

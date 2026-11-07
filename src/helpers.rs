@@ -29,7 +29,7 @@ macro_rules! column {
         $crate::widget::Column::new()
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::widget::Column::with_children([$($crate::core::Element::from($x)),+])
+        $crate::widget::Column::with_children([$($crate::core::Widget::_boxed($x)),+])
     );
 }
 
@@ -42,7 +42,7 @@ macro_rules! row {
         $crate::widget::Row::new()
     );
     ($($x:expr),+ $(,)?) => (
-        $crate::widget::Row::with_children([$($crate::core::Element::from($x)),+])
+        $crate::widget::Row::with_children([$($crate::core::Widget::_boxed($x)),+])
     );
 }
 
@@ -76,12 +76,11 @@ where
 /// [`iced`'s `button`]: https://docs.iced.rs/iced/widget/button/index.html
 /// [`on_focus`]: Button::on_focus
 /// [`on_blur`]: Button::on_blur
-pub fn button<'a, Message, Theme, Renderer>(
-    content: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> Button<'a, Message, Theme, Renderer>
+pub fn button<'a, Message, W, Theme>(
+    content: W,
+) -> Button<'a, Message, W, Theme>
 where
-    Renderer: core::Renderer,
-    Theme: button::Catalog,
+    Theme: button::Catalog + 'a,
 {
     Button::new(content)
 }
@@ -147,12 +146,7 @@ where
 ///
 /// [`iced`'s `MouseArea`]: https://docs.iced.rs/iced/widget/struct.MouseArea.html
 /// [`Point`]: crate::core::Point
-pub fn mouse_area<'a, Message, Theme, Renderer>(
-    widget: impl Into<Element<'a, Message, Theme, Renderer>>,
-) -> MouseArea<'a, Message, Theme, Renderer>
-where
-    Renderer: core::Renderer,
-{
+pub fn mouse_area<'a, Message, W>(widget: W) -> MouseArea<'a, Message, W> {
     MouseArea::new(widget)
 }
 
@@ -211,7 +205,7 @@ where
     Theme: crate::widget::gt::Catalog + iced_widget::text::Catalog + 'a,
     <Theme as iced_widget::text::Catalog>::Class<'a>:
         From<iced_widget::text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+    Renderer: core::text::Renderer + 'a,
 {
     // A module-level `use crate::widget::gt` would collide with this
     // function's own name, so the import is scoped to the body.
@@ -271,12 +265,11 @@ where
 /// animation when toggling between states.
 ///
 /// [`iced`'s `toggler`]: https://docs.iced.rs/iced/widget/toggler/index.html
-pub fn toggler<'a, Message, Theme, Renderer>(
+pub fn toggler<'a, Message, Theme>(
     is_toggled: bool,
-) -> Toggler<'a, Message, Theme, Renderer>
+) -> Toggler<'a, Message, Theme>
 where
     Theme: toggler::Catalog,
-    Renderer: core::text::Renderer,
 {
     Toggler::new(is_toggled)
 }
@@ -306,12 +299,11 @@ where
 /// [`FitText`] scales its font size to fit the bounds it is laid out into,
 /// up to a configurable ceiling. See the [`fit_text`](mod@crate::widget::fit_text)
 /// module docs for the semantics.
-pub fn fit_text<'a, Theme, Renderer>(
+pub fn fit_text<'a, Theme>(
     content: impl core::text::IntoFragment<'a>,
-) -> FitText<'a, Theme, Renderer>
+) -> FitText<'a, Theme>
 where
     Theme: fit_text::Catalog,
-    Renderer: core::text::Renderer,
 {
     FitText::new(content)
 }

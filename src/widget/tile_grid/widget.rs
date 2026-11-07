@@ -20,7 +20,7 @@ use iced_widget::container;
 use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
-use crate::core::overlay::{self, Group};
+use crate::core::overlay;
 use crate::core::renderer;
 use crate::core::time::{Duration, Instant};
 use crate::core::touch;
@@ -28,8 +28,8 @@ use crate::core::widget;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    self, Background, Border, Color, Element, Event, Layout, Length, Pixels,
-    Point, Rectangle, Shell, Size, Theme, Vector, Widget,
+    self, Background, Border, Color, Event, Layout, Length, Pixels, Point,
+    Rectangle, Shell, Size, Theme, Vector, Widget,
 };
 
 use super::content::Content;
@@ -1046,6 +1046,14 @@ struct Memory {
     modifiers: keyboard::Modifiers,
 }
 
+impl<Message, Theme, Renderer> widget::Meta
+    for TileGrid<'_, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: core::Renderer,
+{
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for TileGrid<'_, Message, Theme, Renderer>
 where
@@ -1099,8 +1107,8 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        let max = limits.max();
+    ) {
+        let max = limits.max;
         #[allow(unreachable_patterns)]
         let resolved_width = match self.width {
             Length::Fill | Length::FillPortion(_) => max.width,
@@ -1179,44 +1187,46 @@ where
         memory.group_rects = positions.group_rects;
 
         let content_rects = positions.content;
-        let children = self
+
+        for ((id, content), tree) in self
             .items
             .iter()
             .zip(&mut self.contents)
             .zip(tree.children.iter_mut())
-            .map(|((id, content), tree)| {
-                if let Some(rect) = content_rects.get(id) {
-                    let size = Size::new(rect.width, rect.height);
-                    let node = content.layout(
-                        tree,
-                        renderer,
-                        &layout::Limits::new(size, size),
-                    );
-                    node.move_to(Point::new(rect.x, rect.y))
-                } else {
-                    layout::Node::new(Size::ZERO)
-                }
-            })
-            .collect();
+        {
+            if let Some(rect) = content_rects.get(id) {
+                let size = Size::new(rect.width, rect.height);
+                content.layout(
+                    tree,
+                    renderer,
+                    &layout::Limits::new(size, size),
+                );
+                tree.translation = Vector::new(rect.x, rect.y);
+            } else {
+                tree.size = Size::ZERO;
+                tree.translation = Vector::ZERO;
+            }
+        }
 
-        layout::Node::with_children(bounds, children)
+        tree.size = bounds;
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        operation.container(None, layout.bounds());
+        operation.container(None, layout.bounds(), viewport);
         operation.traverse(&mut |operation| {
             self.contents
                 .iter_mut()
-                .zip(&mut tree.children)
-                .zip(layout.children())
-                .for_each(|((content, state), layout)| {
-                    content.operate(state, layout, renderer, operation);
+                .zip(layout.iter_mut(&mut tree.children))
+                .for_each(|(content, (layout, state))| {
+                    content
+                        .operate(state, layout, viewport, renderer, operation);
                 });
         });
     }
@@ -1225,7 +1235,7 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -1240,12 +1250,12 @@ where
         };
 
         // Propagate events to contents.
-        for ((id, content), (tree, layout)) in self
-            .items
-            .iter()
-            .copied()
-            .zip(&mut self.contents)
-            .zip(tree.children.iter_mut().zip(layout.children()))
+        for ((id, content), (tree, layout)) in
+            self.items.iter().copied().zip(&mut self.contents).zip(
+                layout
+                    .iter_mut(&mut tree.children)
+                    .map(|(layout, tree)| (tree, layout)),
+            )
         {
             let is_picked = picked_item == Some(id);
             content.update(
@@ -1329,8 +1339,11 @@ where
                     // Resize first (bottom-right edge of a leaf).
                     if self.on_action.is_some()
                         && !self.locked
-                        && let Some(resize_id) =
-                            self.find_resize_target(layout, cursor_position)
+                        && let Some(resize_id) = self.find_resize_target(
+                            layout,
+                            &tree.children,
+                            cursor_position,
+                        )
                         && let Some((w, h)) = self
                             .owner_engine(self.parent_of(resize_id))
                             .get(resize_id)
@@ -1355,6 +1368,7 @@ where
                     self.click_item(
                         interaction,
                         layout,
+                        &tree.children,
                         cursor_position,
                         shell,
                         group_rects,
@@ -1609,7 +1623,8 @@ where
 
                         let hovered_index = over.and_then(|pos| {
                             layout
-                                .children()
+                                .iter(&tree.children)
+                                .map(|(layout, _)| layout)
                                 .enumerate()
                                 .find(|(_, child)| child.bounds().contains(pos))
                                 .map(|(i, _)| i)
@@ -1623,13 +1638,21 @@ where
                             self.items
                                 .iter()
                                 .copied()
-                                .zip(layout.children())
+                                .zip(
+                                    layout
+                                        .iter(&tree.children)
+                                        .map(|(layout, _)| layout),
+                                )
                                 .find(|(_, child)| child.bounds().contains(pos))
                                 .or_else(|| {
                                     self.items
                                         .iter()
                                         .copied()
-                                        .zip(layout.children())
+                                        .zip(
+                                            layout
+                                                .iter(&tree.children)
+                                                .map(|(layout, _)| layout),
+                                        )
                                         .find(|(_, child)| {
                                             let b = child.bounds();
                                             Rectangle {
@@ -1672,15 +1695,20 @@ where
                 &tree.state.downcast_ref::<Memory>().interaction;
 
             let interaction = self
-                .grid_interaction(current_interaction, layout, cursor)
+                .grid_interaction(
+                    current_interaction,
+                    layout,
+                    &tree.children,
+                    cursor,
+                )
                 .or_else(|| {
                     let drag_enabled = self.on_action.is_some() && !self.locked;
-                    self.items
+                    self.contents
                         .iter()
-                        .zip(&self.contents)
-                        .zip(layout.children())
-                        .find_map(|((_, content), layout)| {
+                        .zip(layout.iter(&tree.children))
+                        .find_map(|(content, (layout, tree))| {
                             content.grid_interaction(
+                                tree,
                                 layout,
                                 cursor,
                                 drag_enabled,
@@ -1703,7 +1731,7 @@ where
     fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
@@ -1733,7 +1761,9 @@ where
         if self.on_action.is_some()
             && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
-            && self.find_resize_target(layout, cursor_position).is_some()
+            && self
+                .find_resize_target(layout, &tree.children, cursor_position)
+                .is_some()
         {
             return mouse::Interaction::ResizingDiagonallyDown;
         }
@@ -1743,9 +1773,8 @@ where
         self.items
             .iter()
             .zip(&self.contents)
-            .zip(&tree.children)
-            .zip(layout.children())
-            .map(|(((_, content), tree), layout)| {
+            .zip(layout.iter(&tree.children))
+            .map(|((_, content), (layout, tree))| {
                 content.mouse_interaction(
                     tree,
                     layout,
@@ -1765,7 +1794,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -1925,7 +1954,7 @@ where
                 .iter()
                 .copied()
                 .zip(&self.contents)
-                .zip(layout.children())
+                .zip(layout.iter(&tree.children).map(|(layout, _)| layout))
             {
                 let item_bounds = item_layout.bounds();
                 if resizing_id.is_none_or(|rid| rid != id)
@@ -2002,7 +2031,7 @@ where
                 .items
                 .iter()
                 .copied()
-                .zip(layout.children())
+                .zip(layout.iter(&tree.children).map(|(layout, _)| layout))
                 .filter_map(|(id, child_layout)| {
                     if id == dragged_id {
                         return None;
@@ -2131,11 +2160,12 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
         // Controls overlays render only for the hovered item, and never while
         // a drag or resize is in flight — otherwise they float around with the
         // reflowing layout and get in the way of the gesture.
@@ -2143,14 +2173,12 @@ where
         let controls_hovered = memory.controls_hovered;
         let interacting = !matches!(memory.interaction, Interaction::Idle);
 
-        let children = self
-            .items
+        self.items
             .iter()
             .copied()
             .zip(&mut self.contents)
-            .zip(&mut tree.children)
-            .zip(layout.children())
-            .filter_map(|(((id, content), state), layout)| {
+            .zip(layout.iter_mut(&mut tree.children))
+            .flat_map(|((id, content), (layout, state))| {
                 let show_controls =
                     !interacting && controls_hovered == Some(id);
                 content.overlay(
@@ -2159,12 +2187,11 @@ where
                     renderer,
                     viewport,
                     translation,
+                    window,
                     show_controls,
                 )
             })
-            .collect::<Vec<_>>();
-
-        (!children.is_empty()).then(|| Group::with_children(children).overlay())
+            .collect()
     }
 }
 
@@ -2180,14 +2207,17 @@ where
     fn draw_order<'b>(
         &'b self,
         tree: &'b Tree,
-        layout: Layout<'b>,
+        layout: Layout,
     ) -> Vec<(
         ItemId,
         &'b Content<'a, Message, Theme, Renderer>,
         &'b Tree,
-        Layout<'b>,
+        Layout,
     )> {
-        let layouts: Vec<Layout<'b>> = layout.children().collect();
+        let layouts: Vec<Layout> = layout
+            .iter(&tree.children)
+            .map(|(layout, _)| layout)
+            .collect();
         let mut out = Vec::with_capacity(self.items.len());
         self.push_draw_order(None, tree, &layouts, &mut out);
         out
@@ -2198,12 +2228,12 @@ where
         &'b self,
         parent: Option<ItemId>,
         tree: &'b Tree,
-        layouts: &[Layout<'b>],
+        layouts: &[Layout],
         out: &mut Vec<(
             ItemId,
             &'b Content<'a, Message, Theme, Renderer>,
             &'b Tree,
-            Layout<'b>,
+            Layout,
         )>,
     ) {
         for (i, &id) in self.items.iter().enumerate() {
@@ -2314,7 +2344,8 @@ where
     /// Finds a resizable leaf whose bottom-right corner is near the cursor.
     fn find_resize_target(
         &self,
-        layout: Layout<'_>,
+        layout: Layout,
+        children: &[Tree],
         cursor_position: Point,
     ) -> Option<ItemId> {
         for ((id, content), item_layout) in self
@@ -2322,7 +2353,7 @@ where
             .iter()
             .copied()
             .zip(&self.contents)
-            .zip(layout.children())
+            .zip(layout.iter(children).map(|(layout, _)| layout))
         {
             if self.is_group(id) || !content.is_resizable() {
                 continue;
@@ -2342,7 +2373,8 @@ where
     fn grid_interaction(
         &self,
         current_interaction: &Interaction,
-        layout: Layout<'_>,
+        layout: Layout,
+        children: &[Tree],
         cursor: mouse::Cursor,
     ) -> Option<mouse::Interaction> {
         match current_interaction {
@@ -2365,7 +2397,9 @@ where
         if self.on_action.is_some()
             && !self.locked
             && let Some(cursor_position) = cursor.position_over(bounds)
-            && self.find_resize_target(layout, cursor_position).is_some()
+            && self
+                .find_resize_target(layout, children, cursor_position)
+                .is_some()
         {
             return Some(mouse::Interaction::ResizingDiagonallyDown);
         }
@@ -2377,7 +2411,8 @@ where
     fn click_item(
         &self,
         interaction: &mut Interaction,
-        layout: Layout<'_>,
+        layout: Layout,
+        children: &[Tree],
         cursor_position: Point,
         shell: &mut Shell<'_, Message>,
         group_rects: &HashMap<ItemId, Rectangle>,
@@ -2388,13 +2423,19 @@ where
             .iter()
             .copied()
             .zip(&self.contents)
-            .zip(layout.children())
-            .find(|((_, _), layout)| layout.bounds().contains(cursor_position));
+            .zip(layout.iter(children))
+            .find(|((_, _), (layout, _))| {
+                layout.bounds().contains(cursor_position)
+            });
 
-        if let Some(((id, content), item_layout)) = clicked {
+        if let Some(((id, content), (item_layout, item_tree))) = clicked {
             let in_drag_zone = !self.locked
                 && content.is_draggable()
-                && content.can_be_dragged_at(item_layout, cursor_position);
+                && content.can_be_dragged_at(
+                    item_tree,
+                    item_layout,
+                    cursor_position,
+                );
 
             if self.on_action.is_some() && in_drag_zone {
                 // A container is anchored to its *full* rect (the ghost is the
@@ -2510,18 +2551,6 @@ fn group_radius(style: &Style) -> crate::core::border::Radius {
     style
         .group_border
         .map_or_else(|| 0.0.into(), |border| border.radius)
-}
-
-impl<'a, Message, Theme, Renderer> From<TileGrid<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: Catalog + 'a,
-    Renderer: core::Renderer + 'a,
-{
-    fn from(tile_grid: TileGrid<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(tile_grid)
-    }
 }
 
 /// The appearance of a [`TileGrid`].

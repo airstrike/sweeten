@@ -18,10 +18,10 @@ use crate::core::layout::{self, Layout};
 use crate::core::mouse;
 use crate::core::overlay;
 use crate::core::renderer;
-use crate::core::widget::{Operation, Tree};
+use crate::core::widget::{Meta, Operation, Tree};
 use crate::core::{
-    Element, Event, Length, Padding, Pixels, Rectangle, Shell, Size, Vector,
-    Widget,
+    Element, Event, Length, Padding, Pixels, Point, Rectangle, Shell, Size,
+    Vector, Widget,
 };
 
 use super::alignment::{AlignItems, Axis, Justify};
@@ -71,7 +71,9 @@ where
     pub fn with_children(
         children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
     ) -> Self {
-        Self::with_flex_children(children.into_iter().map(FlexChild::from))
+        Self::with_flex_children(
+            children.into_iter().map(FlexChild::from_element),
+        )
     }
 
     /// Creates a [`Row`] from an iterator of [`FlexChild`] children.
@@ -173,7 +175,7 @@ where
     /// properties.
     pub fn push(
         self,
-        child: impl Into<Element<'a, Message, Theme, Renderer>>,
+        child: impl Widget<Message, Theme, Renderer> + 'a,
     ) -> Self {
         self.push_flex(FlexChild::new(child))
     }
@@ -191,7 +193,7 @@ where
     /// [`Some`], leaving the row unchanged otherwise.
     pub fn push_maybe(
         self,
-        child: Option<impl Into<Element<'a, Message, Theme, Renderer>>>,
+        child: Option<impl Widget<Message, Theme, Renderer> + 'a>,
     ) -> Self {
         match child {
             Some(c) => self.push(c),
@@ -216,7 +218,10 @@ where
         self,
         children: impl IntoIterator<Item = Element<'a, Message, Theme, Renderer>>,
     ) -> Self {
-        children.into_iter().fold(self, Self::push)
+        children
+            .into_iter()
+            .map(FlexChild::from_element)
+            .fold(self, Self::push_flex)
     }
 
     /// Extends the [`Row`] with the given [`FlexChild`] children.
@@ -252,6 +257,8 @@ where
     }
 }
 
+impl<Message, Theme, Renderer> Meta for Row<'_, Message, Theme, Renderer> {}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Row<'_, Message, Theme, Renderer>
 where
@@ -277,7 +284,7 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         // Materialise the per-child Properties up front. The Vec is
         // owned, so passing `&props` to `engine::resolve` does not
         // borrow `self.children` — the layouter closure below is then
@@ -298,7 +305,7 @@ where
         let children = self.children.as_mut_slice();
         let trees = tree.children.as_mut_slice();
 
-        engine::resolve(
+        let resolution = engine::resolve(
             Axis::Horizontal,
             limits,
             self.width,
@@ -310,33 +317,40 @@ where
             self.reverse,
             &props,
             |idx, item_limits| {
-                children[idx].content_mut().as_widget_mut().layout(
+                children[idx].content_mut().layout(
                     &mut trees[idx],
                     renderer,
                     item_limits,
-                )
+                );
+
+                trees[idx].size
             },
-        )
+        );
+
+        for (child, bounds) in tree.children.iter_mut().zip(&resolution.items) {
+            child.translation = bounds.position() - Point::ORIGIN;
+        }
+
+        tree.size = resolution.size;
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
-        operation.container(None, layout.bounds());
+        operation.container(None, layout.bounds(), viewport);
         operation.traverse(&mut |operation| {
             self.children
                 .iter_mut()
-                .zip(&mut tree.children)
-                .zip(layout.children())
-                .for_each(|((child, state), layout)| {
+                .zip(layout.iter_mut(&mut tree.children))
+                .for_each(|(child, (layout, state))| {
                     child
                         .content_mut()
-                        .as_widget_mut()
-                        .operate(state, layout, renderer, operation);
+                        .operate(state, layout, viewport, renderer, operation);
                 });
         });
     }
@@ -345,19 +359,18 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        for ((child, state), layout) in self
+        for (child, (layout, state)) in self
             .children
             .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
+            .zip(layout.iter_mut(&mut tree.children))
         {
-            child.content_mut().as_widget_mut().update(
+            child.content_mut().update(
                 state, event, layout, cursor, renderer, shell, viewport,
             );
         }
@@ -366,17 +379,16 @@ where
     fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
         self.children
             .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .map(|((child, state), layout)| {
-                child.content().as_widget().mouse_interaction(
+            .zip(layout.iter(&tree.children))
+            .map(|(child, (layout, state))| {
+                child.content().mouse_interaction(
                     state, layout, cursor, viewport, renderer,
                 )
             })
@@ -390,7 +402,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -401,14 +413,13 @@ where
                 viewport
             };
 
-            for ((child, state), layout) in self
+            for (child, (layout, state)) in self
                 .children
                 .iter()
-                .zip(&tree.children)
-                .zip(layout.children())
-                .filter(|(_, layout)| layout.bounds().intersects(viewport))
+                .zip(layout.iter(&tree.children))
+                .filter(|(_, (layout, _))| layout.bounds().intersects(viewport))
             {
-                child.content().as_widget().draw(
+                child.content().draw(
                     state, renderer, theme, style, layout, cursor, viewport,
                 );
             }
@@ -418,41 +429,26 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        let children = self
-            .children
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        self.children
             .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
-            .filter_map(|((child, state), layout)| {
-                child.content_mut().as_widget_mut().overlay(
+            .zip(layout.iter_mut(&mut tree.children))
+            .flat_map(|(child, (layout, state))| {
+                child.content_mut().overlay(
                     state,
                     layout,
                     renderer,
                     viewport,
                     translation,
+                    window,
                 )
             })
-            .collect::<Vec<_>>();
-
-        (!children.is_empty())
-            .then(|| overlay::Group::with_children(children).overlay())
-    }
-}
-
-impl<'a, Message, Theme, Renderer> From<Row<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a,
-    Theme: 'a,
-    Renderer: crate::core::Renderer + 'a,
-{
-    fn from(row: Row<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(row)
+            .collect()
     }
 }
 

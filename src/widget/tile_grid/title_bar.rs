@@ -15,7 +15,7 @@ use crate::core::renderer;
 use crate::core::widget::{self, Tree};
 use crate::core::{
     self, Element, Event, Layout, Padding, Point, Rectangle, Shell, Size,
-    Vector,
+    Vector, Widget,
 };
 
 /// The title bar of an item in a [`TileGrid`].
@@ -51,11 +51,9 @@ where
     Renderer: core::Renderer,
 {
     /// Creates a new [`TitleBar`] with the given content.
-    pub fn new(
-        content: impl Into<Element<'a, Message, Theme, Renderer>>,
-    ) -> Self {
+    pub fn new(content: impl Widget<Message, Theme, Renderer> + 'a) -> Self {
         Self {
-            content: content.into(),
+            content: content._boxed(),
             controls: None,
             padding: Padding::ZERO,
             always_show_controls: false,
@@ -66,9 +64,9 @@ where
     /// Sets the controls of the [`TitleBar`].
     pub fn controls(
         mut self,
-        controls: impl Into<Element<'a, Message, Theme, Renderer>>,
+        controls: impl Widget<Message, Theme, Renderer> + 'a,
     ) -> Self {
-        self.controls = Some(controls.into());
+        self.controls = Some(controls._boxed());
         self
     }
 
@@ -119,14 +117,14 @@ where
     }
 
     pub(super) fn diff(&mut self, tree: &mut Tree) {
-        if tree.children.len() == 2 {
-            if let Some(controls) = self.controls.as_mut() {
-                tree.children[1].diff(controls);
-            }
-            tree.children[0].diff(&mut self.content);
-        } else {
+        if tree.children.len() != 2 {
             *tree = self.state();
         }
+
+        if let Some(controls) = self.controls.as_mut() {
+            tree.children[1].diff(controls);
+        }
+        tree.children[0].diff(&mut self.content);
     }
 
     /// Draws the [`TitleBar`].
@@ -142,7 +140,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         inherited_style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         show_controls: bool,
@@ -166,18 +164,16 @@ where
 
         container::draw_background(renderer, &style, bounds);
 
-        let mut children = layout.children();
-        let padded = children.next().unwrap();
-        let mut children = padded.children();
-        let title_layout = children.next().unwrap();
+        let mut children = layout.iter(&tree.children);
+        let (title_layout, title_tree) = children.next().unwrap();
 
         if let Some(controls) = &self.controls
             && (show_controls || self.always_show_controls)
         {
-            let controls_layout = children.next().unwrap();
+            let (controls_layout, controls_tree) = children.next().unwrap();
 
-            controls.as_widget().draw(
-                &tree.children[1],
+            controls.draw(
+                controls_tree,
                 renderer,
                 theme,
                 &inherited_style,
@@ -187,8 +183,8 @@ where
             );
         }
 
-        self.content.as_widget().draw(
-            &tree.children[0],
+        self.content.draw(
+            title_tree,
             renderer,
             theme,
             &inherited_style,
@@ -203,17 +199,16 @@ where
     /// The pick area is the title bar excluding the controls and title content.
     pub fn is_over_pick_area(
         &self,
-        layout: Layout<'_>,
+        tree: &Tree,
+        layout: Layout,
         cursor_position: Point,
     ) -> bool {
         if layout.bounds().contains(cursor_position) {
-            let mut children = layout.children();
-            let padded = children.next().unwrap();
-            let mut children = padded.children();
-            let title_layout = children.next().unwrap();
+            let mut children = layout.iter(&tree.children);
+            let (title_layout, _) = children.next().unwrap();
 
             if self.controls.is_some() {
-                let controls_layout = children.next().unwrap();
+                let (controls_layout, _) = children.next().unwrap();
                 !controls_layout.bounds().contains(cursor_position)
                     && !title_layout.bounds().contains(cursor_position)
             } else {
@@ -229,72 +224,69 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let limits = limits.shrink(self.padding);
-        let max_size = limits.max();
+        let max_size = limits.max;
 
-        let title_layout = self.content.as_widget_mut().layout(
+        self.content.layout(
             &mut tree.children[0],
             renderer,
             &layout::Limits::new(Size::ZERO, max_size),
         );
 
-        let title_size = title_layout.size();
+        let title_size = tree.children[0].size;
+        let padding = Vector::new(self.padding.left, self.padding.top);
 
-        let node = if let Some(controls) = &mut self.controls {
-            let controls_layout = controls.as_widget_mut().layout(
+        tree.children[0].translation = padding;
+
+        let size = if let Some(controls) = &mut self.controls {
+            controls.layout(
                 &mut tree.children[1],
                 renderer,
                 &layout::Limits::new(Size::ZERO, max_size),
             );
 
-            let controls_size = controls_layout.size();
+            let controls_size = tree.children[1].size;
             let space_before_controls = max_size.width - controls_size.width;
             let height = title_size.height.max(controls_size.height);
 
-            layout::Node::with_children(
-                Size::new(max_size.width, height),
-                vec![
-                    title_layout,
-                    controls_layout
-                        .move_to(Point::new(space_before_controls, 0.0)),
-                ],
-            )
+            tree.children[1].translation =
+                padding + Vector::new(space_before_controls, 0.0);
+
+            Size::new(max_size.width, height)
         } else {
-            layout::Node::with_children(
-                Size::new(max_size.width, title_size.height),
-                vec![title_layout],
-            )
+            Size::new(max_size.width, title_size.height)
         };
 
-        layout::Node::container(node, self.padding)
+        tree.size = size.expand(self.padding);
     }
 
     pub(crate) fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        let mut children = layout.children();
-        let padded = children.next().unwrap();
-        let mut children = padded.children();
-        let title_layout = children.next().unwrap();
+        let mut children = layout.iter_mut(&mut tree.children);
+        let (title_layout, title_tree) = children.next().unwrap();
 
         if let Some(controls) = &mut self.controls {
-            let controls_layout = children.next().unwrap();
-            controls.as_widget_mut().operate(
-                &mut tree.children[1],
+            let (controls_layout, controls_tree) = children.next().unwrap();
+            controls.operate(
+                controls_tree,
                 controls_layout,
+                viewport,
                 renderer,
                 operation,
             );
         }
 
-        self.content.as_widget_mut().operate(
-            &mut tree.children[0],
+        self.content.operate(
+            title_tree,
             title_layout,
+            viewport,
             renderer,
             operation,
         );
@@ -305,21 +297,19 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        let mut children = layout.children();
-        let padded = children.next().unwrap();
-        let mut children = padded.children();
-        let title_layout = children.next().unwrap();
+        let mut children = layout.iter_mut(&mut tree.children);
+        let (title_layout, title_tree) = children.next().unwrap();
 
         if let Some(controls) = &mut self.controls {
-            let controls_layout = children.next().unwrap();
-            controls.as_widget_mut().update(
-                &mut tree.children[1],
+            let (controls_layout, controls_tree) = children.next().unwrap();
+            controls.update(
+                controls_tree,
                 event,
                 controls_layout,
                 cursor,
@@ -329,8 +319,8 @@ where
             );
         }
 
-        self.content.as_widget_mut().update(
-            &mut tree.children[0],
+        self.content.update(
+            title_tree,
             event,
             title_layout,
             cursor,
@@ -343,18 +333,16 @@ where
     pub(crate) fn mouse_interaction(
         &self,
         tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
-        let mut children = layout.children();
-        let padded = children.next().unwrap();
-        let mut children = padded.children();
-        let title_layout = children.next().unwrap();
+        let mut children = layout.iter(&tree.children);
+        let (title_layout, title_tree) = children.next().unwrap();
 
-        let title_interaction = self.content.as_widget().mouse_interaction(
-            &tree.children[0],
+        let title_interaction = self.content.mouse_interaction(
+            title_tree,
             title_layout,
             cursor,
             viewport,
@@ -362,9 +350,9 @@ where
         );
 
         if let Some(controls) = &self.controls {
-            let controls_layout = children.next().unwrap();
-            let controls_interaction = controls.as_widget().mouse_interaction(
-                &tree.children[1],
+            let (controls_layout, controls_tree) = children.next().unwrap();
+            let controls_interaction = controls.mouse_interaction(
+                controls_tree,
                 controls_layout,
                 cursor,
                 viewport,
@@ -379,38 +367,46 @@ where
     pub(crate) fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        let mut children = layout.children();
-        let padded = children.next()?;
-        let mut children = padded.children();
-        let title_layout = children.next()?;
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
+        let mut children = layout.iter_mut(&mut tree.children);
+        let Some((title_layout, title_state)) = children.next() else {
+            return Vec::new();
+        };
 
         let Self {
             content, controls, ..
         } = self;
 
-        let mut states = tree.children.iter_mut();
-        let title_state = states.next().unwrap();
-        let controls_state = states.next().unwrap();
+        let overlays = content.overlay(
+            title_state,
+            title_layout,
+            renderer,
+            viewport,
+            translation,
+            window,
+        );
 
-        content
-            .as_widget_mut()
-            .overlay(title_state, title_layout, renderer, viewport, translation)
-            .or_else(move || {
-                controls.as_mut().and_then(|controls| {
-                    let controls_layout = children.next()?;
-                    controls.as_widget_mut().overlay(
-                        controls_state,
-                        controls_layout,
-                        renderer,
-                        viewport,
-                        translation,
-                    )
-                })
-            })
+        if !overlays.is_empty() {
+            return overlays;
+        }
+
+        match (controls.as_mut(), children.next()) {
+            (Some(controls), Some((controls_layout, controls_state))) => {
+                controls.overlay(
+                    controls_state,
+                    controls_layout,
+                    renderer,
+                    viewport,
+                    translation,
+                    window,
+                )
+            }
+            (None, _) | (_, None) => Vec::new(),
+        }
     }
 }

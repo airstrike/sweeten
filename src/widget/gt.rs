@@ -218,7 +218,7 @@ impl<'a, Message, Theme, Renderer> Table<'a, Message, Theme, Renderer>
 where
     Theme: Catalog + text::Catalog + 'a,
     <Theme as text::Catalog>::Class<'a>: From<text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+    Renderer: core::text::Renderer + 'a,
 {
     /// Builds a [`Table`] from typed columns and rows.
     ///
@@ -933,13 +933,13 @@ fn build_text_element<'a, Message, Theme, Renderer>(
 where
     Theme: text::Catalog + 'a,
     <Theme as text::Catalog>::Class<'a>: From<text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+    Renderer: core::text::Renderer + 'a,
 {
     let transformed = apply_text_transform(
         rendered,
         style.text.as_ref().and_then(|t| t.transform),
     );
-    let mut t = text::Text::<'a, Theme, Renderer>::new(transformed);
+    let mut t = text::Text::<'a, Theme>::new(transformed);
     let column_align =
         column.align.unwrap_or_else(|| column.kind.default_align());
     let align = style
@@ -948,11 +948,11 @@ where
         .and_then(|s| s.align)
         .unwrap_or(column_align);
     t = t.align_x(align);
-    t = apply_text_style::<Theme, Renderer>(t, style);
+    t = apply_text_style::<Theme>(t, style);
     if !column.wrap {
         t = t.wrapping(text::Wrapping::None);
     }
-    Element::new(t)
+    t._boxed()
 }
 
 fn build_spanned_text_element<'a, Message, Theme, Renderer>(
@@ -963,13 +963,13 @@ fn build_spanned_text_element<'a, Message, Theme, Renderer>(
 where
     Theme: text::Catalog + 'a,
     <Theme as text::Catalog>::Class<'a>: From<text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+    Renderer: core::text::Renderer + 'a,
 {
     let transformed = apply_text_transform(
         rendered,
         style.text.as_ref().and_then(|t| t.transform),
     );
-    let mut t = text::Text::<'a, Theme, Renderer>::new(transformed);
+    let mut t = text::Text::<'a, Theme>::new(transformed);
     let default_align = match layer {
         CellLayer::Title | CellLayer::Subtitle | CellLayer::UnitsCaption => {
             alignment::Horizontal::Left
@@ -988,18 +988,17 @@ where
         .and_then(|s| s.align)
         .unwrap_or(default_align);
     t = t.align_x(align);
-    t = apply_text_style::<Theme, Renderer>(t, style);
-    Element::new(t)
+    t = apply_text_style::<Theme>(t, style);
+    t._boxed()
 }
 
-fn apply_text_style<'a, Theme, Renderer>(
-    mut t: text::Text<'a, Theme, Renderer>,
+fn apply_text_style<'a, Theme>(
+    mut t: text::Text<'a, Theme>,
     style: &CellStyle,
-) -> text::Text<'a, Theme, Renderer>
+) -> text::Text<'a, Theme>
 where
     Theme: text::Catalog + 'a,
     <Theme as text::Catalog>::Class<'a>: From<text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
 {
     if let Some(ts) = &style.text {
         if let Some(size) = ts.size {
@@ -1150,6 +1149,14 @@ struct LoadAnimation {
     total_ms: f32,
 }
 
+impl<'a, Message, Theme, Renderer> widget::Meta
+    for Materialized<'a, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: core::Renderer,
+{
+}
+
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Materialized<'a, Message, Theme, Renderer>
 where
@@ -1199,10 +1206,10 @@ where
         tree: &mut widget::Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
+    ) {
         let metrics = &mut tree.state.downcast_mut::<State>().metrics;
         let limits = limits.width(self.width).height(Length::Shrink);
-        let available = limits.max();
+        let available = limits.bounds();
 
         let n_cols = self.columns.len();
         metrics.column_widths = vec![0.0; n_cols];
@@ -1220,8 +1227,6 @@ where
 
         // Pass 1: measure non-fluid columns by laying out per-column
         // cells at intrinsic Shrink widths. Track max width per column.
-        let mut cell_layouts: Vec<layout::Node> =
-            vec![layout::Node::default(); self.cells.len()];
 
         let column_factors: Vec<u16> =
             self.columns.iter().map(|c| c.width.fill_factor()).collect();
@@ -1240,17 +1245,16 @@ where
                     )
                     .width(column.width)
                     .height(Length::Shrink);
-                    let node = self.cells[cell_idx].as_widget_mut().layout(
+                    self.cells[cell_idx].layout(
                         &mut tree.children[cell_idx],
                         renderer,
                         &limits,
                     );
-                    let s = node.size();
+                    let s = tree.children[cell_idx].size;
                     metrics.column_widths[col_offset] =
                         metrics.column_widths[col_offset].max(s.width);
                     metrics.row_heights[row_idx] =
                         metrics.row_heights[row_idx].max(s.height);
-                    cell_layouts[cell_idx] = node;
                 }
             }
         }
@@ -1306,15 +1310,14 @@ where
                             )
                             .width(Length::Shrink)
                             .height(Length::Shrink);
-                            let node =
-                                self.cells[cell_idx].as_widget_mut().layout(
-                                    &mut tree.children[cell_idx],
-                                    renderer,
-                                    &limits,
-                                );
+                            self.cells[cell_idx].layout(
+                                &mut tree.children[cell_idx],
+                                renderer,
+                                &limits,
+                            );
                             metrics.column_widths[col_offset] = metrics
                                 .column_widths[col_offset]
-                                .max(node.size().width);
+                                .max(tree.children[cell_idx].size.width);
                         }
                     }
                 }
@@ -1336,15 +1339,14 @@ where
                         )
                         .width(metrics.column_widths[col_offset])
                         .height(Length::Shrink);
-                        let node = self.cells[cell_idx].as_widget_mut().layout(
+                        self.cells[cell_idx].layout(
                             &mut tree.children[cell_idx],
                             renderer,
                             &limits,
                         );
-                        let s = node.size();
+                        let s = tree.children[cell_idx].size;
                         metrics.row_heights[row_idx] =
                             metrics.row_heights[row_idx].max(s.height);
-                        cell_layouts[cell_idx] = node;
                     }
                 }
             }
@@ -1366,13 +1368,13 @@ where
                 )
                 .width(inner_width)
                 .height(Length::Shrink);
-                let node = self.cells[*cell_index].as_widget_mut().layout(
+                self.cells[*cell_index].layout(
                     &mut tree.children[*cell_index],
                     renderer,
                     &limits,
                 );
-                metrics.row_heights[row_idx] = node.size().height;
-                cell_layouts[*cell_index] = node;
+                metrics.row_heights[row_idx] =
+                    tree.children[*cell_index].size.height;
             }
         }
 
@@ -1407,13 +1409,15 @@ where
                         } else {
                             self.padding_x
                         };
-                        let node = &mut cell_layouts[cell_idx];
-                        node.move_to_mut(Point::new(x, y));
-                        node.align_mut(
-                            core::Alignment::from(align),
-                            core::Alignment::from(alignment::Vertical::Center),
-                            Size::new(col_width, row_height),
-                        );
+                        let child = &mut tree.children[cell_idx];
+                        child.translation = Vector::new(x, y)
+                            + child.size.align(
+                                Size::new(col_width, row_height),
+                                core::Alignment::from(align),
+                                core::Alignment::from(
+                                    alignment::Vertical::Center,
+                                ),
+                            );
                         metrics.cell_rects[cell_idx] = Rectangle {
                             x: x - pad_left,
                             y: stride_y,
@@ -1424,8 +1428,8 @@ where
                     }
                 }
                 RowSpec::Spanned { cell_index, .. } => {
-                    let node = &mut cell_layouts[*cell_index];
-                    node.move_to_mut(Point::new(outer_x, y));
+                    tree.children[*cell_index].translation =
+                        Vector::new(outer_x, y);
                     metrics.cell_rects[*cell_index] = Rectangle {
                         x: 0.0,
                         y: stride_y,
@@ -1450,14 +1454,14 @@ where
             Size::new(table_width, total_height),
         );
 
-        layout::Node::with_children(intrinsic, cell_layouts)
+        tree.size = intrinsic;
     }
 
     fn update(
         &mut self,
         tree: &mut widget::Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -1532,11 +1536,10 @@ where
             None
         };
 
-        for (i, ((cell, child), cell_layout)) in self
+        for (i, (cell, (cell_layout, child))) in self
             .cells
             .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
+            .zip(layout.iter_mut(&mut tree.children))
             .enumerate()
         {
             let cell_cursor =
@@ -1564,7 +1567,7 @@ where
                 } else {
                     cursor
                 };
-            cell.as_widget_mut().update(
+            cell.update(
                 child,
                 event,
                 cell_layout,
@@ -1656,7 +1659,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -1900,11 +1903,10 @@ where
                             y: viewport.y + eff_scroll,
                             ..*viewport
                         };
-                        for (i, ((cell, child), cell_layout)) in self
+                        for (i, (cell, (cell_layout, child))) in self
                             .cells
                             .iter()
-                            .zip(&tree.children)
-                            .zip(layout.children())
+                            .zip(layout.iter(&tree.children))
                             .enumerate()
                         {
                             if i < sticky_cell_count {
@@ -1919,7 +1921,7 @@ where
                                 continue;
                             }
                             let draw_content = |renderer: &mut Renderer| {
-                                cell.as_widget().draw(
+                                cell.draw(
                                     child,
                                     renderer,
                                     theme,
@@ -1994,17 +1996,16 @@ where
                         bounds,
                     );
                 }
-                for (i, ((cell, child), cell_layout)) in self
+                for (i, (cell, (cell_layout, child))) in self
                     .cells
                     .iter()
-                    .zip(&tree.children)
-                    .zip(layout.children())
+                    .zip(layout.iter(&tree.children))
                     .enumerate()
                 {
                     if i >= sticky_cell_count {
                         break;
                     }
-                    cell.as_widget().draw(
+                    cell.draw(
                         child,
                         renderer,
                         theme,
@@ -2122,11 +2123,10 @@ where
                 }
             }
 
-            for (i, ((cell, child), cell_layout)) in self
+            for (i, (cell, (cell_layout, child))) in self
                 .cells
                 .iter()
-                .zip(&tree.children)
-                .zip(layout.children())
+                .zip(layout.iter(&tree.children))
                 .enumerate()
             {
                 if sticky_active && i < sticky_cell_count {
@@ -2141,7 +2141,7 @@ where
                     continue;
                 }
                 let draw_content = |renderer: &mut Renderer| {
-                    cell.as_widget().draw(
+                    cell.draw(
                         child,
                         renderer,
                         theme,
@@ -2192,11 +2192,10 @@ where
                     renderer.with_translation(
                         Vector::new(0.0, shift),
                         |renderer| {
-                            for (i, ((cell, child), cell_layout)) in self
+                            for (i, (cell, (cell_layout, child))) in self
                                 .cells
                                 .iter()
-                                .zip(&tree.children)
-                                .zip(layout.children())
+                                .zip(layout.iter(&tree.children))
                                 .enumerate()
                             {
                                 if i >= sticky_cell_count {
@@ -2210,7 +2209,7 @@ where
                                     rect,
                                     bounds,
                                 );
-                                cell.as_widget().draw(
+                                cell.draw(
                                     child,
                                     renderer,
                                     theme,
@@ -2253,7 +2252,7 @@ where
     fn mouse_interaction(
         &self,
         tree: &widget::Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
         renderer: &Renderer,
@@ -2261,10 +2260,9 @@ where
         let from_children = self
             .cells
             .iter()
-            .zip(&tree.children)
-            .zip(layout.children())
-            .map(|((cell, child), cell_layout)| {
-                cell.as_widget().mouse_interaction(
+            .zip(layout.iter(&tree.children))
+            .map(|(cell, (cell_layout, child))| {
+                cell.mouse_interaction(
                     child,
                     cell_layout,
                     cursor,
@@ -2341,33 +2339,29 @@ where
     fn operate(
         &mut self,
         tree: &mut widget::Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        viewport: &Rectangle,
         renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
-        for ((cell, child), cell_layout) in self
+        for (cell, (cell_layout, child)) in self
             .cells
             .iter_mut()
-            .zip(&mut tree.children)
-            .zip(layout.children())
+            .zip(layout.iter_mut(&mut tree.children))
         {
-            cell.as_widget_mut().operate(
-                child,
-                cell_layout,
-                renderer,
-                operation,
-            );
+            cell.operate(child, cell_layout, viewport, renderer, operation);
         }
     }
 
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut widget::Tree,
-        layout: Layout<'b>,
+        layout: Layout,
         renderer: &Renderer,
         viewport: &Rectangle,
         translation: Vector,
-    ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
+        window: Size,
+    ) -> Vec<overlay::Element<'b, Message, Theme, Renderer>> {
         overlay::from_children(
             &mut self.cells,
             tree,
@@ -2375,6 +2369,7 @@ where
             renderer,
             viewport,
             translation,
+            window,
         )
     }
 }
@@ -3091,9 +3086,9 @@ where
     Message: 'a,
     Theme: Catalog + text::Catalog + 'a,
     <Theme as text::Catalog>::Class<'a>: From<text::StyleFn<'a, Theme>>,
-    Renderer: core::text::Renderer<Font = core::Font> + 'a,
+    Renderer: core::text::Renderer + 'a,
 {
     fn from(table: Table<'a, Message, Theme, Renderer>) -> Self {
-        Element::new(table.build())
+        table.build()._boxed()
     }
 }

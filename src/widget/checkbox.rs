@@ -3,7 +3,7 @@
 //! # Example
 //! ```no_run
 //! # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-//! # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+//! # use iced::widget::Widget;
 //! #
 //! use iced::widget::checkbox;
 //!
@@ -16,11 +16,10 @@
 //!     CheckboxToggled(bool),
 //! }
 //!
-//! fn view(state: &State) -> Element<'_, Message> {
+//! fn view(state: &State) -> impl Widget<Message> {
 //!     checkbox(state.is_checked)
 //!         .label("Toggle me!")
 //!         .on_toggle(Message::CheckboxToggled)
-//!         .into()
 //! }
 //!
 //! fn update(state: &mut State, message: Message) {
@@ -32,6 +31,8 @@
 //! }
 //! ```
 //! ![Checkbox drawn by `iced_wgpu`](https://github.com/iced-rs/iced/blob/7760618fb112074bc40b148944521f312152012a/docs/images/checkbox.png?raw=true)
+use std::marker::PhantomData;
+
 use crate::animation::cubic_bezier;
 use crate::core::alignment;
 use crate::core::animation::Easing;
@@ -48,8 +49,8 @@ use crate::core::widget::operation;
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Animation, Background, Border, Color, Element, Event, Layout, Length,
-    Pixels, Rectangle, Shell, Size, Theme, Widget,
+    Animation, Background, Border, Color, Event, Font, Layout, Length, Pixels,
+    Rectangle, Shell, Size, Theme, Widget,
 };
 use crate::widget::focus;
 
@@ -58,7 +59,7 @@ use crate::widget::focus;
 /// # Example
 /// ```no_run
 /// # mod iced { pub mod widget { pub use iced_widget::*; } pub use iced_widget::Renderer; pub use iced_widget::core::*; }
-/// # pub type Element<'a, Message> = iced_widget::core::Element<'a, Message, iced_widget::Theme, iced_widget::Renderer>;
+/// # use iced::widget::Widget;
 /// #
 /// use iced::widget::checkbox;
 ///
@@ -71,11 +72,10 @@ use crate::widget::focus;
 ///     CheckboxToggled(bool),
 /// }
 ///
-/// fn view(state: &State) -> Element<'_, Message> {
+/// fn view(state: &State) -> impl Widget<Message> {
 ///     checkbox(state.is_checked)
 ///         .label("Toggle me!")
 ///         .on_toggle(Message::CheckboxToggled)
-///         .into()
 /// }
 ///
 /// fn update(state: &mut State, message: Message) {
@@ -93,8 +93,8 @@ pub struct Checkbox<
     Theme = crate::Theme,
     Renderer = crate::Renderer,
 > where
-    Renderer: text::Renderer,
     Theme: Catalog,
+    Renderer: text::Renderer,
 {
     is_checked: bool,
     on_toggle: Option<Box<dyn Fn(bool) -> Message + 'a>>,
@@ -106,15 +106,16 @@ pub struct Checkbox<
     size: f32,
     gap: f32,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     shaping: text::Shaping,
     wrapping: text::Wrapping,
     letter_spacing: crate::core::Em,
     font_features: Vec<crate::core::font::Feature>,
-    font: Option<Renderer::Font>,
-    icon: Icon<Renderer::Font>,
+    font: Option<Font>,
+    icon: Icon,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
+    renderer_: PhantomData<Renderer>,
 }
 
 impl<'a, Message, Theme, Renderer> Checkbox<'a, Message, Theme, Renderer>
@@ -140,11 +141,11 @@ where
             on_blur: None,
             id: None,
             label: None,
-            width: Length::Shrink,
+            width: Length::Fit,
             size: Self::DEFAULT_SIZE,
             gap: Self::DEFAULT_GAP,
             text_size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             shaping: text::Shaping::default(),
             wrapping: text::Wrapping::default(),
             letter_spacing: crate::core::Em::default(),
@@ -154,11 +155,12 @@ where
                 font: Renderer::ICON_FONT,
                 code_point: Renderer::CHECKMARK_ICON,
                 size: None,
-                line_height: text::LineHeight::default(),
+                line_height: None,
                 shaping: text::Shaping::Basic,
             },
             class: Theme::default(),
             last_status: None,
+            renderer_: PhantomData,
         }
     }
 
@@ -240,7 +242,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -283,16 +285,16 @@ where
         self
     }
 
-    /// Sets the [`Renderer::Font`] of the text of the [`Checkbox`].
+    /// Sets the [`Font`] of the text of the [`Checkbox`].
     ///
-    /// [`Renderer::Font`]: crate::core::text::Renderer
-    pub fn font(mut self, font: impl Into<Renderer::Font>) -> Self {
+    /// [`Font`]: crate::core::Font
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
         self.font = Some(font.into());
         self
     }
 
     /// Sets the [`Icon`] of the [`Checkbox`].
-    pub fn icon(mut self, icon: Icon<Renderer::Font>) -> Self {
+    pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = icon;
         self
     }
@@ -318,7 +320,7 @@ where
 
 /// Internal state for the animated [`Checkbox`].
 struct State<P: text::Paragraph> {
-    paragraph: widget::text::State<P>,
+    paragraph: text::paragraph::Plain<P>,
     animation: Animation<bool>,
     now: Option<Instant>,
     last_is_checked: bool,
@@ -348,6 +350,14 @@ impl<P: text::Paragraph> operation::Focusable for State<P> {
     }
 }
 
+impl<Message, Theme, Renderer> widget::Meta
+    for Checkbox<'_, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Checkbox<'_, Message, Theme, Renderer>
 where
@@ -361,7 +371,7 @@ where
 
     fn state(&self) -> tree::State {
         tree::State::new(State::<Renderer::Paragraph> {
-            paragraph: widget::text::State::default(),
+            paragraph: text::paragraph::Plain::default(),
             animation: Animation::new(self.is_checked)
                 .very_quick()
                 // cubic-bezier(0, 0, 0.2, 1) — Tailwind v4's
@@ -380,8 +390,14 @@ where
     fn size(&self) -> Size<Length> {
         Size {
             width: self.width,
-            height: Length::Shrink,
+            height: Length::Fit,
         }
+    }
+
+    fn diff(&mut self, tree: &mut Tree) {
+        // The children of the tree are the box and the label; they only
+        // carry their geometry, so no state is needed.
+        tree.children.resize_with(2, Tree::empty);
     }
 
     fn layout(
@@ -389,50 +405,49 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        layout::next_to_each_other(
-            &limits.width(self.width),
-            if self.label.is_some() { self.gap } else { 0.0 },
-            |_| layout::Node::new(Size::new(self.size, self.size)),
-            |limits| {
-                if let Some(label) = self.label.as_deref() {
-                    let state =
-                        tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+    ) {
+        let limits = limits.width(self.width);
 
-                    widget::text::layout(
-                        &mut state.paragraph,
-                        renderer,
-                        limits,
-                        label,
-                        widget::text::Format {
-                            width: self.width,
-                            height: Length::Shrink,
-                            line_height: self.line_height,
-                            size: self.text_size,
-                            font: self.font,
-                            align_x: text::Alignment::Default,
-                            align_y: alignment::Vertical::Top,
-                            shaping: self.shaping,
-                            wrapping: self.wrapping,
-                            ellipsis: text::Ellipsis::None,
-                            letter_spacing: self.letter_spacing,
-                            font_features: self.font_features.clone(),
-                            font_variations: Vec::new(),
-                            weight: None,
-                        },
-                    )
-                } else {
-                    layout::Node::new(Size::ZERO)
-                }
-            },
-        )
+        let checkbox = Size::new(self.size, self.size);
+        let spacing = if self.label.is_some() { self.gap } else { 0.0 };
+
+        let label = if let Some(label) = self.label.as_deref() {
+            let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
+
+            widget::text::layout(
+                &mut state.paragraph,
+                renderer,
+                &limits.shrink(Size::new(checkbox.width + spacing, 0.0)),
+                label,
+                widget::text::Format {
+                    width: self.width,
+                    height: Length::Fit,
+                    line_height: self.line_height,
+                    size: self.text_size,
+                    font: self.font,
+                    align_x: text::Alignment::Default,
+                    align_y: alignment::Vertical::Top,
+                    shaping: self.shaping,
+                    wrapping: self.wrapping,
+                    ellipsis: text::Ellipsis::None,
+                    letter_spacing: self.letter_spacing,
+                    font_features: self.font_features.clone(),
+                    font_variations: Vec::new(),
+                    weight: None,
+                },
+            )
+        } else {
+            Size::ZERO
+        };
+
+        layout::next_to_each_other(tree, checkbox, label, spacing);
     }
 
     fn update(
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
@@ -563,7 +578,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
@@ -581,13 +596,13 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         defaults: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         _cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_ref::<State<Renderer::Paragraph>>();
 
-        let mut children = layout.children();
+        let mut children = layout.iter(&tree.children);
 
         let current_status = self.last_status.unwrap_or(Status::Disabled {
             is_checked: self.is_checked,
@@ -652,8 +667,8 @@ where
         };
 
         {
-            let layout = children.next().unwrap();
-            let bounds = layout.bounds();
+            let (checkbox_layout, _) = children.next().unwrap();
+            let bounds = checkbox_layout.bounds();
 
             if state.focus == Some(focus::Source::Keyboard) {
                 // Soft :focus-visible halo hugging the box, in the checked
@@ -687,6 +702,8 @@ where
                 shaping,
             } = &self.icon;
             let size = size.unwrap_or(Pixels(bounds.height * 0.7));
+            let line_height =
+                line_height.unwrap_or_else(|| renderer.line_height());
 
             // Drive the checkmark's appearance from a 0..1 progress: alpha
             // fades in and the glyph scales up so the check pops in rather
@@ -713,7 +730,7 @@ where
                         content: code_point.to_string(),
                         font: *font,
                         size: Pixels(size.0 * progress),
-                        line_height: *line_height,
+                        line_height,
                         bounds: bounds.size(),
                         align_x: text::Alignment::Center,
                         align_y: alignment::Vertical::Center,
@@ -737,26 +754,27 @@ where
             return;
         }
 
-        {
-            let label_layout = children.next().unwrap();
+        let (label_layout, _) = children.next().unwrap();
 
-            crate::text::draw(
-                renderer,
-                defaults,
-                label_layout.bounds(),
-                state.paragraph.raw(),
-                crate::text::Style {
-                    color: style.text_color,
-                },
-                viewport,
-            );
-        }
+        crate::text::draw(
+            renderer,
+            defaults,
+            label_layout.bounds(),
+            state.paragraph.raw(),
+            crate::text::Style {
+                color: style.text_color,
+                selection: None,
+            },
+            theme.selection(),
+            viewport,
+        );
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn widget::Operation,
     ) {
@@ -766,29 +784,33 @@ where
             operation.focusable(self.id.as_ref(), layout.bounds(), state);
         }
 
-        if let Some(label) = self.label.as_deref() {
-            operation.text(None, layout.bounds(), label);
+        if self.label.is_none() {
+            return;
         }
-    }
-}
 
-impl<'a, Message, Theme, Renderer> From<Checkbox<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: 'a + Clone,
-    Theme: 'a + Catalog,
-    Renderer: 'a + text::Renderer,
-{
-    fn from(
-        checkbox: Checkbox<'a, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(checkbox)
+        let paragraph = &mut tree
+            .state
+            .downcast_mut::<State<Renderer::Paragraph>>()
+            .paragraph;
+
+        let mut children = layout.iter(&tree.children);
+        let (layout, _) = children.next().unwrap();
+
+        operation.text(
+            None,
+            layout.bounds(),
+            &mut widget::text::Operand {
+                paragraph,
+                layout,
+                selectable: true,
+            },
+        );
     }
 }
 
 /// The icon in a [`Checkbox`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct Icon<Font> {
+pub struct Icon {
     /// Font that will be used to display the `code_point`,
     pub font: Font,
     /// The unicode code point that will be used as the icon.
@@ -796,7 +818,7 @@ pub struct Icon<Font> {
     /// Font size of the content.
     pub size: Option<Pixels>,
     /// The line height of the icon.
-    pub line_height: text::LineHeight,
+    pub line_height: Option<text::LineHeight>,
     /// The shaping strategy of the icon.
     pub shaping: text::Shaping,
 }
@@ -855,6 +877,9 @@ pub trait Catalog: Sized {
 
     /// The [`Style`] of a class with the given status.
     fn style(&self, class: &Self::Class<'_>, status: Status) -> Style;
+
+    /// The global selection [`Color`].
+    fn selection(&self) -> Color;
 }
 
 /// A styling function for a [`Checkbox`].
@@ -871,6 +896,10 @@ impl Catalog for Theme {
 
     fn style(&self, class: &Self::Class<'_>, status: Status) -> Style {
         class(self, status)
+    }
+
+    fn selection(&self) -> Color {
+        self.palette().background.strongest.color
     }
 }
 

@@ -39,6 +39,8 @@ pub use value::Value;
 
 use editor::Editor;
 
+use std::marker::PhantomData;
+
 use crate::core::alignment;
 use crate::core::clipboard;
 use crate::core::input_method;
@@ -56,7 +58,7 @@ use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
 use crate::core::window;
 use crate::core::{
-    Alignment, Background, Border, Color, Element, Event, InputMethod, Layout,
+    Alignment, Background, Border, Color, Event, Font, InputMethod, Layout,
     Length, Padding, Pixels, Point, Rectangle, Shell, Size, Theme, Vector,
     Widget,
 };
@@ -106,20 +108,21 @@ pub struct TextInput<
     placeholder: String,
     value: Value,
     is_secure: bool,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     width: Length,
     padding: Padding,
     size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
     alignment: alignment::Horizontal,
     on_focus: Option<Message>,
     on_blur: Option<Message>,
     on_input: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_paste: Option<Box<dyn Fn(String) -> Message + 'a>>,
     on_submit: Option<Message>,
-    icon: Option<Icon<Renderer::Font>>,
+    icon: Option<Icon>,
     class: Theme::Class<'a>,
     last_status: Option<Status>,
+    renderer_: PhantomData<Renderer>,
 }
 
 /// The default [`Padding`] of a [`TextInput`].
@@ -143,7 +146,7 @@ where
             width: Length::Fill,
             padding: DEFAULT_PADDING,
             size: None,
-            line_height: text::LineHeight::default(),
+            line_height: None,
             alignment: alignment::Horizontal::Left,
             on_focus: None,
             on_blur: None,
@@ -153,6 +156,7 @@ where
             icon: None,
             class: Theme::default(),
             last_status: None,
+            renderer_: PhantomData,
         }
     }
 
@@ -242,14 +246,15 @@ where
 
     /// Sets the [`Font`] of the [`TextInput`].
     ///
-    /// [`Font`]: text::Renderer::Font
-    pub fn font(mut self, font: Renderer::Font) -> Self {
+    /// [`Font`]: crate::core::Font
+    pub fn font(mut self, font: impl Into<Font>) -> Self {
+        let font = font.into();
         self.font = Some(font);
         self
     }
 
     /// Sets the [`Icon`] of the [`TextInput`].
-    pub fn icon(mut self, icon: Icon<Renderer::Font>) -> Self {
+    pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
@@ -277,7 +282,7 @@ where
         mut self,
         line_height: impl Into<text::LineHeight>,
     ) -> Self {
-        self.line_height = line_height.into();
+        self.line_height = Some(line_height.into());
         self
     }
 
@@ -316,21 +321,23 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
         value: Option<&Value>,
-    ) -> layout::Node {
+    ) {
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
         let value = value.unwrap_or(&self.value);
 
-        let font = self.font.unwrap_or_else(|| renderer.default_font());
-        let text_size = self.size.unwrap_or_else(|| renderer.default_size());
-        let padding = self.padding.fit(Size::ZERO, limits.max());
-        let height = self.line_height.to_absolute(text_size);
+        let font = self.font.unwrap_or_else(|| renderer.font());
+        let text_size = self.size.unwrap_or_else(|| renderer.text_size());
+        let line_height =
+            self.line_height.unwrap_or_else(|| renderer.line_height());
+        let padding = self.padding.fit(Size::ZERO, limits.bounds());
+        let height = line_height.to_absolute(text_size);
 
         let limits = limits.width(self.width).shrink(padding);
         let text_bounds = limits.resolve(self.width, height, Size::ZERO);
 
         let placeholder_text = Text {
             font,
-            line_height: self.line_height,
+            line_height,
             content: self.placeholder.as_str(),
             bounds: Size::new(f32::INFINITY, text_bounds.height),
             size: text_size,
@@ -342,7 +349,7 @@ where
             letter_spacing: Default::default(),
             font_features: Vec::new(),
             font_variations: Vec::new(),
-            hint_factor: renderer.scale_factor(),
+            hint_factor: renderer.hint_factor(),
             weight: None,
         };
 
@@ -362,10 +369,10 @@ where
             let mut content = [0; 4];
 
             let icon_text = Text {
-                line_height: self.line_height,
+                line_height,
                 content: icon.code_point.encode_utf8(&mut content) as &_,
                 font: icon.font,
-                size: icon.size.unwrap_or_else(|| renderer.default_size()),
+                size: icon.size.unwrap_or_else(|| renderer.text_size()),
                 bounds: Size::new(f32::INFINITY, text_bounds.height),
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Center,
@@ -375,7 +382,7 @@ where
                 letter_spacing: Default::default(),
                 font_features: Vec::new(),
                 font_variations: Vec::new(),
-                hint_factor: renderer.scale_factor(),
+                hint_factor: renderer.hint_factor(),
                 weight: None,
             };
 
@@ -400,31 +407,31 @@ where
                 ),
             };
 
-            let text_node = layout::Node::new(
-                text_bounds - Size::new(icon_width + icon.spacing, 0.0),
-            )
-            .move_to(text_position);
+            let (text_tree, icon_tree) = tree.children.split_at_mut(1);
+            let (text_tree, icon_tree) = (&mut text_tree[0], &mut icon_tree[0]);
 
-            let icon_node =
-                layout::Node::new(Size::new(icon_width, text_bounds.height))
-                    .move_to(icon_position);
+            text_tree.size =
+                text_bounds - Size::new(icon_width + icon.spacing, 0.0);
+            text_tree.translation = text_position - Point::ORIGIN;
 
-            layout::Node::with_children(
-                text_bounds.expand(padding),
-                vec![text_node, icon_node],
-            )
+            icon_tree.size = Size::new(icon_width, text_bounds.height);
+            icon_tree.translation = icon_position - Point::ORIGIN;
+
+            tree.size = text_bounds.expand(padding);
         } else {
-            let text = layout::Node::new(text_bounds)
-                .move_to(Point::new(padding.left, padding.top));
+            let text_tree = &mut tree.children[0];
 
-            layout::Node::with_children(text_bounds.expand(padding), vec![text])
+            text_tree.size = text_bounds;
+            text_tree.translation = Vector::new(padding.left, padding.top);
+
+            tree.size = text_bounds.expand(padding);
         }
     }
 
     fn input_method<'b>(
         &self,
         state: &'b State<Renderer::Paragraph>,
-        layout: Layout<'_>,
+        text_layout: Layout,
         value: &Value,
     ) -> InputMethod<&'b str> {
         let Some(Focus {
@@ -438,7 +445,7 @@ where
         let secure_value = self.is_secure.then(|| value.secure());
         let value = secure_value.as_ref().unwrap_or(value);
 
-        let text_bounds = layout.children().next().unwrap().bounds();
+        let text_bounds = text_layout.bounds();
 
         let caret_index = match state.cursor.state(value) {
             cursor::State::Index(position) => position,
@@ -446,7 +453,7 @@ where
         };
 
         let text = state.value.raw();
-        let caret_x = cursor_x(text, caret_index);
+        let caret_x = cursor_x(&state.value, caret_index);
         let scroll_offset = state.scroll_offset;
 
         let alignment_offset = alignment_offset(
@@ -482,7 +489,7 @@ where
         tree: &Tree,
         renderer: &mut Renderer,
         theme: &Theme,
-        layout: Layout<'_>,
+        layout: Layout,
         _cursor: mouse::Cursor,
         value: Option<&Value>,
         viewport: &Rectangle,
@@ -496,8 +503,8 @@ where
 
         let bounds = layout.bounds();
 
-        let mut children_layout = layout.children();
-        let text_bounds = children_layout.next().unwrap().bounds();
+        let mut children_layout = layout.iter(&tree.children);
+        let text_bounds = children_layout.next().unwrap().0.bounds();
 
         let style = theme
             .style(&self.class, self.last_status.unwrap_or(Status::Disabled));
@@ -512,7 +519,7 @@ where
         );
 
         if self.icon.is_some() {
-            let icon_layout = children_layout.next().unwrap();
+            let (icon_layout, _) = children_layout.next().unwrap();
 
             let icon = state.icon.raw();
 
@@ -543,8 +550,7 @@ where
         {
             match state.cursor.state(value) {
                 cursor::State::Index(position) => {
-                    let text_value_width =
-                        cursor_x(state.value.raw(), position);
+                    let text_value_width = cursor_x(&state.value, position);
 
                     let is_cursor_visible = !is_disabled
                         && ((focus.now - focus.updated_at).as_millis()
@@ -560,7 +566,7 @@ where
                                     y: text_bounds.y,
                                     width: if renderer::CRISP {
                                         (1.0 / renderer
-                                            .scale_factor()
+                                            .hint_factor()
                                             .unwrap_or(1.0))
                                         .max(1.0)
                                     } else {
@@ -582,8 +588,8 @@ where
                     let left = start.min(end);
                     let right = end.max(start);
 
-                    let left_position = cursor_x(state.value.raw(), left);
-                    let right_position = cursor_x(state.value.raw(), right);
+                    let left_position = cursor_x(&state.value, left);
+                    let right_position = cursor_x(&state.value, right);
 
                     let width = right_position - left_position;
 
@@ -664,6 +670,14 @@ where
     }
 }
 
+impl<Message, Theme, Renderer> widget::Meta
+    for TextInput<'_, Message, Theme, Renderer>
+where
+    Theme: Catalog,
+    Renderer: text::Renderer,
+{
+}
+
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for TextInput<'_, Message, Theme, Renderer>
 where
@@ -680,6 +694,11 @@ where
     }
 
     fn diff(&mut self, tree: &mut Tree) {
+        // The children of the tree are the text and the icon, if any; they
+        // only carry their geometry, so no state is needed.
+        tree.children
+            .resize_with(1 + usize::from(self.icon.is_some()), Tree::empty);
+
         let state = tree.state.downcast_mut::<State<Renderer::Paragraph>>();
 
         // Stop pasting if input becomes disabled
@@ -700,14 +719,15 @@ where
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
-    ) -> layout::Node {
-        self.layout(tree, renderer, limits, None)
+    ) {
+        self.layout(tree, renderer, limits, None);
     }
 
     fn operate(
         &mut self,
         tree: &mut Tree,
-        layout: Layout<'_>,
+        layout: Layout,
+        _viewport: &Rectangle,
         _renderer: &Renderer,
         operation: &mut dyn Operation,
     ) {
@@ -721,25 +741,27 @@ where
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         renderer: &Renderer,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
+        let (text_layout, _) = layout.iter(&tree.children).next().unwrap();
+
         let update_cache = |state: &mut State<Renderer::Paragraph>,
                             value: &Value| {
             replace_paragraph(
                 renderer,
                 state,
-                layout,
+                text_layout,
                 value,
                 self.font,
                 self.size,
                 self.line_height,
             );
 
-            let text_bounds = layout.children().next().unwrap().bounds();
+            let text_bounds = text_layout.bounds();
             state.reveal_cursor(text_bounds.width, value);
         };
 
@@ -791,8 +813,6 @@ where
                 state.was_focused = state.is_focused.is_some();
 
                 if let Some(cursor_position) = click_position {
-                    let text_layout = layout.children().next().unwrap();
-
                     let target = {
                         let text_bounds = text_layout.bounds();
 
@@ -894,8 +914,6 @@ where
                 let state = state::<Renderer>(tree);
 
                 if let Some(is_dragging) = &state.is_dragging {
-                    let text_layout = layout.children().next().unwrap();
-
                     let target = {
                         let text_bounds = text_layout.bounds();
 
@@ -1066,8 +1084,7 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
-                                let text_bounds =
-                                    layout.children().next().unwrap().bounds();
+                                let text_bounds = text_layout.bounds();
                                 state.reveal_cursor(
                                     text_bounds.width,
                                     &self.value,
@@ -1198,8 +1215,7 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
-                                let text_bounds =
-                                    layout.children().next().unwrap().bounds();
+                                let text_bounds = text_layout.bounds();
                                 state.reveal_cursor(
                                     text_bounds.width,
                                     &self.value,
@@ -1225,8 +1241,7 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
-                                let text_bounds =
-                                    layout.children().next().unwrap().bounds();
+                                let text_bounds = text_layout.bounds();
                                 state.reveal_cursor(
                                     text_bounds.width,
                                     &self.value,
@@ -1270,8 +1285,7 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
-                                let text_bounds =
-                                    layout.children().next().unwrap().bounds();
+                                let text_bounds = text_layout.bounds();
                                 state.reveal_cursor(
                                     text_bounds.width,
                                     &self.value,
@@ -1315,8 +1329,7 @@ where
                             if cursor_before != state.cursor {
                                 focus.updated_at = Instant::now();
 
-                                let text_bounds =
-                                    layout.children().next().unwrap().bounds();
+                                let text_bounds = text_layout.bounds();
                                 state.reveal_cursor(
                                     text_bounds.width,
                                     &self.value,
@@ -1484,7 +1497,7 @@ where
 
                     shell.request_input_method(&self.input_method(
                         state,
-                        layout,
+                        text_layout,
                         &self.value,
                     ));
                 }
@@ -1523,7 +1536,7 @@ where
         renderer: &mut Renderer,
         theme: &Theme,
         _style: &renderer::Style,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         viewport: &Rectangle,
     ) {
@@ -1533,7 +1546,7 @@ where
     fn mouse_interaction(
         &self,
         _tree: &Tree,
-        layout: Layout<'_>,
+        layout: Layout,
         cursor: mouse::Cursor,
         _viewport: &Rectangle,
         _renderer: &Renderer,
@@ -1550,23 +1563,9 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> From<TextInput<'a, Message, Theme, Renderer>>
-    for Element<'a, Message, Theme, Renderer>
-where
-    Message: Clone + 'a,
-    Theme: Catalog + 'a,
-    Renderer: text::Renderer + 'a,
-{
-    fn from(
-        text_input: TextInput<'a, Message, Theme, Renderer>,
-    ) -> Element<'a, Message, Theme, Renderer> {
-        Element::new(text_input)
-    }
-}
-
 /// The content of the [`Icon`].
 #[derive(Debug, Clone)]
-pub struct Icon<Font> {
+pub struct Icon {
     /// The font that will be used to display the `code_point`.
     pub font: Font,
     /// The unicode code point that will be used as the icon.
@@ -1695,8 +1694,7 @@ impl<P: text::Paragraph> State<P> {
             return;
         }
 
-        let paragraph = self.value.raw();
-        let min_width = paragraph.min_width();
+        let min_width = self.value.raw().min_width();
 
         if min_width <= text_bounds_width {
             self.scroll_offset = 0.0;
@@ -1708,7 +1706,7 @@ impl<P: text::Paragraph> State<P> {
             cursor::State::Selection { end, .. } => end,
         };
 
-        let cursor_x = cursor_x(paragraph, focus_position);
+        let cursor_x = cursor_x(&self.value, focus_position);
         let visible_right = self.scroll_offset + text_bounds_width;
 
         if cursor_x + CURSOR_RIGHT_PADDING > visible_right {
@@ -1739,11 +1737,11 @@ impl<P: text::Paragraph> operation::Focusable for State<P> {
 }
 
 impl<P: text::Paragraph> operation::TextInput for State<P> {
-    fn text(&self) -> &str {
+    fn text(&self) -> text::Fragment<'_> {
         if self.value.content().is_empty() {
-            self.placeholder.content()
+            self.placeholder.content().into()
         } else {
-            self.value.content()
+            self.value.content().into()
         }
     }
 
@@ -1755,7 +1753,9 @@ impl<P: text::Paragraph> operation::TextInput for State<P> {
         State::move_cursor_to_end(self);
     }
 
-    fn move_cursor_to(&mut self, position: usize) {
+    fn move_cursor_to(&mut self, position: text::Position) {
+        let position = grapheme_index(self.value.content(), position);
+
         State::move_cursor_to(self, position);
     }
 
@@ -1763,9 +1763,20 @@ impl<P: text::Paragraph> operation::TextInput for State<P> {
         State::select_all(self);
     }
 
-    fn select_range(&mut self, start: usize, end: usize) {
+    fn select_range(&mut self, start: text::Position, end: text::Position) {
+        let start = grapheme_index(self.value.content(), start);
+        let end = grapheme_index(self.value.content(), end);
+
         State::select_range(self, start, end);
     }
+}
+
+/// Converts a [`text::Position`] in the given single-line `text` into the
+/// index of the grapheme it falls on.
+fn grapheme_index(text: &str, position: text::Position) -> usize {
+    unicode_segmentation::UnicodeSegmentation::grapheme_indices(text, true)
+        .take_while(|(start, _)| *start < position.index)
+        .count()
 }
 
 fn offset<P: text::Paragraph>(
@@ -1780,11 +1791,55 @@ fn offset<P: text::Paragraph>(
     }
 }
 
-fn cursor_x(paragraph: &impl text::Paragraph, cursor_index: usize) -> f32 {
-    paragraph
-        .grapheme_position(0, cursor_index)
-        .unwrap_or(Point::ORIGIN)
-        .x
+/// The horizontal distance from the start of the `paragraph` to the
+/// grapheme at `cursor_index`.
+///
+/// The paragraph is reshaped with its content split in two spans at the
+/// cursor, and the distance is the end of the first span.
+fn cursor_x<P: text::Paragraph>(
+    paragraph: &paragraph::Plain<P>,
+    cursor_index: usize,
+) -> f32 {
+    let content = paragraph.content();
+
+    if cursor_index == 0 || content.is_empty() {
+        return 0.0;
+    }
+
+    let split = unicode_segmentation::UnicodeSegmentation::grapheme_indices(
+        content, true,
+    )
+    .nth(cursor_index)
+    .map_or(content.len(), |(start, _)| start);
+
+    let raw = paragraph.raw();
+    let spans = [
+        text::Span::<'_, ()>::new(&content[..split]),
+        text::Span::new(&content[split..]),
+    ];
+
+    let split = P::with_spans(Text {
+        content: spans.as_slice(),
+        bounds: raw.bounds(),
+        size: raw.size(),
+        line_height: raw.line_height(),
+        font: raw.font(),
+        align_x: raw.align_x(),
+        align_y: raw.align_y(),
+        shaping: raw.shaping(),
+        wrapping: raw.wrapping(),
+        ellipsis: raw.ellipsis(),
+        letter_spacing: raw.letter_spacing(),
+        font_features: raw.font_features().to_vec(),
+        font_variations: raw.font_variations().to_vec(),
+        weight: None,
+        hint_factor: raw.hint_factor(),
+    });
+
+    split
+        .span_bounds(0)
+        .first()
+        .map_or(0.0, |bounds| bounds.x + bounds.width)
 }
 
 const CURSOR_RIGHT_PADDING: f32 = 5.0;
@@ -1804,7 +1859,7 @@ fn find_cursor_position<P: text::Paragraph>(
         .value
         .raw()
         .hit_test(Point::new(x + offset, text_bounds.height / 2.0))
-        .map(text::Hit::cursor)?;
+        .map(|hit| hit.index)?;
 
     Some(
         unicode_segmentation::UnicodeSegmentation::graphemes(
@@ -1818,19 +1873,19 @@ fn find_cursor_position<P: text::Paragraph>(
 fn replace_paragraph<Renderer>(
     renderer: &Renderer,
     state: &mut State<Renderer::Paragraph>,
-    layout: Layout<'_>,
+    text_layout: Layout,
     value: &Value,
-    font: Option<Renderer::Font>,
+    font: Option<Font>,
     text_size: Option<Pixels>,
-    line_height: text::LineHeight,
+    line_height: Option<text::LineHeight>,
 ) where
     Renderer: text::Renderer,
 {
-    let font = font.unwrap_or_else(|| renderer.default_font());
-    let text_size = text_size.unwrap_or_else(|| renderer.default_size());
+    let font = font.unwrap_or_else(|| renderer.font());
+    let text_size = text_size.unwrap_or_else(|| renderer.text_size());
+    let line_height = line_height.unwrap_or_else(|| renderer.line_height());
 
-    let mut children_layout = layout.children();
-    let text_bounds = children_layout.next().unwrap().bounds();
+    let text_bounds = text_layout.bounds();
 
     state.value = paragraph::Plain::new(Text {
         font,
@@ -1846,7 +1901,7 @@ fn replace_paragraph<Renderer>(
         letter_spacing: Default::default(),
         font_features: Vec::new(),
         font_variations: Vec::new(),
-        hint_factor: renderer.scale_factor(),
+        hint_factor: renderer.hint_factor(),
         weight: None,
     });
 }
