@@ -2408,6 +2408,7 @@ where
     }
 
     /// Handles a click on a node, potentially starting a drag.
+    #[allow(clippy::too_many_arguments)]
     fn click_item(
         &self,
         interaction: &mut Interaction,

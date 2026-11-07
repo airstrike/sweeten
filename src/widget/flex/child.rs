@@ -223,6 +223,8 @@ where
 mod tests {
     use super::*;
 
+    use iced_widget::Widget;
+
     #[test]
     fn defaults_match_css() {
         let p = Properties::default();
@@ -271,8 +273,10 @@ mod tests {
         use crate::core::{Length, Theme};
         use iced_widget::{Renderer, Space};
 
-        let fluid: crate::core::Element<'_, (), Theme, Renderer> =
-            Space::new().width(Length::Fill).height(Length::Fill).into();
+        let fluid: crate::core::Element<'_, (), Theme, Renderer> = Space::new()
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .boxed();
 
         let child = FlexChild::new(fluid).basis(80.0);
         let props = child.resolved_properties(Axis::Horizontal);

@@ -469,8 +469,10 @@ macro_rules! flex_column {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::widget::flex::flex;
     use iced_core::Theme;
+    use iced_widget::Widget;
     use iced_widget::{Renderer, button, text};
 
     /// Compile-only smoke test: the macro accepts a mix of plain
@@ -502,7 +504,7 @@ mod tests {
 
         // `flex::column(...)` — free function constructor.
         let _from_fn: Column<'_, (), Theme, Renderer> =
-            crate::widget::flex::column([text("a").into(), text("b").into()]);
+            crate::widget::flex::column([text("a").boxed(), text("b").boxed()]);
 
         // Empty macro variant.
         let _empty: Column<'_, (), Theme, Renderer> = crate::flex_column![];

@@ -1145,10 +1145,11 @@ mod tests {
         // call item 0 first (non-fluid-cross). Pass 2 must call item
         // 1 next, after Pass 1 has measured cross=24.
 
-        let lim = Limits::with_compression(
+        let lim = Limits::with_flags(
             Size::ZERO,
             Size::new(400.0, 100.0),
             Size::new(false, true),
+            Size::new(false, false),
         );
 
         // Custom layouter that records call order *and* the cross

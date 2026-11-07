@@ -477,8 +477,10 @@ macro_rules! flex_row {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::widget::flex::flex;
     use iced_core::Theme;
+    use iced_widget::Widget;
     use iced_widget::{Renderer, button, text};
 
     /// Compile-only smoke test: the macro accepts a mix of plain
@@ -508,7 +510,7 @@ mod tests {
 
         // `flex::row(...)` — free function constructor.
         let _from_fn: Row<'_, (), Theme, Renderer> =
-            crate::widget::flex::row([text("a").into(), text("b").into()]);
+            crate::widget::flex::row([text("a").boxed(), text("b").boxed()]);
 
         // Empty macro variant.
         let _empty: Row<'_, (), Theme, Renderer> = crate::flex_row![];

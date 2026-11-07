@@ -1963,6 +1963,8 @@ pub fn legacy(theme: &Theme, status: Status) -> Style {
 mod tests {
     use super::*;
 
+    use iced_widget::Widget;
+
     use iced_test::Simulator;
     use iced_test::simulator::click;
 
@@ -1995,7 +1997,7 @@ mod tests {
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2025,7 +2027,7 @@ mod tests {
         )
         .on_select(Message::Picked)
         .separator(true)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2048,7 +2050,7 @@ mod tests {
         .on_select(Message::Picked)
         .on_open(Message::Opened)
         .on_close(Message::Closed)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2074,7 +2076,7 @@ mod tests {
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2106,7 +2108,7 @@ mod tests {
             .on_focus(Message::Focused)
             .on_open(Message::Opened)
             .on_close(Message::Closed)
-            .into();
+            .boxed();
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2152,7 +2154,7 @@ mod tests {
             .on_blur(Message::Blurred)
             .on_open(Message::Opened)
             .on_close(Message::Closed)
-            .into();
+            .boxed();
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2193,7 +2195,7 @@ mod tests {
             })
             .on_select(Message::Picked)
             .on_deselect(Message::Cleared)
-            .into();
+            .boxed();
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2211,7 +2213,7 @@ mod tests {
             })
             .on_select(Message::Picked)
             .on_deselect(Message::Cleared)
-            .into();
+            .boxed();
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2230,7 +2232,7 @@ mod tests {
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2248,14 +2250,14 @@ mod tests {
         let pick: Pick = PickList::new(
             None::<Fruit>,
             options![group(
-                Element::from(crate::text("FRUITS").size(10)),
+                Widget::boxed(crate::text("FRUITS").size(10)),
                 [option(Fruit::Apple), option(Fruit::Banana)],
             )],
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .placeholder(Element::from(crate::text("Pick one...").size(13)))
-        .into();
+        .placeholder(Widget::boxed(crate::text("Pick one...").size(13)))
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2276,7 +2278,7 @@ mod tests {
             |fruit| format!("{fruit:?}"),
         )
         .on_select(Message::Picked)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2303,7 +2305,7 @@ mod tests {
         .on_select(Message::Picked)
         .menu_width(Length::Shrink)
         .separator(true)
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);
@@ -2331,7 +2333,7 @@ mod tests {
             PickList::new(None::<&'static str>, options, |name| *name)
                 .on_select(Message::Picked)
                 .menu_height(80)
-                .into();
+                .boxed();
 
         let mut ui = Simulator::new(pick);
         ui.point_at(Point::new(10.0, 10.0));
@@ -2351,14 +2353,14 @@ mod tests {
             [Fruit::Apple, Fruit::Banana, Fruit::Cherry],
             |fruit| match fruit {
                 Fruit::Banana => {
-                    Content::Element(crate::text("Banana!").into())
+                    Content::Element(crate::text("Banana!").boxed())
                 }
                 other => Content::Text(format!("{other:?}")),
             },
         )
         .on_select(Message::Picked)
         .typeahead(|fruit| format!("{fruit:?}"))
-        .into();
+        .boxed();
 
         let mut ui = Simulator::new(pick);
         open(&mut ui);

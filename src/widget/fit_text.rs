@@ -525,6 +525,7 @@ where
 
 /// Binary-searches `[min_size, max_size]` for the largest font size whose
 /// shaped paragraph fits inside `fit_bounds`.
+#[allow(clippy::too_many_arguments)]
 fn fit<P: Paragraph>(
     content: &str,
     fit_bounds: Size,
