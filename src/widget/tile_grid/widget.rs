@@ -1108,7 +1108,7 @@ where
         renderer: &Renderer,
         limits: &layout::Limits,
     ) {
-        let max = limits.max;
+        let max = limits.bounds();
         #[allow(unreachable_patterns)]
         let resolved_width = match self.width {
             Length::Fill | Length::FillPortion(_) => max.width,
