@@ -146,13 +146,13 @@ impl App {
                         tooltip(
                             slider(range.clone(), x, move |x| on_change(x, y)),
                             text!("{x:.0}px").font(Font::MONOSPACE).size(10),
-                            tooltip::Position::Left
-                        ),
+                        )
+                        .position(tooltip::Position::Left),
                         tooltip(
                             slider(range, y, move |y| on_change(x, y)),
                             text!("{y:.0}px").font(Font::MONOSPACE).size(10),
-                            tooltip::Position::Right
-                        ),
+                        )
+                        .position(tooltip::Position::Right),
                     ]
                     .spacing(10)
                     .align_y(Center)
@@ -170,8 +170,8 @@ impl App {
                             text!("{value:.0}px")
                                 .font(Font::MONOSPACE)
                                 .size(10),
-                            tooltip::Position::Right,
-                        ),
+                        )
+                        .position(tooltip::Position::Right),
                     ]
                     .spacing(10)
                     .align_y(Center)
