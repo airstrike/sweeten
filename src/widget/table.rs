@@ -771,7 +771,8 @@ where
         };
         let header_underline_color = table_style
             .header_underline
-            .unwrap_or(table_style.separator_y);
+            .as_ref()
+            .unwrap_or(&table_style.separator_y);
 
         // How far past the table's top the user has scrolled, in the
         // table's own content coordinates. Inside an iced `scrollable`,
@@ -834,7 +835,7 @@ where
                         snap: true,
                         ..renderer::Quad::default()
                     },
-                    table_style.separator_x,
+                    table_style.separator_x.clone(),
                 );
 
                 x += self.separator_x + self.padding_x;
@@ -854,7 +855,7 @@ where
                 let (sep_height, sep_color) = if i == 0 && self.has_header {
                     (header_underline_height, header_underline_color)
                 } else {
-                    (self.separator_y, table_style.separator_y)
+                    (self.separator_y, &table_style.separator_y)
                 };
 
                 if sep_height > 0.0 {
@@ -869,7 +870,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        sep_color,
+                        sep_color.clone(),
                     );
                 }
 
@@ -936,7 +937,7 @@ where
                                 snap: true,
                                 ..renderer::Quad::default()
                             },
-                            table_style.separator_x,
+                            table_style.separator_x.clone(),
                         );
 
                         x += self.separator_x + self.padding_x;
@@ -995,7 +996,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        header_underline_color,
+                        header_underline_color.clone(),
                     );
                 }
 
@@ -1020,7 +1021,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        table_style.border,
+                        table_style.border.clone(),
                     );
                     // Left segment through the strip.
                     renderer.fill_quad(
@@ -1034,7 +1035,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        table_style.border,
+                        table_style.border.clone(),
                     );
                     // Right segment through the strip.
                     renderer.fill_quad(
@@ -1048,7 +1049,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        table_style.border,
+                        table_style.border.clone(),
                     );
                 }
             });
@@ -1067,7 +1068,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                table_style.border,
+                table_style.border.clone(),
             );
             // Bottom edge
             renderer.fill_quad(
@@ -1081,7 +1082,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                table_style.border,
+                table_style.border.clone(),
             );
             // Left edge
             renderer.fill_quad(
@@ -1095,7 +1096,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                table_style.border,
+                table_style.border.clone(),
             );
             // Right edge
             renderer.fill_quad(
@@ -1109,7 +1110,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                table_style.border,
+                table_style.border.clone(),
             );
         }
     }
@@ -1215,7 +1216,7 @@ impl<'a, 'b, T, Message, Theme, Renderer>
 }
 
 /// The appearance of a [`Table`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Style {
     /// The background color of the horizontal line separator between cells.
     pub separator_x: Background,
@@ -1252,7 +1253,7 @@ pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Style + 'a>;
 
 impl<Theme> From<Style> for StyleFn<'_, Theme> {
     fn from(style: Style) -> Self {
-        Box::new(move |_theme| style)
+        Box::new(move |_theme| style.clone())
     }
 }
 
@@ -1271,12 +1272,12 @@ impl Catalog for crate::Theme {
 /// The default style of a [`Table`].
 pub fn default(theme: &crate::Theme) -> Style {
     let palette = theme.palette();
-    let separator = palette.background.strong.color.into();
+    let separator = palette.background.strong.color;
 
     Style {
-        separator_x: separator,
-        separator_y: separator,
-        border: separator,
+        separator_x: separator.into(),
+        separator_y: separator.into(),
+        border: separator.into(),
         sticky_background: palette.background.base.color.into(),
         header_underline: None,
     }

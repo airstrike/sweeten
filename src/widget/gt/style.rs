@@ -157,8 +157,8 @@ impl CellStyle {
                 None => self.text = Some(other_text.clone()),
             }
         }
-        if let Some(fill) = other.fill {
-            self.fill = Some(fill);
+        if let Some(fill) = &other.fill {
+            self.fill = Some(fill.clone());
         }
         if let Some(borders) = other.borders {
             match self.borders.as_mut() {
@@ -217,7 +217,7 @@ impl BorderStyle {
 }
 
 /// Table-level appearance for a [`Table`](super::Table).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Style {
     /// Opaque fill behind the entire table, drawn with the table's
     /// [`radius`](super::Table::radius). Set this when the table has
@@ -267,7 +267,7 @@ pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Style + 'a>;
 
 impl<Theme> From<Style> for StyleFn<'_, Theme> {
     fn from(style: Style) -> Self {
-        Box::new(move |_theme| style)
+        Box::new(move |_theme| style.clone())
     }
 }
 

@@ -1525,7 +1525,7 @@ pub trait Catalog {
 }
 
 /// The appearance of a [`Column`] during drag operations.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Style {
     /// The scaling to apply to a picked element while it's being dragged.
     pub scale: f32,

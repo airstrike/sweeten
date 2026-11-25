@@ -1586,7 +1586,7 @@ where
                         border: border::rounded(highlight_radius),
                         ..renderer::Quad::default()
                     },
-                    style.selected_background,
+                    style.selected_background.clone(),
                 );
             } else if is_selectable && row.disabled {
                 renderer.fill_quad(
@@ -1595,7 +1595,7 @@ where
                         border: border::rounded(highlight_radius),
                         ..renderer::Quad::default()
                     },
-                    style.disabled_background,
+                    style.disabled_background.clone(),
                 );
             }
 
@@ -1757,7 +1757,7 @@ where
 }
 
 /// The appearance of a [`Menu`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the menu.
     pub background: Background,

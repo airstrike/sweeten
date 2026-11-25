@@ -621,15 +621,15 @@ where
                 // Only `Background::Color` is interpolable here; fall back
                 // to transparent for gradients so the draw code stays
                 // simple.
-                let bg_color = |bg: Background| match bg {
-                    Background::Color(c) => c,
+                let bg_color = |bg: &Background| match bg {
+                    Background::Color(c) => *c,
                     _ => Color::TRANSPARENT,
                 };
 
                 let background =
                     Background::Color(state.animation.interpolate(
-                        bg_color(off.background),
-                        bg_color(on.background),
+                        bg_color(&off.background),
+                        bg_color(&on.background),
                         now,
                     ));
 
@@ -855,7 +855,7 @@ impl Status {
 }
 
 /// The style of a checkbox.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the checkbox.
     pub background: Background,

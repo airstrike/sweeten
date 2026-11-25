@@ -363,7 +363,7 @@ where
 }
 
 /// The appearance of a progress bar.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the progress bar.
     pub background: Background,

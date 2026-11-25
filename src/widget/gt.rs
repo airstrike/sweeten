@@ -1666,7 +1666,7 @@ where
         let bounds = layout.bounds();
         let state = tree.state.downcast_ref::<State>();
         let metrics = &state.metrics;
-        let table_style = theme.style(&self.class);
+        let table_style = &theme.style(&self.class);
 
         // Per-row eased progress for the load animation. Returns 1.0
         // for sticky-block rows (they're the masthead, never
@@ -1690,7 +1690,7 @@ where
         let sticky_height = self.sticky_strip_height(metrics);
         let sticky_cell_count = self.sticky_cell_count();
 
-        if let Some(bg) = table_style.background {
+        if let Some(bg) = &table_style.background {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds,
@@ -1701,7 +1701,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                bg,
+                bg.clone(),
             );
         }
 
@@ -1738,7 +1738,7 @@ where
                         // width at table edges, with corner radius
                         // derived from the inner border arc.
                         for i in sticky_cell_count..self.cells.len() {
-                            let fill = match self.cell_meta[i].style.fill {
+                            let fill = match &self.cell_meta[i].style.fill {
                                 Some(f) => f,
                                 None => continue,
                             };
@@ -1820,7 +1820,7 @@ where
                                         snap: true,
                                         ..renderer::Quad::default()
                                     },
-                                    fill,
+                                    fill.clone(),
                                 );
                             };
                             if p >= 1.0 {
@@ -2181,7 +2181,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        table_style.sticky_background,
+                        table_style.sticky_background.clone(),
                     );
 
                     let sticky_viewport = Rectangle {
@@ -2451,7 +2451,7 @@ where
         header_h: f32,
         scroll: f32,
         max_scroll: f32,
-        style: Style,
+        style: &Style,
     ) {
         const WIDTH: f32 = 2.0;
         let ri = (self.radius.bottom_right - self.border).max(0.0);
@@ -2465,7 +2465,7 @@ where
         let thumb_h = (body_h / total_body * rail_h).max(4.0).min(rail_h);
         let track = rail_h - thumb_h;
         let thumb_y = rail_top + scroll / max_scroll * track;
-        if let Some(track_bg) = style.scrollbar_track {
+        if let Some(track_bg) = &style.scrollbar_track {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: Rectangle {
@@ -2481,7 +2481,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                track_bg,
+                track_bg.clone(),
             );
         }
         let thumb = Rectangle {
@@ -2501,7 +2501,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.scrollbar,
+                style.scrollbar.clone(),
             );
         }
     }
@@ -2532,7 +2532,7 @@ where
         cell_rect: Rectangle,
         bounds: Rectangle,
     ) {
-        if let Some(fill) = meta.style.fill {
+        if let Some(fill) = &meta.style.fill {
             // Extend the fill across half the column separator gap on
             // each side so horizontally adjacent filled cells meet at
             // the gridline midpoint when `separator_x > 0`. We
@@ -2560,7 +2560,7 @@ where
                         snap: true,
                         ..renderer::Quad::default()
                     },
-                    fill,
+                    fill.clone(),
                 );
             }
         }
@@ -2578,10 +2578,7 @@ where
         border_rect: Rectangle,
     ) {
         if let Some(border) = meta.style.borders {
-            let color = border
-                .color
-                .map(Background::from)
-                .unwrap_or(Background::Color(Color::BLACK));
+            let color = border.color.unwrap_or(Color::BLACK);
             let width = border.width.unwrap_or(1.0);
             let mut draw_border = |rect: Rectangle| {
                 let clipped = Self::clip_to_bounds(rect, bounds);
@@ -2652,10 +2649,7 @@ where
         bounds: Rectangle,
     ) {
         if let Some(border) = meta.style.borders {
-            let color = border
-                .color
-                .map(Background::from)
-                .unwrap_or(Background::Color(Color::BLACK));
+            let color = border.color.unwrap_or(Color::BLACK);
             let width = border.width.unwrap_or(1.0);
             // Borders draw centered on the cell edge — half inside the
             // cell stride, half in the inter-row / inter-column gap.
@@ -2824,7 +2818,7 @@ where
         bounds: Rectangle,
         border_rect: Rectangle,
         metrics: &Metrics,
-        style: Style,
+        style: &Style,
     ) {
         if self.layout_rows.len() < 2 {
             return;
@@ -2892,7 +2886,7 @@ where
                             snap: true,
                             ..renderer::Quad::default()
                         },
-                        style.separator_y,
+                        style.separator_y.clone(),
                     );
                 }
             }
@@ -2941,7 +2935,7 @@ where
         renderer: &mut Renderer,
         bounds: Rectangle,
         metrics: &Metrics,
-        style: Style,
+        style: &Style,
     ) {
         if metrics.column_widths.len() < 2 {
             return;
@@ -2969,7 +2963,7 @@ where
                     snap: true,
                     ..renderer::Quad::default()
                 },
-                style.separator_x,
+                style.separator_x.clone(),
             );
             x += self.separator_x + self.padding_x;
         }

@@ -597,8 +597,8 @@ where
                 // so the fade is pure alpha across one color rather
                 // than jumping channels.
                 let bg_color = |style: &Style| {
-                    style.background.and_then(|bg| match bg {
-                        Background::Color(c) => Some(c),
+                    style.background.as_ref().and_then(|bg| match bg {
+                        Background::Color(c) => Some(*c),
                         _ => None,
                     })
                 };
@@ -748,7 +748,7 @@ pub enum Status {
 ///
 /// If not specified with [`Button::style`]
 /// the theme will provide the style.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the button.
     pub background: Option<Background>,

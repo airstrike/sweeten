@@ -19,27 +19,28 @@ pub(super) fn blend(
     animation: &Animation<bool>,
     now: Instant,
 ) -> Style {
-    let bg_color = |bg: Background| match bg {
-        Background::Color(c) => c,
+    let bg_color = |bg: &Background| match bg {
+        Background::Color(c) => *c,
         _ => Color::TRANSPARENT,
     };
 
     let background = Background::Color(animation.interpolate(
-        bg_color(off.background),
-        bg_color(on.background),
+        bg_color(&off.background),
+        bg_color(&on.background),
         now,
     ));
     let border_color =
         animation.interpolate(off.border_color, on.border_color, now);
     let dot_color = animation.interpolate(off.dot_color, on.dot_color, now);
 
-    let target = if animation.value() { *on } else { *off };
+    let target = if animation.value() { on } else { off };
 
     Style {
         background,
         border_color,
         dot_color,
-        ..target
+        border_width: target.border_width,
+        text_color: target.text_color,
     }
 }
 
@@ -84,7 +85,7 @@ pub(super) fn draw<R: Renderer>(
             },
             ..renderer::Quad::default()
         },
-        style.background,
+        style.background.clone(),
     );
 
     if progress > 0.0 {

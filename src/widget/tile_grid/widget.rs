@@ -1871,7 +1871,7 @@ where
 
                     // A container's fill sits behind its tiles (this loop is
                     // parent-before-child) and slides with it during reflow.
-                    if let Some(bg) = grid_style.group_background
+                    if let Some(bg) = &grid_style.group_background
                         && self.is_group(id)
                         && let Some(rect) = group_rects.get(&id)
                     {
@@ -1888,7 +1888,7 @@ where
                                 },
                                 ..renderer::Quad::default()
                             },
-                            bg,
+                            bg.clone(),
                         );
                     }
 
@@ -2074,7 +2074,7 @@ where
                         },
                         ..renderer::Quad::default()
                     },
-                    highlight.background.scale_alpha(ghost_alpha),
+                    highlight.background.clone().scale_alpha(ghost_alpha),
                 );
             }
 
@@ -2100,7 +2100,7 @@ where
                 // layer). Behind the layer, the fill sits under both the tiles
                 // and the outline.
                 if dragged_group.is_some()
-                    && let Some(bg) = grid_style.group_background
+                    && let Some(bg) = &grid_style.group_background
                 {
                     renderer.fill_quad(
                         renderer::Quad {
@@ -2111,7 +2111,7 @@ where
                             },
                             ..renderer::Quad::default()
                         },
-                        bg,
+                        bg.clone(),
                     );
                 }
                 renderer.with_layer(snap_bounds, |renderer| {
@@ -2555,7 +2555,7 @@ fn group_radius(style: &Style) -> crate::core::border::Radius {
 }
 
 /// The appearance of a [`TileGrid`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     /// The [`Background`] of the grid area.
     pub background: Option<Background>,
@@ -2588,7 +2588,7 @@ pub struct Style {
 }
 
 /// A highlight region appearance.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Highlight {
     /// The [`Background`] of the highlighted region.
     pub background: Background,
